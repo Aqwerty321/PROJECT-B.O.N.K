@@ -9,11 +9,13 @@
 // Verify ObjectBox header resolution (do not initialize)
 #include <objectbox.h>
 
-// Verify jluna header resolution (do not initialize)
+// Julia bridge
 #include <jluna.hpp>
 
 int main()
 {
+    jluna::initialize();
+
     std::cout << "PROJECT B.O.N.K. SYSTEM ONLINE" << std::endl;
 
     std::cout << "Boost version: "

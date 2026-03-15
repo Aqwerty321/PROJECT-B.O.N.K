@@ -1,0 +1,12 @@
+* text=auto
+
+# Keep source/scripting files LF for Linux container builds
+Dockerfile text eol=lf
+*.sh text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.c text eol=lf
+*.cc text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf

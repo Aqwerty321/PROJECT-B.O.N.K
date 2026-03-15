@@ -1,0 +1,50 @@
+# CMake / build outputs
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+Makefile
+install_manifest.txt
+
+# C/C++ artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+*.out
+*.pdb
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+tmp/
+tmp-*/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Local scratch
+.tmp-jluna/

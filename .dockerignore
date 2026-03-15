@@ -1,0 +1,36 @@
+# VCS
+.git/
+.gitignore
+.gitattributes
+
+# Build outputs
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# IDE / local tools
+.vs/
+.vscode/
+.idea/
+.tmp-jluna/
+
+# Binary artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+*.out
+*.pdb
+
+# OS junk
+.DS_Store
+Thumbs.db
