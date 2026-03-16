@@ -1,10 +1,11 @@
-# PROJECT-B.O.N.K
+# C.A.S.C.A.D.E
+
+## Collision Avoidance System for Constellation Analysis and Debris Elimination
 
 C++20 project that integrates:
 
 - `Boost` (headers)
-- `nlohmann/json`
-- `ObjectBox C/C++`
+- `simdjson`
 - `jluna` + `Julia 1.10.0`
 
 The repository includes a Docker build that compiles the executable and runs it on container start.
@@ -26,7 +27,7 @@ docker run --rm -it --name space-engine space-engine
 Expected output:
 
 ```text
-PROJECT B.O.N.K. SYSTEM ONLINE
+CASCADE (Project BONK) SYSTEM ONLINE
 Boost version: 1_74
 ```
 
@@ -39,7 +40,7 @@ If you want to build locally on Linux, install equivalent dependencies and layou
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential cmake git curl wget libboost-all-dev nlohmann-json3-dev
+sudo apt-get install -y build-essential cmake git curl wget libboost-all-dev libsimdjson-dev
 ```
 
 ### 2. Install Julia 1.10.0
@@ -50,18 +51,6 @@ tar -xzf julia-1.10.0-linux-x86_64.tar.gz
 sudo mv julia-1.10.0 /opt/julia-1.10.0
 sudo ln -sf /opt/julia-1.10.0/bin/julia /usr/local/bin/julia
 rm julia-1.10.0-linux-x86_64.tar.gz
-```
-
-### 3. Install ObjectBox C/C++
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/objectbox/objectbox-c/main/download.sh -o /tmp/objectbox-download.sh
-mkdir -p /opt/objectbox
-cd /opt/objectbox
-bash /tmp/objectbox-download.sh 5.2.0 Linux x86_64
-mkdir -p /opt/objectbox/include /opt/objectbox/lib
-cp "$(find /opt/objectbox -type f -name objectbox.h | head -n1)" /opt/objectbox/include/objectbox.h
-rm /tmp/objectbox-download.sh
 ```
 
 ### 4. Clone jluna
@@ -84,7 +73,7 @@ cmake --build build -j"$(nproc)"
 ### 6. Run executable
 
 ```bash
-LD_LIBRARY_PATH=/opt/objectbox/lib ./build/SpaceEngine
+./build/ProjectBONK
 ```
 
 ## Notes
