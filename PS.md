@@ -5,31 +5,32 @@
 **Problem Statement**
 *Hosted by Indian Institute of Technology, Delhi*
 
-Contents
-1 Background
-2 Core Objectives
-3 Physics, Coordinate Systems, and Orbital Mechanics
-3.1 Reference Frames and State Vectors
-3.2 Orbital Propagation Models
-3.3 Conjunction Thresholds
-4 API Specifications and Constraints
-4.1 Telemetry Ingestion API
-4.2 Maneuver Scheduling API
-4.3 Simulation Fast-Forward (Tick) API
-5 Detailed Maneuver & Navigation Logic
-5.1 Propulsion Constraints and Fuel Mass Depletion
-5.2 The Station-Keeping Box
-5.3 Maneuver Vectors: The RTN Frame
-5.4 Communication Latency and Blackout Zones
-5.5 Provided Datasets
-5.5.1 Ground Station Network (groundstations.csv)
-6 Frontend: The ”Orbital Insight” Visualizer
-6.1 Performance Constraints
-6.2 Required Visualization Modules
-6.3 Visualization API Integration
-7 Evaluation Criteria
-8 Deployment Requirements
-9 Expected Deliverables
+**Contents**
+
+- 1 Background
+- 2 Core Objectives
+- 3 Physics, Coordinate Systems, and Orbital Mechanics
+  - 3.1 Reference Frames and State Vectors
+  - 3.2 Orbital Propagation Models
+  - 3.3 Conjunction Thresholds
+- 4 API Specifications and Constraints
+  - 4.1 Telemetry Ingestion API
+  - 4.2 Maneuver Scheduling API
+  - 4.3 Simulation Fast-Forward (Tick) API
+- 5 Detailed Maneuver & Navigation Logic
+  - 5.1 Propulsion Constraints and Fuel Mass Depletion
+  - 5.2 The Station-Keeping Box
+  - 5.3 Maneuver Vectors: The RTN Frame
+  - 5.4 Communication Latency and Blackout Zones
+  - 5.5 Provided Datasets
+    - 5.5.1 Ground Station Network (groundstations.csv)
+- 6 Frontend: The "Orbital Insight" Visualizer
+  - 6.1 Performance Constraints
+  - 6.2 Required Visualization Modules
+  - 6.3 Visualization API Integration
+- 7 Evaluation Criteria
+- 8 Deployment Requirements
+- 9 Expected Deliverables
 
 ## 1. Background
 
