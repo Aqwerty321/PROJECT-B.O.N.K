@@ -44,8 +44,8 @@ Observed:
 - objects: `10050` (`50` satellites + `10000` debris)
 - step: `30s`
 - mean tick: `~6.9 ms`
-- median tick: `~6.8 ms`
-- p95 tick: `~7.7 ms`
+- median tick: `~6.7 ms`
+- p95 tick: `~7.4 ms`
 - broad-phase counters available from engine stats (`pairs considered`,
   `shell-overlap candidates`)
 - narrow-phase now consumes broad-phase candidates and populates
@@ -99,13 +99,18 @@ Latest integration snapshot:
 - `/api/simulate/step` now reports non-placeholder `collisions_detected`
   from narrow-phase candidate checks (smoke scenario with co-located sat/debris:
   `collisions_detected=1`)
+- `POST /api/maneuver/schedule` now validates cooldown and fuel projection,
+  queues accepted burns, and `maneuvers_executed` increments once due burns
+  execute on `simulate/step`
 - `/api/debug/propagation` now includes narrow-phase counters:
   `narrow_pairs_checked`, `collisions_detected`, `maneuvers_executed`
 
 Current status note:
 
-- `maneuvers_executed` remains `0` until maneuver execution integration is
-  completed in Phase 4
+- LOS validation is currently a conservative burn-time-in-future proxy;
+  station-geometry LOS integration remains pending
+- collision detection remains instantaneous at tick epoch; TCA-window narrow-
+  phase integration remains pending
 
 Latest tuner snapshot (`240 50 10000 3 2`):
 

@@ -14,6 +14,7 @@ Date: 2026-03-17
 - `main.cpp`
   - HTTP API surface
   - debug aggregation endpoint (`/api/debug/propagation`)
+  - maneuver queue validation/execution (fuel + cooldown + due-burn apply)
 - `src/state_store.*`
   - SoA runtime state
   - orbital-element cache
@@ -112,8 +113,8 @@ ctest --test-dir build --output-on-failure
 | Endpoint | PS requires | Current status | Gap | Next task |
 |---|---|---|---|---|
 | `POST /api/telemetry` | strict ingest + ACK counters | implemented | no payload-level quality metrics in response | keep response PS-clean, expose extra diagnostics only in debug |
-| `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | maneuver execution still placeholder values | wire collision outputs to maneuver executor |
-| `POST /api/maneuver/schedule` | validation incl LOS/fuel/cooldown | partial | LOS/cooldown not fully enforced yet | integrate scheduler + station visibility model |
+| `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | collision detection is instantaneous-threshold at tick epoch (no TCA window yet) | upgrade to TCA-window narrow-phase + planner hookup |
+| `POST /api/maneuver/schedule` | validation incl LOS/fuel/cooldown | partial | LOS modeled as burn-time-in-future proxy only; no station geometry yet | integrate scheduler + station visibility model |
 | `GET /api/visualization/snapshot` | geodetic satellite/debris visualization fields | partial | lat/lon/alt still placeholders | add ECI->geodetic conversion path |
 | `GET /api/status` | health/tick/object counters | implemented | no queue/narrow-phase stats yet | add internal metrics expansion without schema drift |
 
@@ -127,7 +128,7 @@ ctest --test-dir build --output-on-failure
 
 ## Known open items before full Phase 4 integration
 
-- maneuver execution pipeline not yet wired to collision detections
+- automatic COLA/recovery planner not yet wired (manual schedule execution path only)
 - D-criterion is intentionally conservative; tune only through offline path
 - CI now enforces both adaptive regression gate and broad-phase sanity gate
 
@@ -137,9 +138,12 @@ ctest --test-dir build --output-on-failure
 - `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`,
   `dcriterion_rejected_total=0`)
 - `phase3_tick_benchmark 50 10000 30`:
-  mean `6.936 ms`, median `6.759 ms`, p95 `7.695 ms`
+  mean `6.884 ms`, median `6.738 ms`, p95 `7.439 ms`
 - `offline_multiobjective_tuner 240 50 10000 3 2`:
   strict-zero-risk enabled, disqualified `43`, safe population `197`, pareto
   set `3`
 - API smoke (co-located SAT/DEB object pair with `step_seconds=1`):
-  `collisions_detected=1`, `maneuvers_executed=0`
+  `collisions_detected=1`, `maneuvers_executed=1`
+- API smoke (schedule validation):
+  `COOLDOWN_VIOLATION` for <600s spacing,
+  `GROUND_STATION_LOS_UNAVAILABLE` for past burn times

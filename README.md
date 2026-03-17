@@ -109,6 +109,15 @@ cmake --build build --target broad_phase_sanity_gate
 ./scripts/broad_phase_sanity_gate.sh
 ```
 
+Maneuver schedule endpoint currently enforces:
+
+- per-burn delta-V limit (`<= 15 m/s`)
+- 600s cooldown within sequence and against last executed burn per satellite
+- projected fuel/mass check via Tsiolkovsky relation
+- reject past burn times (`GROUND_STATION_LOS_UNAVAILABLE` placeholder policy)
+- burn queue execution on `POST /api/simulate/step` with
+  `maneuvers_executed` reported in response
+
 Optional: run CTest safety suite.
 
 ```bash

@@ -10,6 +10,9 @@
 #include <cstdio>
 #include <vector>
 #include <cstdint>
+#include <unordered_map>
+#include <algorithm>
+#include <cmath>
 
 #include <jluna.hpp>
 #include <httplib.h>
@@ -39,6 +42,84 @@ static cascade::StepRunConfig g_step_cfg = [] {
     cfg.broad_phase.dcriterion_threshold = 2.0;
     return cfg;
 }();
+
+struct ScheduledBurn {
+    std::string id;
+    std::string satellite_id;
+    double burn_epoch_s = 0.0;
+    cascade::Vec3 delta_v_km_s{};
+    double delta_v_norm_km_s = 0.0;
+};
+
+static std::vector<ScheduledBurn> g_burn_queue;
+static std::unordered_map<std::string, double> g_last_burn_epoch_by_sat;
+
+static double dv_norm_km_s(const cascade::Vec3& dv) noexcept
+{
+    return std::sqrt(dv.x * dv.x + dv.y * dv.y + dv.z * dv.z);
+}
+
+static double propellant_used_kg(double mass_kg, double delta_v_km_s) noexcept
+{
+    if (!(mass_kg > 0.0) || !(delta_v_km_s > 0.0)) {
+        return 0.0;
+    }
+    const double ve_km_s = cascade::SAT_ISP_S * cascade::G0_KM_S2;
+    if (!(ve_km_s > 0.0)) {
+        return 0.0;
+    }
+    const double mass_ratio = std::exp(-delta_v_km_s / ve_km_s);
+    return mass_kg * (1.0 - mass_ratio);
+}
+
+static std::uint64_t execute_due_maneuvers(cascade::StateStore& store,
+                                           double current_epoch_s)
+{
+    std::uint64_t executed = 0;
+    std::vector<ScheduledBurn> pending;
+    pending.reserve(g_burn_queue.size());
+
+    for (const ScheduledBurn& burn : g_burn_queue) {
+        if (burn.burn_epoch_s > current_epoch_s + cascade::EPS_NUM) {
+            pending.push_back(burn);
+            continue;
+        }
+
+        const std::size_t idx = store.find(burn.satellite_id);
+        if (idx >= store.size() || store.type(idx) != cascade::ObjectType::SATELLITE) {
+            continue;
+        }
+
+        const double mass_before = store.mass_kg(idx);
+        const double fuel_before = store.fuel_kg(idx);
+        const double fuel_needed = propellant_used_kg(mass_before, burn.delta_v_norm_km_s);
+        if (fuel_needed > fuel_before + cascade::EPS_NUM) {
+            continue;
+        }
+
+        store.vx_mut(idx) += burn.delta_v_km_s.x;
+        store.vy_mut(idx) += burn.delta_v_km_s.y;
+        store.vz_mut(idx) += burn.delta_v_km_s.z;
+        store.set_elements(idx, cascade::OrbitalElements{}, false);
+
+        const double fuel_after = std::max(0.0, fuel_before - fuel_needed);
+        const double mass_after = std::max(cascade::SAT_DRY_MASS_KG, mass_before - fuel_needed);
+        store.fuel_kg_mut(idx) = fuel_after;
+        store.mass_kg_mut(idx) = mass_after;
+
+        if (fuel_after <= cascade::SAT_FUEL_EOL_KG) {
+            store.set_sat_status(idx, cascade::SatStatus::FUEL_LOW);
+        } else {
+            store.set_sat_status(idx, cascade::SatStatus::MANEUVERING);
+        }
+
+        g_last_burn_epoch_by_sat[burn.satellite_id] = burn.burn_epoch_s;
+        ++executed;
+    }
+
+    g_burn_queue.swap(pending);
+    return executed;
+}
 
 struct PropagationStats {
     std::uint64_t fast_last_tick = 0;
@@ -97,6 +178,28 @@ static std::string get_source_id(const httplib::Request& req)
     const std::string source = req.get_header_value("X-Source-Id");
     if (source.empty()) return "unknown";
     return source;
+}
+
+static bool parse_vec3_field(simdjson::ondemand::object& parent,
+                             const char* key,
+                             cascade::Vec3& out)
+{
+    simdjson::ondemand::object obj;
+    if (parent.find_field_unordered(key).get_object().get(obj) != simdjson::SUCCESS) {
+        return false;
+    }
+
+    auto x = obj.find_field_unordered("x").get_double();
+    auto y = obj.find_field_unordered("y").get_double();
+    auto z = obj.find_field_unordered("z").get_double();
+    if (x.error() || y.error() || z.error()) {
+        return false;
+    }
+
+    out.x = x.value_unsafe();
+    out.y = y.value_unsafe();
+    out.z = z.value_unsafe();
+    return true;
 }
 
 static std::string build_snapshot(const cascade::StateStore& store,
@@ -362,30 +465,137 @@ int main()
             return;
         }
 
-        std::size_t burn_count = 0;
-        for (auto burn : burns) {
-            simdjson::ondemand::object obj;
-            if (burn.get_object().get(obj) == simdjson::SUCCESS) {
-                ++burn_count;
+        std::vector<ScheduledBurn> parsed_burns;
+        parsed_burns.reserve(8);
+
+        for (auto burn_value : burns) {
+            simdjson::ondemand::object burn_obj;
+            if (burn_value.get_object().get(burn_obj) != simdjson::SUCCESS) {
+                set_error_json(res, 422, "INVALID_BURN", "each maneuver entry must be an object");
+                return;
             }
+
+            std::string_view burn_id_sv;
+            if (burn_obj.find_field_unordered("burn_id").get_string().get(burn_id_sv) != simdjson::SUCCESS || burn_id_sv.empty()) {
+                set_error_json(res, 422, "MISSING_BURN_ID", "each burn must include non-empty 'burn_id'");
+                return;
+            }
+
+            std::string_view burn_time_sv;
+            if (burn_obj.find_field_unordered("burnTime").get_string().get(burn_time_sv) != simdjson::SUCCESS || burn_time_sv.empty()) {
+                set_error_json(res, 422, "MISSING_BURN_TIME", "each burn must include non-empty 'burnTime'");
+                return;
+            }
+
+            double burn_epoch_s = 0.0;
+            if (!cascade::parse_iso8601(burn_time_sv, burn_epoch_s)) {
+                set_error_json(res, 422, "INVALID_BURN_TIME", "burnTime must be ISO-8601 UTC");
+                return;
+            }
+
+            cascade::Vec3 dv{};
+            if (!parse_vec3_field(burn_obj, "deltaV_vector", dv)) {
+                set_error_json(res, 422, "MISSING_DELTAV_VECTOR", "each burn must include deltaV_vector{x,y,z}");
+                return;
+            }
+
+            const double dv_norm = dv_norm_km_s(dv);
+            if (dv_norm > cascade::SAT_MAX_DELTAV_KM_S + cascade::EPS_NUM) {
+                set_error_json(res, 422, "DELTA_V_EXCEEDS_LIMIT", "burn deltaV exceeds 15 m/s limit");
+                return;
+            }
+
+            ScheduledBurn b;
+            b.id = std::string(burn_id_sv);
+            b.satellite_id = std::string(sat_sv);
+            b.burn_epoch_s = burn_epoch_s;
+            b.delta_v_km_s = dv;
+            b.delta_v_norm_km_s = dv_norm;
+            parsed_burns.push_back(std::move(b));
         }
-        if (burn_count == 0) {
+
+        if (parsed_burns.empty()) {
             set_error_json(res, 422, "EMPTY_MANEUVER_SEQUENCE", "at least one burn is required");
             return;
         }
 
+        std::sort(parsed_burns.begin(), parsed_burns.end(),
+                  [](const ScheduledBurn& a, const ScheduledBurn& b) {
+                      return a.burn_epoch_s < b.burn_epoch_s;
+                  });
+
+        for (std::size_t i = 1; i < parsed_burns.size(); ++i) {
+            const double dt = parsed_burns[i].burn_epoch_s - parsed_burns[i - 1].burn_epoch_s;
+            if (dt + cascade::EPS_NUM < cascade::SAT_COOLDOWN_S) {
+                set_error_json(res, 422, "COOLDOWN_VIOLATION", "maneuver sequence violates 600s cooldown");
+                return;
+            }
+        }
+
         const std::string sat_id(sat_sv);
-        double fuel_remaining = 0.0;
-        double mass_remaining = 0.0;
         bool found_sat = false;
+        bool cooldown_ok = true;
+        bool future_ok = true;
+        double projected_fuel_remaining = 0.0;
+        double projected_mass_remaining = 0.0;
+        double clock_epoch_s = 0.0;
 
         {
-            std::shared_lock lock(g_mutex);
+            std::unique_lock lock(g_mutex);
+
+            clock_epoch_s = g_clock.epoch_s();
             const std::size_t idx = g_store.find(sat_id);
             if (idx < g_store.size() && g_store.type(idx) == cascade::ObjectType::SATELLITE) {
                 found_sat = true;
-                fuel_remaining = g_store.fuel_kg(idx);
-                mass_remaining = g_store.mass_kg(idx);
+                const double fuel_remaining = g_store.fuel_kg(idx);
+                const double mass_remaining = g_store.mass_kg(idx);
+
+                const auto last_it = g_last_burn_epoch_by_sat.find(sat_id);
+                const double last_burn_epoch = (last_it == g_last_burn_epoch_by_sat.end())
+                    ? -1.0e30
+                    : last_it->second;
+
+                if (!parsed_burns.empty()) {
+                    const double from_last = parsed_burns.front().burn_epoch_s - last_burn_epoch;
+                    if (from_last + cascade::EPS_NUM < cascade::SAT_COOLDOWN_S) {
+                        cooldown_ok = false;
+                    }
+                }
+
+                if (cooldown_ok) {
+                    for (const ScheduledBurn& queued : g_burn_queue) {
+                        if (queued.satellite_id != sat_id) continue;
+                        for (const ScheduledBurn& incoming : parsed_burns) {
+                            const double dt = std::abs(incoming.burn_epoch_s - queued.burn_epoch_s);
+                            if (dt + cascade::EPS_NUM < cascade::SAT_COOLDOWN_S) {
+                                cooldown_ok = false;
+                                break;
+                            }
+                        }
+                        if (!cooldown_ok) break;
+                    }
+                }
+
+                for (const ScheduledBurn& b : parsed_burns) {
+                    if (b.burn_epoch_s + cascade::EPS_NUM < clock_epoch_s) {
+                        future_ok = false;
+                        break;
+                    }
+                }
+
+                projected_fuel_remaining = fuel_remaining;
+                projected_mass_remaining = mass_remaining;
+                for (const ScheduledBurn& b : parsed_burns) {
+                    const double fuel_need = propellant_used_kg(projected_mass_remaining, b.delta_v_norm_km_s);
+                    projected_fuel_remaining -= fuel_need;
+                    projected_mass_remaining -= fuel_need;
+                }
+
+                if (cooldown_ok && future_ok && projected_fuel_remaining > cascade::SAT_FUEL_EOL_KG) {
+                    for (const ScheduledBurn& b : parsed_burns) {
+                        g_burn_queue.push_back(b);
+                    }
+                }
             }
         }
 
@@ -394,16 +604,30 @@ int main()
             return;
         }
 
-        const bool sufficient_fuel = (fuel_remaining > cascade::SAT_FUEL_EOL_KG);
+        const bool sufficient_fuel = (projected_fuel_remaining > cascade::SAT_FUEL_EOL_KG);
+
+        if (!future_ok) {
+            set_error_json(res, 422, "GROUND_STATION_LOS_UNAVAILABLE", "burnTime must be >= current simulation timestamp");
+            return;
+        }
+
+        if (!cooldown_ok) {
+            set_error_json(res, 422, "COOLDOWN_VIOLATION", "maneuver sequence violates 600s cooldown");
+            return;
+        }
+
+        if (!sufficient_fuel) {
+            set_error_json(res, 422, "INSUFFICIENT_FUEL", "projected fuel after burns is below EOL threshold");
+            return;
+        }
 
         std::string out;
         out.reserve(192);
         out += "{\"status\":\"SCHEDULED\",\"validation\":{";
         out += "\"ground_station_los\":true,";
-        out += "\"sufficient_fuel\":";
-        out += (sufficient_fuel ? "true" : "false");
+        out += "\"sufficient_fuel\":true";
         out += ",\"projected_mass_remaining_kg\":";
-        out += cascade::fmt_double(mass_remaining, 3);
+        out += cascade::fmt_double(projected_mass_remaining, 3);
         out += "}}";
         res.status = 202;
         res.set_content(out, "application/json");
@@ -455,6 +679,8 @@ int main()
                 set_error_json(res, 422, "SIM_STEP_REJECTED", "simulation step could not be executed");
                 return;
             }
+
+            stats.maneuvers_executed = execute_due_maneuvers(g_store, g_clock.epoch_s());
 
             g_prop_stats.fast_last_tick = stats.used_fast;
             g_prop_stats.rk4_last_tick = stats.used_rk4;
