@@ -16,7 +16,13 @@ public:
     SimClock();   // Records wall-clock start time; epoch starts uninitialized
 
     // Set simulation epoch from an ISO-8601 string ("2026-03-12T08:00:00.000Z")
-    void set_from_iso(std::string_view iso);
+    bool set_from_iso(std::string_view iso);
+
+    // Set simulation epoch directly using Unix epoch seconds.
+    void set_epoch_s(double epoch_s) noexcept {
+        epoch_s_ = epoch_s;
+        initialized_ = true;
+    }
 
     // Advance simulation time by step_seconds (may be fractional)
     void advance(double step_seconds) noexcept;

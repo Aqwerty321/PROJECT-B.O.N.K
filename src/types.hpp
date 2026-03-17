@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <cmath>
 
 namespace cascade {
 
@@ -16,6 +17,9 @@ inline constexpr double R_EARTH_KM         = 6378.137;      // km
 inline constexpr double J2                 = 1.08263e-3;    // dimensionless
 inline constexpr double G0_M_S2            = 9.80665;       // m/s²  (Tsiolkovsky)
 inline constexpr double G0_KM_S2           = G0_M_S2 * 1.0e-3; // km/s²
+inline constexpr double PI                 = 3.14159265358979323846;
+inline constexpr double TWO_PI             = 2.0 * PI;
+inline constexpr double EPS_NUM            = 1e-9;
 
 // ---------------------------------------------------------------------------
 // Satellite propulsion constants (PS.md §5)
@@ -46,6 +50,14 @@ enum class ObjectType : uint8_t {
     DEBRIS    = 1
 };
 
+inline const char* object_type_str(ObjectType t) noexcept {
+    switch (t) {
+        case ObjectType::SATELLITE: return "SATELLITE";
+        case ObjectType::DEBRIS:    return "DEBRIS";
+        default:                    return "UNKNOWN";
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Satellite operational status
 // ---------------------------------------------------------------------------
@@ -74,5 +86,27 @@ struct Vec3 {
     double y = 0.0;
     double z = 0.0;
 };
+
+// ---------------------------------------------------------------------------
+// Derived classical orbital elements (all angles in radians)
+// ---------------------------------------------------------------------------
+struct OrbitalElements {
+    double a_km       = 0.0; // semi-major axis
+    double e          = 0.0; // eccentricity
+    double i_rad      = 0.0; // inclination
+    double raan_rad   = 0.0; // right ascension of ascending node
+    double argp_rad   = 0.0; // argument of perigee
+    double M_rad      = 0.0; // mean anomaly
+    double n_rad_s    = 0.0; // mean motion
+    double p_km       = 0.0; // semi-latus rectum
+    double rp_km      = 0.0; // perigee radius
+    double ra_km      = 0.0; // apogee radius
+};
+
+inline double wrap_0_2pi(double angle_rad) noexcept {
+    double x = std::fmod(angle_rad, TWO_PI);
+    if (x < 0.0) x += TWO_PI;
+    return x;
+}
 
 } // namespace cascade

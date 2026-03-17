@@ -3,32 +3,54 @@
 // ---------------------------------------------------------------------------
 #pragma once
 
+#include "types.hpp"
+
 #include <string>
-#include <cstdint>
+#include <string_view>
+#include <vector>
 
 namespace cascade {
 
-// Forward declarations (full headers included only in .cpp)
 class StateStore;
 class SimClock;
 
-// Result returned by parse_telemetry()
-struct TelemetryResult {
-    int         processed_count   = 0;
-    std::string timestamp;         // ISO-8601 string from request body
-    bool        timestamp_parsed  = false;
-    bool        parse_ok          = false;  // false if JSON was malformed
+struct TelemetryObject {
+    std::string id;
+    ObjectType  type = ObjectType::DEBRIS;
+    Vec3        r;
+    Vec3        v;
 };
 
-// Parse a POST /api/telemetry JSON body using simdjson On-Demand.
-//
-// For each object in "objects[]" the function calls store.upsert().
-// If the sim clock is uninitialized, it is set from the request timestamp.
-//
-// Thread safety: caller must hold an exclusive lock on the global state mutex
-// before calling this function.
-TelemetryResult parse_telemetry(const std::string& body,
-                                StateStore&        store,
-                                SimClock&          clock);
+struct TelemetryParseResult {
+    bool parse_ok = false;
+    std::string error_code;
+    std::string error_message;
+
+    std::string timestamp_iso;
+    double telemetry_epoch_s = 0.0;
+    bool timestamp_valid = false;
+
+    std::vector<TelemetryObject> valid_objects;
+    int invalid_object_count = 0;
+};
+
+struct TelemetryIngestResult {
+    bool ok = false;
+    std::string error_code;
+    std::string error_message;
+
+    int processed_count = 0;
+    int invalid_object_count = 0;
+    int type_conflict_count = 0;
+};
+
+// Parse telemetry payload outside global lock.
+TelemetryParseResult parse_telemetry_payload(const std::string& body);
+
+// Commit parsed telemetry under lock.
+TelemetryIngestResult apply_telemetry_batch(const TelemetryParseResult& parsed,
+                                            StateStore& store,
+                                            SimClock& clock,
+                                            std::string_view source_id);
 
 } // namespace cascade

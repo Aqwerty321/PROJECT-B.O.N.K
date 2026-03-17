@@ -15,10 +15,15 @@ SimClock::SimClock()
         steady_clock::now().time_since_epoch()).count();
 }
 
-void SimClock::set_from_iso(std::string_view iso)
+bool SimClock::set_from_iso(std::string_view iso)
 {
-    epoch_s_    = parse_iso8601(iso);
+    double parsed = 0.0;
+    if (!parse_iso8601(iso, parsed)) {
+        return false;
+    }
+    epoch_s_ = parsed;
     initialized_ = true;
+    return true;
 }
 
 void SimClock::advance(double step_seconds) noexcept

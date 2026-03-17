@@ -1,117 +1,203 @@
 // ---------------------------------------------------------------------------
-// telemetry.cpp — simdjson On-Demand parser for POST /api/telemetry
-//
-// Expected JSON schema (PS.md §4.1):
-// {
-//   "timestamp": "2026-03-12T08:00:00.000Z",
-//   "objects": [
-//     { "id": "DEB-99421", "type": "DEBRIS",
-//       "r": {"x": 4500.2, "y": -2100.5, "z": 4800.1},
-//       "v": {"x": 1.25,   "y":  6.84,   "z":  3.12}  }
-//   ]
-// }
+// telemetry.cpp — strict telemetry parse + locked commit
 // ---------------------------------------------------------------------------
 #include "telemetry.hpp"
+
+#include "json_util.hpp"
+#include "orbit_math.hpp"
 #include "state_store.hpp"
 #include "sim_clock.hpp"
-#include "types.hpp"
 
 #include <simdjson.h>
 
 namespace cascade {
 
-// Consume a simdjson double result: sets `out` if no error, leaves it
-// unchanged otherwise.  Calling convention avoids the warn_unused_result
-// attribute that fires on simdjson_result<T>::get(T&).
-static inline void sj_double(simdjson::simdjson_result<double> res, double& out) {
-    if (!res.error()) out = res.value_unsafe();
+static inline bool parse_vec3(simdjson::ondemand::object& parent,
+                              const char* key,
+                              Vec3& out)
+{
+    simdjson::ondemand::object obj;
+    if (parent.find_field_unordered(key).get_object().get(obj) != simdjson::SUCCESS) {
+        return false;
+    }
+
+    auto xres = obj.find_field_unordered("x").get_double();
+    auto yres = obj.find_field_unordered("y").get_double();
+    auto zres = obj.find_field_unordered("z").get_double();
+    if (xres.error() || yres.error() || zres.error()) {
+        return false;
+    }
+
+    out.x = xres.value_unsafe();
+    out.y = yres.value_unsafe();
+    out.z = zres.value_unsafe();
+    return true;
 }
 
-
-TelemetryResult parse_telemetry(const std::string& body,
-                                StateStore&        store,
-                                SimClock&          clock)
+TelemetryParseResult parse_telemetry_payload(const std::string& body)
 {
-    TelemetryResult result;
-    if (body.empty()) return result;
+    TelemetryParseResult out;
+    if (body.empty()) {
+        out.error_code = "EMPTY_BODY";
+        out.error_message = "request body is empty";
+        return out;
+    }
 
-    // simdjson On-Demand: padded_string copies + pads the input buffer.
     simdjson::ondemand::parser parser;
-    simdjson::padded_string    padded(body.data(), body.size());
-
+    simdjson::padded_string padded(body.data(), body.size());
     simdjson::ondemand::document doc;
+
     if (parser.iterate(padded).get(doc) != simdjson::SUCCESS) {
-        return result;   // malformed JSON
-    }
-    result.parse_ok = true;
-
-    // -----------------------------------------------------------------------
-    // "timestamp" field
-    // -----------------------------------------------------------------------
-    {
-        std::string_view ts_sv;
-        if (doc["timestamp"].get_string().get(ts_sv) == simdjson::SUCCESS) {
-            result.timestamp        = std::string(ts_sv);
-            result.timestamp_parsed = true;
-            // Seed the sim clock from first telemetry batch if uninitialized
-            if (!clock.is_initialized()) {
-                clock.set_from_iso(result.timestamp);
-            }
-        }
+        out.error_code = "MALFORMED_JSON";
+        out.error_message = "request body is not valid JSON";
+        return out;
     }
 
-    // -----------------------------------------------------------------------
-    // "objects" array
-    // -----------------------------------------------------------------------
+    simdjson::ondemand::object root;
+    if (doc.get_object().get(root) != simdjson::SUCCESS) {
+        out.error_code = "MALFORMED_JSON";
+        out.error_message = "root JSON value must be an object";
+        return out;
+    }
+
+    std::string_view ts_sv;
+    if (root.find_field_unordered("timestamp").get_string().get(ts_sv) != simdjson::SUCCESS) {
+        out.error_code = "MISSING_TIMESTAMP";
+        out.error_message = "field 'timestamp' is required";
+        return out;
+    }
+
+    out.timestamp_iso = std::string(ts_sv);
+    out.timestamp_valid = parse_iso8601(out.timestamp_iso, out.telemetry_epoch_s);
+    if (!out.timestamp_valid) {
+        out.error_code = "INVALID_TIMESTAMP";
+        out.error_message = "timestamp must be ISO-8601 UTC (e.g. 2026-03-12T08:00:00.000Z)";
+        return out;
+    }
+
     simdjson::ondemand::array objects;
-    if (doc["objects"].get_array().get(objects) != simdjson::SUCCESS) {
-        return result;
+    if (root.find_field_unordered("objects").get_array().get(objects) != simdjson::SUCCESS) {
+        out.error_code = "MISSING_OBJECTS";
+        out.error_message = "field 'objects' must be an array";
+        return out;
     }
 
+    out.valid_objects.reserve(1024);
     for (auto item_result : objects) {
         simdjson::ondemand::object obj;
-        if (item_result.get_object().get(obj) != simdjson::SUCCESS) continue;
+        if (item_result.get_object().get(obj) != simdjson::SUCCESS) {
+            ++out.invalid_object_count;
+            continue;
+        }
 
-        // "id" — required; skip object if missing
         std::string_view id_sv;
-        if (obj.find_field_unordered("id").get_string().get(id_sv) != simdjson::SUCCESS) continue;
-
-        // "type" — optional, default DEBRIS
-        ObjectType otype = ObjectType::DEBRIS;
-        {
-            std::string_view type_sv;
-            if (obj.find_field_unordered("type").get_string().get(type_sv) == simdjson::SUCCESS) {
-                if (type_sv == "SATELLITE") otype = ObjectType::SATELLITE;
-            }
+        if (obj.find_field_unordered("id").get_string().get(id_sv) != simdjson::SUCCESS || id_sv.empty()) {
+            ++out.invalid_object_count;
+            continue;
         }
 
-        // "r" — position, km ECI
-        double rx = 0.0, ry = 0.0, rz = 0.0;
-        {
-            simdjson::ondemand::object r_obj;
-            if (obj.find_field_unordered("r").get_object().get(r_obj) == simdjson::SUCCESS) {
-                sj_double(r_obj.find_field("x").get_double(), rx);
-                sj_double(r_obj.find_field("y").get_double(), ry);
-                sj_double(r_obj.find_field("z").get_double(), rz);
-            }
+        std::string_view type_sv;
+        if (obj.find_field_unordered("type").get_string().get(type_sv) != simdjson::SUCCESS) {
+            ++out.invalid_object_count;
+            continue;
         }
 
-        // "v" — velocity, km/s ECI
-        double vx = 0.0, vy = 0.0, vz = 0.0;
-        {
-            simdjson::ondemand::object v_obj;
-            if (obj.find_field_unordered("v").get_object().get(v_obj) == simdjson::SUCCESS) {
-                sj_double(v_obj.find_field("x").get_double(), vx);
-                sj_double(v_obj.find_field("y").get_double(), vy);
-                sj_double(v_obj.find_field("z").get_double(), vz);
-            }
+        ObjectType type;
+        if (type_sv == "SATELLITE") {
+            type = ObjectType::SATELLITE;
+        } else if (type_sv == "DEBRIS") {
+            type = ObjectType::DEBRIS;
+        } else {
+            ++out.invalid_object_count;
+            continue;
         }
 
-        store.upsert(id_sv, otype, rx, ry, rz, vx, vy, vz);
-        ++result.processed_count;
+        Vec3 r{};
+        Vec3 v{};
+        if (!parse_vec3(obj, "r", r) || !parse_vec3(obj, "v", v)) {
+            ++out.invalid_object_count;
+            continue;
+        }
+
+        TelemetryObject entry;
+        entry.id = std::string(id_sv);
+        entry.type = type;
+        entry.r = r;
+        entry.v = v;
+        out.valid_objects.emplace_back(std::move(entry));
     }
 
-    return result;
+    out.parse_ok = true;
+    return out;
+}
+
+TelemetryIngestResult apply_telemetry_batch(const TelemetryParseResult& parsed,
+                                            StateStore& store,
+                                            SimClock& clock,
+                                            std::string_view source_id)
+{
+    TelemetryIngestResult out;
+    if (!parsed.parse_ok || !parsed.timestamp_valid) {
+        out.error_code = "INVALID_PARSED_BATCH";
+        out.error_message = "cannot ingest unparsed telemetry batch";
+        return out;
+    }
+
+    if (clock.is_initialized() && parsed.telemetry_epoch_s + EPS_NUM < clock.epoch_s()) {
+        out.error_code = "STALE_TELEMETRY";
+        out.error_message = "telemetry timestamp is older than current simulation time";
+        return out;
+    }
+
+    if (!clock.is_initialized()) {
+        clock.set_epoch_s(parsed.telemetry_epoch_s);
+    }
+
+    const double ingest_now = now_unix_epoch_s();
+
+    for (const TelemetryObject& obj : parsed.valid_objects) {
+        bool conflict = false;
+        (void)store.upsert(obj.id,
+                           obj.type,
+                           obj.r.x,
+                           obj.r.y,
+                           obj.r.z,
+                           obj.v.x,
+                           obj.v.y,
+                           obj.v.z,
+                           parsed.telemetry_epoch_s,
+                           conflict);
+        if (conflict) {
+            const std::size_t idx = store.find(obj.id);
+            ObjectType stored_type = ObjectType::DEBRIS;
+            if (idx < store.size()) {
+                stored_type = store.type(idx);
+            }
+            store.record_type_conflict(obj.id,
+                                       stored_type,
+                                       obj.type,
+                                       parsed.timestamp_iso,
+                                       ingest_now,
+                                       source_id,
+                                       "incoming type conflicts with canonical type");
+            ++out.type_conflict_count;
+            continue;
+        }
+
+        const std::size_t idx = store.find(obj.id);
+        if (idx < store.size()) {
+            OrbitalElements el{};
+            const bool el_ok = eci_to_elements(obj.r, obj.v, el);
+            store.set_elements(idx, el, el_ok);
+            store.set_telemetry_epoch_s(idx, parsed.telemetry_epoch_s);
+        }
+
+        ++out.processed_count;
+    }
+
+    out.invalid_object_count = parsed.invalid_object_count;
+    out.ok = true;
+    return out;
 }
 
 } // namespace cascade

@@ -1,281 +1,439 @@
 // ---------------------------------------------------------------------------
 // CASCADE (Project BONK) — API server
 // ---------------------------------------------------------------------------
-// Phase 1: real state store + telemetry ingestion wired up.
-// Endpoints:
-//   POST /api/telemetry          — ingest objects via simdjson On-Demand
-//   POST /api/maneuver/schedule  — stubbed (Phase 5)
-//   POST /api/simulate/step      — advances sim clock, returns new timestamp
-//   GET  /api/visualization/snapshot — returns all object positions (lat=0 placeholder)
-//   GET  /api/status             — returns engine health + real object count
-// ---------------------------------------------------------------------------
 
 #include <iostream>
 #include <string>
 #include <atomic>
 #include <mutex>
 #include <shared_mutex>
-#include <chrono>
 #include <cstdio>
-#include <cstring>
+#include <vector>
 
-// Julia bridge
 #include <jluna.hpp>
-
-// HTTP server (header-only)
 #include <httplib.h>
-
-// Fast JSON parser
 #include <simdjson.h>
-
-// Boost (headers-only — version verification only)
 #include <boost/version.hpp>
 
-// Cascade modules
 #include "types.hpp"
 #include "json_util.hpp"
 #include "state_store.hpp"
 #include "sim_clock.hpp"
 #include "telemetry.hpp"
+#include "orbit_math.hpp"
+#include "propagator.hpp"
 
-// ---------------------------------------------------------------------------
-// Global state (protected by g_mutex for shared reads / exclusive writes)
-// ---------------------------------------------------------------------------
 static cascade::StateStore  g_store;
 static cascade::SimClock    g_clock;
 static std::shared_mutex    g_mutex;
 static std::atomic<int64_t> g_tick_count{0};
 
-// ---------------------------------------------------------------------------
-// Helper: build GET /api/visualization/snapshot JSON
-//
-// Satellites: {"id":"...","lat":0.0,"lon":0.0,"fuel_kg":48.5,"status":"NOMINAL"}
-// Debris:     ["DEB-99421",0.0,0.0,0.0]
-//
-// lat/lon/alt = 0.0 until Phase 6 implements ECI→geodetic conversion.
-// ---------------------------------------------------------------------------
+static void set_error_json(httplib::Response& res,
+                           int http_status,
+                           std::string_view code,
+                           std::string_view message)
+{
+    std::string out;
+    out.reserve(96 + code.size() + message.size());
+    out += "{\"status\":\"ERROR\",\"code\":";
+    cascade::append_json_string(out, code);
+    out += ",\"message\":";
+    cascade::append_json_string(out, message);
+    out += '}';
+    res.status = http_status;
+    res.set_content(out, "application/json");
+}
+
+static std::string get_source_id(const httplib::Request& req)
+{
+    const std::string source = req.get_header_value("X-Source-Id");
+    if (source.empty()) return "unknown";
+    return source;
+}
+
 static std::string build_snapshot(const cascade::StateStore& store,
                                   const cascade::SimClock&   clock)
 {
-    // Reserve space: ~100 chars/satellite, ~50 chars/debris, plus header
     std::string out;
-    out.reserve(store.satellite_count() * 100
-                + store.debris_count()  *  50
-                + 64);
+    out.reserve(store.satellite_count() * 128 + store.debris_count() * 56 + 128);
 
-    out += "{\"timestamp\":\"";
-    out += clock.to_iso();
-    out += "\",\"satellites\":[";
+    out += "{\"timestamp\":";
+    cascade::append_json_string(out, clock.to_iso());
+    out += ",\"satellites\":[";
 
     bool first_sat = true;
     for (std::size_t i = 0; i < store.size(); ++i) {
         if (store.type(i) != cascade::ObjectType::SATELLITE) continue;
-        if (!first_sat) out += ',';
+        if (!first_sat) out.push_back(',');
         first_sat = false;
 
-        char buf[160];
-        std::snprintf(buf, sizeof(buf),
-            "{\"id\":\"%s\",\"lat\":0.0,\"lon\":0.0,\"fuel_kg\":%.3f,\"status\":\"%s\"}",
-            store.id(i).c_str(),
-            store.fuel_kg(i),
-            cascade::sat_status_str(store.sat_status(i)));
-        out += buf;
+        out += "{\"id\":";
+        cascade::append_json_string(out, store.id(i));
+        out += ",\"lat\":0.0,\"lon\":0.0,\"fuel_kg\":";
+        out += cascade::fmt_double(store.fuel_kg(i), 3);
+        out += ",\"status\":";
+        cascade::append_json_string(out, cascade::sat_status_str(store.sat_status(i)));
+        out += '}';
     }
 
     out += "],\"debris_cloud\":[";
-
     bool first_deb = true;
     for (std::size_t i = 0; i < store.size(); ++i) {
         if (store.type(i) != cascade::ObjectType::DEBRIS) continue;
-        if (!first_deb) out += ',';
+        if (!first_deb) out.push_back(',');
         first_deb = false;
 
-        char buf[64];
-        std::snprintf(buf, sizeof(buf), "[\"%s\",0.0,0.0,0.0]",
-            store.id(i).c_str());
-        out += buf;
+        out += '[';
+        cascade::append_json_string(out, store.id(i));
+        out += ",0.0,0.0,0.0]";
     }
 
     out += "]}";
     return out;
 }
 
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
+static std::string build_conflicts_json(const cascade::StateStore& store)
+{
+    const auto history = store.conflict_history_snapshot();
+    const auto by_source = store.conflicts_by_source_snapshot();
+
+    std::string out;
+    out.reserve(256 + history.size() * 200 + by_source.size() * 32);
+
+    out += "{\"status\":\"OK\",\"total_conflicts\":";
+    out += std::to_string(store.total_type_conflicts());
+    out += ",\"ring_size\":";
+    out += std::to_string(history.size());
+    out += ",\"conflicts_by_source\":{";
+
+    bool first_src = true;
+    for (const auto& kv : by_source) {
+        if (!first_src) out.push_back(',');
+        first_src = false;
+        cascade::append_json_string(out, kv.first);
+        out.push_back(':');
+        out += std::to_string(kv.second);
+    }
+
+    out += "},\"recent\":[";
+
+    bool first = true;
+    for (const auto& rec : history) {
+        if (!first) out.push_back(',');
+        first = false;
+        out += "{\"object_id\":";
+        cascade::append_json_string(out, rec.object_id);
+        out += ",\"stored_type\":";
+        cascade::append_json_string(out, cascade::object_type_str(rec.stored_type));
+        out += ",\"incoming_type\":";
+        cascade::append_json_string(out, cascade::object_type_str(rec.incoming_type));
+        out += ",\"telemetry_timestamp\":";
+        cascade::append_json_string(out, rec.telemetry_timestamp);
+        out += ",\"ingestion_timestamp\":";
+        cascade::append_json_string(out, cascade::iso8601(rec.ingestion_unix_s));
+        out += ",\"source_id\":";
+        cascade::append_json_string(out, rec.source_id);
+        out += ",\"reason\":";
+        cascade::append_json_string(out, rec.reason);
+        out += '}';
+    }
+
+    out += "]}";
+    return out;
+}
+
 int main()
 {
-    // ------------------------------------------------------------------
-    // 1.  Initialise the Julia runtime via jluna
-    // ------------------------------------------------------------------
     jluna::initialize();
 
     std::cout << "CASCADE (Project BONK) SYSTEM ONLINE\n";
     std::cout << "Boost version : " << BOOST_LIB_VERSION << "\n";
     std::cout << "Starting HTTP server on 0.0.0.0:8000 ...\n";
 
-    // ------------------------------------------------------------------
-    // 2.  Create the HTTP server
-    // ------------------------------------------------------------------
     httplib::Server svr;
 
     // ------------------------------------------------------------------
-    // POST /api/telemetry — ingest objects (PS.md §4.1)
+    // POST /api/telemetry
     // ------------------------------------------------------------------
-    svr.Post("/api/telemetry",
-        [](const httplib::Request& req, httplib::Response& res)
-    {
-        cascade::TelemetryResult result;
-        int64_t obj_count = 0;
-
-        {
-            std::unique_lock lock(g_mutex);
-            result    = cascade::parse_telemetry(req.body, g_store, g_clock);
-            obj_count = static_cast<int64_t>(g_store.size());
+    svr.Post("/api/telemetry", [](const httplib::Request& req, httplib::Response& res) {
+        const cascade::TelemetryParseResult parsed = cascade::parse_telemetry_payload(req.body);
+        if (!parsed.parse_ok) {
+            set_error_json(res, 400, parsed.error_code, parsed.error_message);
+            return;
         }
 
-        // active_cdm_warnings is always 0 until Phase 4 (collision screening)
-        char buf[128];
-        std::snprintf(buf, sizeof(buf),
-            "{\"status\":\"ACK\",\"processed_count\":%d,\"active_cdm_warnings\":0}",
-            result.processed_count);
-        res.set_content(buf, "application/json");
+        cascade::TelemetryIngestResult ingest;
+        {
+            std::unique_lock lock(g_mutex);
+            ingest = cascade::apply_telemetry_batch(parsed, g_store, g_clock, get_source_id(req));
+        }
+
+        if (!ingest.ok) {
+            const int status = (ingest.error_code == "STALE_TELEMETRY") ? 409 : 422;
+            set_error_json(res, status, ingest.error_code, ingest.error_message);
+            return;
+        }
+
+        std::string out;
+        out.reserve(96);
+        out += "{\"status\":\"ACK\",\"processed_count\":";
+        out += std::to_string(ingest.processed_count);
+        out += ",\"active_cdm_warnings\":0}";
         res.status = 200;
+        res.set_content(out, "application/json");
     });
 
     // ------------------------------------------------------------------
-    // POST /api/maneuver/schedule — schedule burns (PS.md §4.2)
-    // Stubbed until Phase 5.  Parses satelliteId to return real fuel.
+    // POST /api/maneuver/schedule
     // ------------------------------------------------------------------
-    svr.Post("/api/maneuver/schedule",
-        [](const httplib::Request& req, httplib::Response& res)
-    {
-        std::string sat_id;
-        {
-            simdjson::ondemand::parser parser;
-            simdjson::padded_string    padded(req.body.data(), req.body.size());
-            simdjson::ondemand::document doc;
-            if (parser.iterate(padded).get(doc) == simdjson::SUCCESS) {
-                std::string_view id_sv;
-                if (doc["satelliteId"].get_string().get(id_sv) == simdjson::SUCCESS)
-                    sat_id = std::string(id_sv);
-            }
+    svr.Post("/api/maneuver/schedule", [](const httplib::Request& req, httplib::Response& res) {
+        simdjson::ondemand::parser parser;
+        simdjson::padded_string padded(req.body.data(), req.body.size());
+        simdjson::ondemand::document doc;
+        if (parser.iterate(padded).get(doc) != simdjson::SUCCESS) {
+            set_error_json(res, 400, "MALFORMED_JSON", "request body is not valid JSON");
+            return;
         }
 
+        simdjson::ondemand::object root;
+        if (doc.get_object().get(root) != simdjson::SUCCESS) {
+            set_error_json(res, 400, "INVALID_REQUEST", "root JSON value must be an object");
+            return;
+        }
+
+        std::string_view sat_sv;
+        if (root.find_field_unordered("satelliteId").get_string().get(sat_sv) != simdjson::SUCCESS || sat_sv.empty()) {
+            set_error_json(res, 422, "MISSING_SATELLITE_ID", "field 'satelliteId' is required");
+            return;
+        }
+
+        simdjson::ondemand::array burns;
+        if (root.find_field_unordered("maneuver_sequence").get_array().get(burns) != simdjson::SUCCESS) {
+            set_error_json(res, 422, "MISSING_MANEUVER_SEQUENCE", "field 'maneuver_sequence' must be an array");
+            return;
+        }
+
+        std::size_t burn_count = 0;
+        for (auto burn : burns) {
+            simdjson::ondemand::object obj;
+            if (burn.get_object().get(obj) == simdjson::SUCCESS) {
+                ++burn_count;
+            }
+        }
+        if (burn_count == 0) {
+            set_error_json(res, 422, "EMPTY_MANEUVER_SEQUENCE", "at least one burn is required");
+            return;
+        }
+
+        const std::string sat_id(sat_sv);
         double fuel_remaining = 0.0;
         double mass_remaining = 0.0;
+        bool found_sat = false;
 
         {
             std::shared_lock lock(g_mutex);
-            std::size_t idx = g_store.find(sat_id);
-            if (idx < g_store.size()) {
+            const std::size_t idx = g_store.find(sat_id);
+            if (idx < g_store.size() && g_store.type(idx) == cascade::ObjectType::SATELLITE) {
+                found_sat = true;
                 fuel_remaining = g_store.fuel_kg(idx);
                 mass_remaining = g_store.mass_kg(idx);
             }
         }
 
-        // sufficient_fuel: true if above EOL guard (2.5 kg)
-        const bool suf_fuel = (fuel_remaining > cascade::SAT_FUEL_EOL_KG);
+        if (!found_sat) {
+            set_error_json(res, 404, "SATELLITE_NOT_FOUND", "satelliteId does not reference a known SATELLITE object");
+            return;
+        }
 
-        char buf[256];
-        std::snprintf(buf, sizeof(buf),
-            "{\"status\":\"SCHEDULED\","
-            "\"validation\":{"
-            "\"ground_station_los\":true,"
-            "\"sufficient_fuel\":%s,"
-            "\"projected_mass_remaining_kg\":%.3f}}",
-            suf_fuel ? "true" : "false",
-            mass_remaining);
-        res.set_content(buf, "application/json");
+        const bool sufficient_fuel = (fuel_remaining > cascade::SAT_FUEL_EOL_KG);
+
+        std::string out;
+        out.reserve(192);
+        out += "{\"status\":\"SCHEDULED\",\"validation\":{";
+        out += "\"ground_station_los\":true,";
+        out += "\"sufficient_fuel\":";
+        out += (sufficient_fuel ? "true" : "false");
+        out += ",\"projected_mass_remaining_kg\":";
+        out += cascade::fmt_double(mass_remaining, 3);
+        out += "}}";
         res.status = 202;
+        res.set_content(out, "application/json");
     });
 
     // ------------------------------------------------------------------
-    // POST /api/simulate/step — advance sim clock (PS.md §4.3)
+    // POST /api/simulate/step
     // ------------------------------------------------------------------
-    svr.Post("/api/simulate/step",
-        [](const httplib::Request& req, httplib::Response& res)
-    {
-        // Parse {"step_seconds": N}
-        int64_t step_s = 0;
-        {
-            simdjson::ondemand::parser parser;
-            simdjson::padded_string    padded(req.body.data(), req.body.size());
-            simdjson::ondemand::document doc;
-            if (parser.iterate(padded).get(doc) == simdjson::SUCCESS) {
-                auto res = doc["step_seconds"].get_int64();
-                if (!res.error()) step_s = res.value_unsafe();
-            }
+    svr.Post("/api/simulate/step", [](const httplib::Request& req, httplib::Response& res) {
+        simdjson::ondemand::parser parser;
+        simdjson::padded_string padded(req.body.data(), req.body.size());
+        simdjson::ondemand::document doc;
+        if (parser.iterate(padded).get(doc) != simdjson::SUCCESS) {
+            set_error_json(res, 400, "MALFORMED_JSON", "request body is not valid JSON");
+            return;
         }
 
+        simdjson::ondemand::object root;
+        if (doc.get_object().get(root) != simdjson::SUCCESS) {
+            set_error_json(res, 400, "INVALID_REQUEST", "root JSON value must be an object");
+            return;
+        }
+
+        auto step_res = root.find_field_unordered("step_seconds").get_int64();
+        if (step_res.error()) {
+            set_error_json(res, 422, "MISSING_STEP_SECONDS", "field 'step_seconds' is required and must be an integer");
+            return;
+        }
+        const int64_t step_s_i64 = step_res.value_unsafe();
+        if (step_s_i64 <= 0) {
+            set_error_json(res, 422, "INVALID_STEP_SECONDS", "step_seconds must be > 0");
+            return;
+        }
+
+        const double step_s = static_cast<double>(step_s_i64);
         std::string new_ts;
+        std::uint64_t failed = 0;
+
         {
             std::unique_lock lock(g_mutex);
-            g_clock.advance(static_cast<double>(step_s));
+
+            if (!g_clock.is_initialized()) {
+                set_error_json(res, 400, "CLOCK_UNINITIALIZED", "ingest telemetry before running simulate/step");
+                return;
+            }
+
+            const double target_epoch = g_clock.epoch_s() + step_s;
+
+            for (std::size_t i = 0; i < g_store.size(); ++i) {
+                cascade::Vec3 r{g_store.rx(i), g_store.ry(i), g_store.rz(i)};
+                cascade::Vec3 v{g_store.vx(i), g_store.vy(i), g_store.vz(i)};
+
+                cascade::OrbitalElements el{};
+                bool el_ok = false;
+                if (g_store.elements_valid(i)) {
+                    el.a_km = g_store.a_km(i);
+                    el.e = g_store.e(i);
+                    el.i_rad = g_store.i_rad(i);
+                    el.raan_rad = g_store.raan_rad(i);
+                    el.argp_rad = g_store.argp_rad(i);
+                    el.M_rad = g_store.M_rad(i);
+                    el.n_rad_s = g_store.n_rad_s(i);
+                    el.p_km = g_store.p_km(i);
+                    el.rp_km = g_store.rp_km(i);
+                    el.ra_km = g_store.ra_km(i);
+                    el_ok = true;
+                } else {
+                    el_ok = cascade::eci_to_elements(r, v, el);
+                }
+
+                if (!el_ok) {
+                    ++failed;
+                    continue;
+                }
+
+                const double obj_epoch = g_store.telemetry_epoch_s(i);
+                double obj_dt = target_epoch - obj_epoch;
+                if (obj_dt < 0.0) {
+                    obj_dt = 0.0;
+                }
+
+                bool ok = true;
+                if (obj_dt > 0.0) {
+                    const cascade::PropagationDecision mode = cascade::choose_propagation_mode(obj_dt, el);
+                    if (!mode.use_rk4) {
+                        ok = cascade::propagate_fast_j2_kepler(r, v, el, obj_dt);
+                    }
+                    if (!ok || mode.use_rk4) {
+                        ok = cascade::propagate_rk4_j2(r, v, obj_dt);
+                        if (ok) {
+                            ok = cascade::eci_to_elements(r, v, el);
+                        }
+                    }
+                }
+
+                if (!ok) {
+                    ++failed;
+                    continue;
+                }
+
+                g_store.rx_mut(i) = r.x;
+                g_store.ry_mut(i) = r.y;
+                g_store.rz_mut(i) = r.z;
+                g_store.vx_mut(i) = v.x;
+                g_store.vy_mut(i) = v.y;
+                g_store.vz_mut(i) = v.z;
+                const double applied_epoch = (obj_epoch > target_epoch) ? obj_epoch : target_epoch;
+                g_store.set_telemetry_epoch_s(i, applied_epoch);
+                g_store.set_elements(i, el, true);
+            }
+
+            g_store.set_failed_last_tick(failed);
+            g_clock.set_epoch_s(target_epoch);
             new_ts = g_clock.to_iso();
         }
-        const int64_t tick = ++g_tick_count;
 
-        char buf[256];
-        std::snprintf(buf, sizeof(buf),
-            "{\"status\":\"STEP_COMPLETE\","
-            "\"new_timestamp\":\"%s\","
-            "\"collisions_detected\":0,"
-            "\"maneuvers_executed\":0}",
-            new_ts.c_str());
-        res.set_content(buf, "application/json");
+        ++g_tick_count;
+
+        std::string out;
+        out.reserve(160);
+        out += "{\"status\":\"STEP_COMPLETE\",\"new_timestamp\":";
+        cascade::append_json_string(out, new_ts);
+        out += ",\"collisions_detected\":0,\"maneuvers_executed\":0}";
         res.status = 200;
+        res.set_content(out, "application/json");
     });
 
     // ------------------------------------------------------------------
-    // GET /api/visualization/snapshot — object positions (PS.md §6.3)
-    // lat/lon = 0.0 placeholders until Phase 6 ECI→geodetic conversion
+    // GET /api/visualization/snapshot
     // ------------------------------------------------------------------
-    svr.Get("/api/visualization/snapshot",
-        [](const httplib::Request& /*req*/, httplib::Response& res)
-    {
+    svr.Get("/api/visualization/snapshot", [](const httplib::Request&, httplib::Response& res) {
         std::string snapshot;
         {
             std::shared_lock lock(g_mutex);
             snapshot = build_snapshot(g_store, g_clock);
         }
-        res.set_content(snapshot, "application/json");
         res.status = 200;
+        res.set_content(snapshot, "application/json");
     });
 
     // ------------------------------------------------------------------
-    // GET /api/status — engine health
+    // GET /api/status
     // ------------------------------------------------------------------
-    svr.Get("/api/status",
-        [](const httplib::Request& /*req*/, httplib::Response& res)
-    {
-        int64_t     obj_count = 0;
-        double      uptime    = 0.0;
+    svr.Get("/api/status", [](const httplib::Request&, httplib::Response& res) {
+        std::size_t obj_count = 0;
+        double uptime = 0.0;
         {
             std::shared_lock lock(g_mutex);
-            obj_count = static_cast<int64_t>(g_store.size());
-            uptime    = g_clock.uptime_s();
+            obj_count = g_store.size();
+            uptime = g_clock.uptime_s();
         }
-        const int64_t tick = g_tick_count.load();
 
-        char buf[256];
-        std::snprintf(buf, sizeof(buf),
-            "{\"status\":\"NOMINAL\","
-            "\"uptime_s\":%.1f,"
-            "\"tick_count\":%lld,"
-            "\"object_count\":%lld}",
-            uptime,
-            static_cast<long long>(tick),
-            static_cast<long long>(obj_count));
-        res.set_content(buf, "application/json");
+        std::string out;
+        out.reserve(128);
+        out += "{\"status\":\"NOMINAL\",\"uptime_s\":";
+        out += cascade::fmt_double(uptime, 1);
+        out += ",\"tick_count\":";
+        out += std::to_string(g_tick_count.load());
+        out += ",\"object_count\":";
+        out += std::to_string(obj_count);
+        out += '}';
         res.status = 200;
+        res.set_content(out, "application/json");
     });
 
     // ------------------------------------------------------------------
-    // 3.  Bind to 0.0.0.0:8000 (NOT localhost — required by grader)
+    // GET /api/debug/conflicts
     // ------------------------------------------------------------------
-    if (!svr.listen("0.0.0.0", 8000))
-    {
+    svr.Get("/api/debug/conflicts", [](const httplib::Request&, httplib::Response& res) {
+        std::string out;
+        {
+            std::shared_lock lock(g_mutex);
+            out = build_conflicts_json(g_store);
+        }
+        res.status = 200;
+        res.set_content(out, "application/json");
+    });
+
+    if (!svr.listen("0.0.0.0", 8000)) {
         std::cerr << "FATAL: failed to bind to 0.0.0.0:8000\n";
         return 1;
     }

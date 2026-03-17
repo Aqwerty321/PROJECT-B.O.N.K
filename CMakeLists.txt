@@ -307,6 +307,8 @@ add_executable(ProjectBONK
     src/state_store.cpp
     src/telemetry.cpp
     src/sim_clock.cpp
+    src/orbit_math.cpp
+    src/propagator.cpp
 )
 
 set_target_properties(ProjectBONK PROPERTIES
