@@ -332,3 +332,21 @@ target_link_libraries(ProjectBONK PRIVATE
     jluna::jluna
     httplib
 )
+
+# ===================================================================
+# Phase 2 regression harness (fast propagator vs RK4 reference)
+# ===================================================================
+add_executable(phase2_regression
+    tools/phase2_regression.cpp
+    src/orbit_math.cpp
+    src/propagator.cpp
+)
+
+target_include_directories(phase2_regression PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+target_compile_options(phase2_regression PRIVATE
+    -O3
+    -DNDEBUG
+)

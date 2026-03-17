@@ -9,6 +9,22 @@
 
 namespace cascade {
 
+namespace {
+
+inline constexpr double FAST_LANE_MAX_DT_S = 30.0;
+inline constexpr double FAST_LANE_MAX_E = 0.02;
+inline constexpr double FAST_LANE_MIN_PERIGEE_ALT_KM = 500.0;
+
+inline constexpr double FAST_LANE_EXT_MAX_DT_S = 45.0;
+inline constexpr double FAST_LANE_EXT_MAX_E = 0.003;
+inline constexpr double FAST_LANE_EXT_MIN_PERIGEE_ALT_KM = 650.0;
+
+inline constexpr double PROBE_MAX_STEP_S = 120.0;
+inline constexpr double PROBE_POS_THRESH_KM = 0.5;
+inline constexpr double PROBE_VEL_THRESH_MS = 0.5;
+
+} // namespace
+
 static inline Vec3 add(const Vec3& a, const Vec3& b) noexcept {
     return Vec3{a.x + b.x, a.y + b.y, a.z + b.z};
 }
@@ -56,23 +72,143 @@ bool propagate_fast_j2_kepler(Vec3& r,
                               OrbitalElements& el,
                               double dt_s) noexcept
 {
-    apply_j2_secular(el, dt_s);
-    if (!elements_to_eci(el, r, v)) {
-        return false;
+    // Substep secular propagation to reduce long-horizon drift while keeping
+    // this path cheaper than full RK4 integration.
+    const int steps = static_cast<int>(std::ceil(std::abs(dt_s) / 300.0));
+    if (steps <= 0) return true;
+    const double h = dt_s / static_cast<double>(steps);
+
+    for (int s = 0; s < steps; ++s) {
+        apply_j2_secular(el, h);
+        if (!elements_to_eci(el, r, v)) {
+            return false;
+        }
+        OrbitalElements refreshed;
+        if (!eci_to_elements(r, v, refreshed)) {
+            return false;
+        }
+        el = refreshed;
     }
-    OrbitalElements refreshed;
-    if (!eci_to_elements(r, v, refreshed)) {
-        return false;
-    }
-    el = refreshed;
+
     return true;
+}
+
+AdaptivePropagationResult propagate_adaptive(Vec3& r,
+                                             Vec3& v,
+                                             OrbitalElements& el,
+                                             double dt_s) noexcept
+{
+    AdaptivePropagationResult out;
+    const PropagationDecision mode = choose_propagation_mode(dt_s, el);
+
+    if (mode.use_rk4) {
+        out.used_rk4 = true;
+        out.ok = propagate_rk4_j2(r, v, dt_s);
+        if (out.ok) {
+            out.ok = eci_to_elements(r, v, el);
+        }
+        return out;
+    }
+
+    // Low-risk fast lane: very small dt, low eccentricity, and comfortably
+    // above drag-sensitive altitudes.
+    const double perigee_alt_km = el.rp_km - R_EARTH_KM;
+    const bool low_risk_fast_lane =
+        (dt_s <= FAST_LANE_MAX_DT_S
+         && el.e <= FAST_LANE_MAX_E
+         && perigee_alt_km >= FAST_LANE_MIN_PERIGEE_ALT_KM)
+        ||
+        (dt_s <= FAST_LANE_EXT_MAX_DT_S
+         && el.e <= FAST_LANE_EXT_MAX_E
+         && perigee_alt_km >= FAST_LANE_EXT_MIN_PERIGEE_ALT_KM);
+
+    if (low_risk_fast_lane) {
+        if (propagate_fast_j2_kepler(r, v, el, dt_s)) {
+            out.ok = true;
+            out.used_rk4 = false;
+            return out;
+        }
+
+        out.used_rk4 = true;
+        out.escalated_after_probe = true;
+        out.ok = propagate_rk4_j2(r, v, dt_s);
+        if (out.ok) {
+            out.ok = eci_to_elements(r, v, el);
+        }
+        return out;
+    }
+
+    // Probe fast mode against a coarse RK4 prediction and escalate to full RK4
+    // when drift exceeds conservative safety thresholds.
+    Vec3 r_fast = r;
+    Vec3 v_fast = v;
+    OrbitalElements el_fast = el;
+    if (!propagate_fast_j2_kepler(r_fast, v_fast, el_fast, dt_s)) {
+        out.used_rk4 = true;
+        out.escalated_after_probe = true;
+        out.ok = propagate_rk4_j2(r, v, dt_s);
+        if (out.ok) {
+            out.ok = eci_to_elements(r, v, el);
+        }
+        return out;
+    }
+
+    Vec3 r_probe = r;
+    Vec3 v_probe = v;
+    if (!propagate_rk4_j2_substep(r_probe, v_probe, dt_s, PROBE_MAX_STEP_S)) {
+        // Probe failed; accept fast path to avoid throwing away progress.
+        r = r_fast;
+        v = v_fast;
+        el = el_fast;
+        out.ok = true;
+        out.used_rk4 = false;
+        return out;
+    }
+
+    const double dx = r_fast.x - r_probe.x;
+    const double dy = r_fast.y - r_probe.y;
+    const double dz = r_fast.z - r_probe.z;
+    const double drift_km = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const double dvx = v_fast.x - v_probe.x;
+    const double dvy = v_fast.y - v_probe.y;
+    const double dvz = v_fast.z - v_probe.z;
+    const double drift_kms = std::sqrt(dvx * dvx + dvy * dvy + dvz * dvz);
+    const double drift_ms = drift_kms * 1000.0;
+
+    if (drift_km < PROBE_POS_THRESH_KM && drift_ms < PROBE_VEL_THRESH_MS) {
+        r = r_fast;
+        v = v_fast;
+        el = el_fast;
+        out.ok = true;
+        out.used_rk4 = false;
+        return out;
+    }
+
+    out.used_rk4 = true;
+    out.escalated_after_probe = true;
+    out.ok = propagate_rk4_j2(r, v, dt_s);
+    if (out.ok) {
+        out.ok = eci_to_elements(r, v, el);
+    }
+    return out;
 }
 
 bool propagate_rk4_j2(Vec3& r,
                       Vec3& v,
                       double dt_s) noexcept
 {
-    const int steps = static_cast<int>(std::ceil(std::abs(dt_s) / 60.0));
+    return propagate_rk4_j2_substep(r, v, dt_s, 60.0);
+}
+
+bool propagate_rk4_j2_substep(Vec3& r,
+                              Vec3& v,
+                              double dt_s,
+                              double max_step_s) noexcept
+{
+    if (!(max_step_s > 0.0)) {
+        return false;
+    }
+    const int steps = static_cast<int>(std::ceil(std::abs(dt_s) / max_step_s));
     if (steps <= 0) return true;
     const double h = dt_s / static_cast<double>(steps);
 

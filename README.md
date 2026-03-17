@@ -61,6 +61,8 @@ Response schemas follow `PS.md`.
 | `POST` | `/api/simulate/step` | 200 | Advance simulation by N seconds |
 | `GET`  | `/api/visualization/snapshot` | 200 | Snapshot for frontend rendering |
 | `GET`  | `/api/status` | 200 | Engine health & tick count |
+| `GET`  | `/api/debug/conflicts` | 200 | Type-conflict diagnostics ring buffer |
+| `GET`  | `/api/debug/propagation` | 200 | Adaptive propagation usage counters |
 
 ---
 
@@ -82,6 +84,13 @@ sudo apt-get install -y build-essential cmake gcc-12 g++-12 git curl wget libboo
 rm -rf build
 CC=/usr/bin/gcc-12 CXX=/usr/bin/g++-12 cmake -S . -B build
 cmake --build build -j"$(nproc)"
+```
+
+Optional: build Phase 2 regression harness.
+
+```bash
+cmake --build build --target phase2_regression -j"$(nproc)"
+./build/phase2_regression 3000
 ```
 
 CMake will automatically:
@@ -125,6 +134,9 @@ The Dockerfile is structured for fast incremental rebuilds:
 ├── CMakeLists.txt          # Build system (C++20, FetchContent deps)
 ├── Dockerfile              # Single-container build & run
 ├── main.cpp                # API server entry point
+├── src/                    # Engine modules (state, telemetry, orbit math, propagation)
+├── tools/                  # Local dev tools (phase2_regression harness)
+├── docs/                   # Phase reports and implementation notes
 ├── PS.md                   # Authoritative problem statement (IIT Delhi)
 ├── ARCHITECTURE.md         # Internal architecture & dependency guide
 ├── README.md               # This file

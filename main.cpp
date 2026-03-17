@@ -9,6 +9,7 @@
 #include <shared_mutex>
 #include <cstdio>
 #include <vector>
+#include <cstdint>
 
 #include <jluna.hpp>
 #include <httplib.h>
@@ -27,6 +28,18 @@ static cascade::StateStore  g_store;
 static cascade::SimClock    g_clock;
 static std::shared_mutex    g_mutex;
 static std::atomic<int64_t> g_tick_count{0};
+
+struct PropagationStats {
+    std::uint64_t fast_last_tick = 0;
+    std::uint64_t rk4_last_tick = 0;
+    std::uint64_t escalated_last_tick = 0;
+
+    std::uint64_t fast_total = 0;
+    std::uint64_t rk4_total = 0;
+    std::uint64_t escalated_total = 0;
+};
+
+static PropagationStats g_prop_stats;
 
 static void set_error_json(httplib::Response& res,
                            int http_status,
@@ -139,6 +152,46 @@ static std::string build_conflicts_json(const cascade::StateStore& store)
     }
 
     out += "]}";
+    return out;
+}
+
+static std::string build_propagation_json(const cascade::StateStore& store,
+                                          const PropagationStats& stats)
+{
+    std::string out;
+    out.reserve(320);
+    out += "{\"status\":\"OK\",\"last_tick\":{";
+    out += "\"adaptive_fast\":";
+    out += std::to_string(stats.fast_last_tick);
+    out += ",\"adaptive_rk4\":";
+    out += std::to_string(stats.rk4_last_tick);
+    out += ",\"escalated_after_probe\":";
+    out += std::to_string(stats.escalated_last_tick);
+    out += ",\"failed_objects\":";
+    out += std::to_string(store.failed_last_tick());
+    out += "},\"totals\":{";
+    out += "\"adaptive_fast\":";
+    out += std::to_string(stats.fast_total);
+    out += ",\"adaptive_rk4\":";
+    out += std::to_string(stats.rk4_total);
+    out += ",\"escalated_after_probe\":";
+    out += std::to_string(stats.escalated_total);
+    out += ",\"failed_objects\":";
+    out += std::to_string(store.failed_propagation_total());
+    out += "},\"config\":{";
+    out += "\"mode_threshold_step_seconds\":21600,";
+    out += "\"mode_threshold_perigee_alt_km\":350.0,";
+    out += "\"mode_threshold_e\":0.98,";
+    out += "\"fast_lane_max_dt_s\":30.0,";
+    out += "\"fast_lane_max_e\":0.02,";
+    out += "\"fast_lane_min_perigee_alt_km\":500.0,";
+    out += "\"fast_lane_ext_max_dt_s\":45.0,";
+    out += "\"fast_lane_ext_max_e\":0.003,";
+    out += "\"fast_lane_ext_min_perigee_alt_km\":650.0,";
+    out += "\"probe_max_step_s\":120.0,";
+    out += "\"probe_pos_thresh_km\":0.5,";
+    out += "\"probe_vel_thresh_ms\":0.5";
+    out += "}}";
     return out;
 }
 
@@ -292,6 +345,9 @@ int main()
         const double step_s = static_cast<double>(step_s_i64);
         std::string new_ts;
         std::uint64_t failed = 0;
+        std::uint64_t used_fast = 0;
+        std::uint64_t used_rk4 = 0;
+        std::uint64_t escalated = 0;
 
         {
             std::unique_lock lock(g_mutex);
@@ -338,16 +394,11 @@ int main()
 
                 bool ok = true;
                 if (obj_dt > 0.0) {
-                    const cascade::PropagationDecision mode = cascade::choose_propagation_mode(obj_dt, el);
-                    if (!mode.use_rk4) {
-                        ok = cascade::propagate_fast_j2_kepler(r, v, el, obj_dt);
-                    }
-                    if (!ok || mode.use_rk4) {
-                        ok = cascade::propagate_rk4_j2(r, v, obj_dt);
-                        if (ok) {
-                            ok = cascade::eci_to_elements(r, v, el);
-                        }
-                    }
+                    cascade::AdaptivePropagationResult prop = cascade::propagate_adaptive(r, v, el, obj_dt);
+                    ok = prop.ok;
+                    if (prop.used_rk4) ++used_rk4;
+                    else ++used_fast;
+                    if (prop.escalated_after_probe) ++escalated;
                 }
 
                 if (!ok) {
@@ -367,6 +418,14 @@ int main()
             }
 
             g_store.set_failed_last_tick(failed);
+
+            g_prop_stats.fast_last_tick = used_fast;
+            g_prop_stats.rk4_last_tick = used_rk4;
+            g_prop_stats.escalated_last_tick = escalated;
+            g_prop_stats.fast_total += used_fast;
+            g_prop_stats.rk4_total += used_rk4;
+            g_prop_stats.escalated_total += escalated;
+
             g_clock.set_epoch_s(target_epoch);
             new_ts = g_clock.to_iso();
         }
@@ -428,6 +487,19 @@ int main()
         {
             std::shared_lock lock(g_mutex);
             out = build_conflicts_json(g_store);
+        }
+        res.status = 200;
+        res.set_content(out, "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/debug/propagation
+    // ------------------------------------------------------------------
+    svr.Get("/api/debug/propagation", [](const httplib::Request&, httplib::Response& res) {
+        std::string out;
+        {
+            std::shared_lock lock(g_mutex);
+            out = build_propagation_json(g_store, g_prop_stats);
         }
         res.status = 200;
         res.set_content(out, "application/json");
