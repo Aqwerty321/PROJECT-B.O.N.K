@@ -19,6 +19,7 @@
 #include <iomanip>
 #include <iostream>
 #include <random>
+#include <cstring>
 #include <vector>
 
 namespace {
@@ -69,6 +70,7 @@ int main(int argc, char** argv)
     int samples = 2000;
     double dt_min_s = 300.0;
     double dt_max_s = 86400.0;
+    bool strict_adaptive = false;
 
     if (argc >= 2) {
         samples = std::max(100, std::atoi(argv[1]));
@@ -78,6 +80,11 @@ int main(int argc, char** argv)
     }
     if (argc >= 4) {
         dt_max_s = std::atof(argv[3]);
+    }
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--strict-adaptive") == 0) {
+            strict_adaptive = true;
+        }
     }
     if (!(dt_min_s > 0.0) || !(dt_max_s > 0.0) || dt_max_s < dt_min_s) {
         std::cerr << "Invalid dt range. Usage: phase2_regression [samples] [dt_min_s] [dt_max_s]\n";
@@ -194,6 +201,7 @@ int main(int argc, char** argv)
     std::cout << "samples_skipped=" << skipped << "\n";
     std::cout << "dt_min_s=" << dt_min_s << "\n";
     std::cout << "dt_max_s=" << dt_max_s << "\n";
+    std::cout << "strict_adaptive_mode=" << (strict_adaptive ? "true" : "false") << "\n";
 
     std::cout << "adaptive_used_fast=" << adaptive_used_fast << "\n";
     std::cout << "adaptive_used_rk4=" << adaptive_used_rk4 << "\n";
@@ -224,6 +232,8 @@ int main(int argc, char** argv)
     std::cout << "adaptive_target_pos_le_1km=" << (pass_adapt_pos ? "PASS" : "FAIL") << "\n";
     std::cout << "adaptive_target_vel_le_1ms=" << (pass_adapt_vel ? "PASS" : "FAIL") << "\n";
 
-    // Keep harness non-failing so it can be used as an observational tool.
+    if (strict_adaptive && (!pass_adapt_pos || !pass_adapt_vel)) {
+        return 2;
+    }
     return 0;
 }

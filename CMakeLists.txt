@@ -304,6 +304,7 @@ endif()
 # ===================================================================
 add_executable(ProjectBONK
     main.cpp
+    src/broad_phase.cpp
     src/state_store.cpp
     src/telemetry.cpp
     src/sim_clock.cpp
@@ -352,11 +353,19 @@ target_compile_options(phase2_regression PRIVATE
     -DNDEBUG
 )
 
+add_custom_target(phase2_regression_gate
+    COMMAND "$<TARGET_FILE:phase2_regression>" 3000 300 86400 --strict-adaptive
+    COMMAND "$<TARGET_FILE:phase2_regression>" 3000 1 120 --strict-adaptive
+    DEPENDS phase2_regression
+    USES_TERMINAL
+)
+
 # ===================================================================
 # Phase 3 tick benchmark harness
 # ===================================================================
 add_executable(phase3_tick_benchmark
     tools/phase3_tick_benchmark.cpp
+    src/broad_phase.cpp
     src/state_store.cpp
     src/sim_clock.cpp
     src/orbit_math.cpp

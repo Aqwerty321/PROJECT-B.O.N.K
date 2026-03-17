@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 #include "simulation_engine.hpp"
 
+#include "broad_phase.hpp"
 #include "orbit_math.hpp"
 #include "propagator.hpp"
 
@@ -20,6 +21,15 @@ bool run_simulation_step(StateStore& store,
 
     const double target_epoch = clock.epoch_s() + step_seconds;
     out.target_epoch_s = target_epoch;
+
+    // Conservative broad-phase candidate generation. This is currently used
+    // for diagnostics and performance accounting; narrow-phase integration is
+    // introduced in later phases.
+    const BroadPhaseResult broad = generate_broad_phase_candidates(store);
+    out.broad_pairs_considered = broad.pairs_considered;
+    out.broad_candidates = static_cast<std::uint64_t>(broad.candidates.size());
+    out.broad_shell_overlap_pass = broad.shell_overlap_pass;
+    out.broad_shell_margin_km = broad.shell_margin_km;
 
     for (std::size_t i = 0; i < store.size(); ++i) {
         Vec3 r{store.rx(i), store.ry(i), store.rz(i)};

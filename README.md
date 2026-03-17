@@ -93,6 +93,14 @@ cmake --build build --target phase2_regression -j"$(nproc)"
 ./build/phase2_regression 3000
 ```
 
+Hard-fail adaptive regression gate:
+
+```bash
+cmake --build build --target phase2_regression_gate
+# or
+./scripts/phase2_regression_gate.sh
+```
+
 Optional: build and run Phase 3 synthetic tick benchmark.
 
 ```bash

@@ -32,6 +32,7 @@ This document explains **what** to build, **why** each dependency exists, and **
 **Primary goals**
 
 * Correctly detect conjunctions (≤ 0.100 km) across arbitrary `step_seconds` (seconds → days) with **zero false negatives** in tests.
+* **Safety policy**: false negatives are catastrophic and always worse than false positives. Prefer conservative over-inclusion if there is uncertainty.
 * Minimize expensive checks (MOID / RK4) through multi-stage filtering: orbital-element filters, D-criterion, concentric shells, phase/torus screening.
 * Provide deterministic maneuver scheduling that respects constraints: max Δv (15 m/s per burn), 600s cooldown, fuel limits, mandatory graveyard rules.
 * Deliver a compelling frontend demo (slick CASCADE dashboard) with boot animation, rotor indicator, motion trails, TCA ripple rings, and cascade propagation simulation.
@@ -307,6 +308,7 @@ Keep components small and deterministic. Responsibilities:
 ## Filtering pipeline (guarantees)
 
 * **Concentric shell overlap**: r_min = a(1−e); r_max = a(1+e). Overlap test must expand by 0.100 km + safety margin. Demonstrate mathematically zero false negatives for shell test (when r_min and r_max are correct for time window).
+* **Conservative gating rule**: whenever a cheap filter is uncertain, keep the pair and pay more math in narrow phase. Never reject on an under-constrained estimate.
 * **D-criterion** (Southworth–Hawkins or Drummond) used to discard unrelated orbits cheaply.
 * **Phase/torus check**: linear congruences in angle-space to reject pairs that cannot arrive simultaneously.
 * **Analytic TCA**: relative motion closed-form for small-window passes (project relative velocity).
@@ -335,6 +337,7 @@ Keep components small and deterministic. Responsibilities:
 **Target scale (hackathon)**
 
 * 50 satellites + 10,000 debris at tick-time: full end-to-end response ≤ 100 ms median (goal) under normal loads; 99th percentile ≤ 500 ms. (These numbers are achievable with filtering cascade.)
+* Performance is secondary to safety: spending extra compute to avoid a potential false negative is always acceptable.
 
 **Profiling & tests**
 

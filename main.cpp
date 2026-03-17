@@ -33,9 +33,18 @@ struct PropagationStats {
     std::uint64_t rk4_last_tick = 0;
     std::uint64_t escalated_last_tick = 0;
 
+    std::uint64_t broad_pairs_last_tick = 0;
+    std::uint64_t broad_candidates_last_tick = 0;
+    std::uint64_t broad_overlap_pass_last_tick = 0;
+    double broad_shell_margin_km_last_tick = 0.0;
+
     std::uint64_t fast_total = 0;
     std::uint64_t rk4_total = 0;
     std::uint64_t escalated_total = 0;
+
+    std::uint64_t broad_pairs_total = 0;
+    std::uint64_t broad_candidates_total = 0;
+    std::uint64_t broad_overlap_pass_total = 0;
 };
 
 static PropagationStats g_prop_stats;
@@ -168,6 +177,14 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.escalated_last_tick);
     out += ",\"failed_objects\":";
     out += std::to_string(store.failed_last_tick());
+    out += ",\"broad_pairs_considered\":";
+    out += std::to_string(stats.broad_pairs_last_tick);
+    out += ",\"broad_candidates\":";
+    out += std::to_string(stats.broad_candidates_last_tick);
+    out += ",\"broad_shell_overlap_pass\":";
+    out += std::to_string(stats.broad_overlap_pass_last_tick);
+    out += ",\"broad_shell_margin_km\":";
+    out += cascade::fmt_double(stats.broad_shell_margin_km_last_tick, 3);
     out += "},\"totals\":{";
     out += "\"adaptive_fast\":";
     out += std::to_string(stats.fast_total);
@@ -177,6 +194,12 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.escalated_total);
     out += ",\"failed_objects\":";
     out += std::to_string(store.failed_propagation_total());
+    out += ",\"broad_pairs_considered\":";
+    out += std::to_string(stats.broad_pairs_total);
+    out += ",\"broad_candidates\":";
+    out += std::to_string(stats.broad_candidates_total);
+    out += ",\"broad_shell_overlap_pass\":";
+    out += std::to_string(stats.broad_overlap_pass_total);
     out += "},\"config\":{";
     out += "\"mode_threshold_step_seconds\":21600,";
     out += "\"mode_threshold_perigee_alt_km\":350.0,";
@@ -362,9 +385,17 @@ int main()
             g_prop_stats.fast_last_tick = stats.used_fast;
             g_prop_stats.rk4_last_tick = stats.used_rk4;
             g_prop_stats.escalated_last_tick = stats.escalated_after_probe;
+            g_prop_stats.broad_pairs_last_tick = stats.broad_pairs_considered;
+            g_prop_stats.broad_candidates_last_tick = stats.broad_candidates;
+            g_prop_stats.broad_overlap_pass_last_tick = stats.broad_shell_overlap_pass;
+            g_prop_stats.broad_shell_margin_km_last_tick = stats.broad_shell_margin_km;
+
             g_prop_stats.fast_total += stats.used_fast;
             g_prop_stats.rk4_total += stats.used_rk4;
             g_prop_stats.escalated_total += stats.escalated_after_probe;
+            g_prop_stats.broad_pairs_total += stats.broad_pairs_considered;
+            g_prop_stats.broad_candidates_total += stats.broad_candidates;
+            g_prop_stats.broad_overlap_pass_total += stats.broad_shell_overlap_pass;
 
             new_ts = g_clock.to_iso();
         }

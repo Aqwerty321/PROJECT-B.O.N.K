@@ -1,4 +1,4 @@
-# CASCADE Phase 2 Implementation Report
+# CASCADE Phase 2 / 2.1 Implementation Report
 
 Date: 2026-03-17
 
@@ -6,6 +6,14 @@ Date: 2026-03-17
 
 Phase 2 delivered API hardening, conflict observability, orbital mechanics core,
 and adaptive propagation wiring in `POST /api/simulate/step`.
+
+Phase 2.1 closed the loop with conservative adaptive tuning, diagnostics, and
+regression workflows.
+
+Safety principle enforced throughout this phase:
+
+- collision false negatives are strictly worse than false positives
+- when uncertain, keep candidates and pay extra math in later stages
 
 ## Architectural decisions implemented
 
@@ -205,6 +213,8 @@ timesteps while retaining strict accuracy gates.
 Local checks run successfully:
 
 - `cmake --build build --target ProjectBONK`
+- `cmake --build build --target phase2_regression_gate`
+- `./scripts/phase2_regression_gate.sh`
 - endpoint smoke tests covering:
   - pre-telemetry simulate rejection
   - mixed valid/invalid telemetry
@@ -213,8 +223,13 @@ Local checks run successfully:
   - normal simulation step flow
   - JSON escaping correctness in snapshot payloads
 
-## Next steps (Phase 2.1)
+## Handoff to Phase 3
 
-- reduce RK4 utilization while preserving 1 km / 1 m/s adaptive gate
-- introduce targeted fast-path improvements for low-e, low-dt objects
-- add deterministic regression thresholds and perf envelopes in CI
+- `src/simulation_engine.cpp` now owns step execution orchestration
+- phase3 benchmark target measures tick latency at 50 + 10000 object scale
+- next build block: conservative broad-phase candidate generation feeding
+  future narrow-phase collision checks
+
+Tracking note:
+
+- this file is committed and tracked in git as `docs/PHASE 2.md`

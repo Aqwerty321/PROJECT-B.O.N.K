@@ -143,6 +143,9 @@ int main(int argc, char** argv)
     std::uint64_t sum_rk4 = 0;
     std::uint64_t sum_esc = 0;
     std::uint64_t sum_failed = 0;
+    std::uint64_t sum_broad_pairs = 0;
+    std::uint64_t sum_broad_candidates = 0;
+    std::uint64_t sum_broad_overlap = 0;
 
     const int total_ticks = warmup_ticks + measure_ticks;
     for (int t = 0; t < total_ticks; ++t) {
@@ -164,6 +167,9 @@ int main(int argc, char** argv)
             sum_rk4 += stats.used_rk4;
             sum_esc += stats.escalated_after_probe;
             sum_failed += stats.failed_objects;
+            sum_broad_pairs += stats.broad_pairs_considered;
+            sum_broad_candidates += stats.broad_candidates;
+            sum_broad_overlap += stats.broad_shell_overlap_pass;
         }
     }
 
@@ -186,6 +192,9 @@ int main(int argc, char** argv)
     std::cout << "adaptive_rk4_total=" << sum_rk4 << "\n";
     std::cout << "escalated_after_probe_total=" << sum_esc << "\n";
     std::cout << "failed_objects_total=" << sum_failed << "\n";
+    std::cout << "broad_pairs_considered_total=" << sum_broad_pairs << "\n";
+    std::cout << "broad_candidates_total=" << sum_broad_candidates << "\n";
+    std::cout << "broad_shell_overlap_pass_total=" << sum_broad_overlap << "\n";
 
     return 0;
 }
