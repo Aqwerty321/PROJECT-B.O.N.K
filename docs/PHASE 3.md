@@ -44,10 +44,12 @@ Observed:
 - objects: `10050` (`50` satellites + `10000` debris)
 - step: `30s`
 - mean tick: `~6.9 ms`
-- median tick: `~6.9 ms`
-- p95 tick: `~7.6 ms`
+- median tick: `~6.8 ms`
+- p95 tick: `~7.7 ms`
 - broad-phase counters available from engine stats (`pairs considered`,
   `shell-overlap candidates`)
+- narrow-phase now consumes broad-phase candidates and populates
+  `collisions_detected` in step responses
 
 ### Stress step
 
@@ -65,8 +67,8 @@ Observed:
 
 - integrate per-tick arena allocation strategy
 - expose structured tick stats in `/api/status` (without breaking PS schema)
-- add orbital-band indexing and D-criterion stage before shell overlap
-- connect broad-phase candidate list into Phase 4 narrow-phase pipeline
+- map collision detections to maneuver executor outputs
+- move from instantaneous threshold checks to TCA-window narrow-phase
 
 ## Offline tuner scaffold
 
@@ -91,6 +93,19 @@ Latest gate snapshot:
 
 - adaptive gate: PASS on both configured sweeps
 - broad-phase sanity gate: PASS (`missing_vs_shell_baseline_total = 0`)
+
+Latest integration snapshot:
+
+- `/api/simulate/step` now reports non-placeholder `collisions_detected`
+  from narrow-phase candidate checks (smoke scenario with co-located sat/debris:
+  `collisions_detected=1`)
+- `/api/debug/propagation` now includes narrow-phase counters:
+  `narrow_pairs_checked`, `collisions_detected`, `maneuvers_executed`
+
+Current status note:
+
+- `maneuvers_executed` remains `0` until maneuver execution integration is
+  completed in Phase 4
 
 Latest tuner snapshot (`240 50 10000 3 2`):
 

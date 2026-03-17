@@ -23,21 +23,6 @@ bool run_simulation_step(StateStore& store,
     const double target_epoch = clock.epoch_s() + step_seconds;
     out.target_epoch_s = target_epoch;
 
-    // Conservative broad-phase candidate generation. This is currently used
-    // for diagnostics and performance accounting; narrow-phase integration is
-    // introduced in later phases.
-    const BroadPhaseResult broad = generate_broad_phase_candidates(store, cfg.broad_phase);
-    out.broad_pairs_considered = broad.pairs_considered;
-    out.broad_candidates = static_cast<std::uint64_t>(broad.candidates.size());
-    out.broad_shell_overlap_pass = broad.shell_overlap_pass;
-    out.broad_dcriterion_rejected = broad.dcriterion_rejected;
-    out.broad_fail_open_objects = broad.fail_open_objects;
-    out.broad_fail_open_satellites = broad.fail_open_satellites;
-    out.broad_shell_margin_km = broad.shell_margin_km;
-    out.broad_dcriterion_enabled = cfg.broad_phase.enable_dcriterion;
-    out.broad_a_bin_width_km = cfg.broad_phase.a_bin_width_km;
-    out.broad_band_neighbor_bins = cfg.broad_phase.band_neighbor_bins;
-
     for (std::size_t i = 0; i < store.size(); ++i) {
         Vec3 r{store.rx(i), store.ry(i), store.rz(i)};
         Vec3 v{store.vx(i), store.vy(i), store.vz(i)};
@@ -93,6 +78,66 @@ bool run_simulation_step(StateStore& store,
         store.set_telemetry_epoch_s(i, applied_epoch);
         store.set_elements(i, el, true);
         ++out.propagated_objects;
+    }
+
+    // Conservative broad-phase candidate generation at the target epoch.
+    const BroadPhaseResult broad = generate_broad_phase_candidates(store, cfg.broad_phase);
+    out.broad_pairs_considered = broad.pairs_considered;
+    out.broad_candidates = static_cast<std::uint64_t>(broad.candidates.size());
+    out.broad_shell_overlap_pass = broad.shell_overlap_pass;
+    out.broad_dcriterion_rejected = broad.dcriterion_rejected;
+    out.broad_fail_open_objects = broad.fail_open_objects;
+    out.broad_fail_open_satellites = broad.fail_open_satellites;
+    out.broad_shell_margin_km = broad.shell_margin_km;
+    out.broad_dcriterion_enabled = cfg.broad_phase.enable_dcriterion;
+    out.broad_a_bin_width_km = cfg.broad_phase.a_bin_width_km;
+    out.broad_band_neighbor_bins = cfg.broad_phase.band_neighbor_bins;
+
+    // Conservative narrow-phase sweep at target epoch.
+    const double collision_threshold_sq = COLLISION_THRESHOLD_KM * COLLISION_THRESHOLD_KM;
+
+    // If propagation failed for any object this tick, fall back to full
+    // SATELLITE-vs-DEBRIS scan to avoid relying on broad-phase filtering.
+    if (out.failed_objects == 0) {
+        for (const BroadPhasePair& pair : broad.candidates) {
+            const std::size_t sat_idx = static_cast<std::size_t>(pair.sat_idx);
+            const std::size_t obj_idx = static_cast<std::size_t>(pair.obj_idx);
+            if (sat_idx >= store.size() || obj_idx >= store.size()) continue;
+            if (store.type(sat_idx) != ObjectType::SATELLITE) continue;
+            if (store.type(obj_idx) != ObjectType::DEBRIS) continue;
+
+            ++out.narrow_pairs_checked;
+
+            const double dx = store.rx(sat_idx) - store.rx(obj_idx);
+            const double dy = store.ry(sat_idx) - store.ry(obj_idx);
+            const double dz = store.rz(sat_idx) - store.rz(obj_idx);
+            const double d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < collision_threshold_sq) {
+                ++out.collisions_detected;
+            }
+        }
+    } else {
+        for (std::size_t i = 0; i < store.size(); ++i) {
+            if (store.type(i) != ObjectType::SATELLITE) continue;
+
+            const double sx = store.rx(i);
+            const double sy = store.ry(i);
+            const double sz = store.rz(i);
+
+            for (std::size_t j = 0; j < store.size(); ++j) {
+                if (store.type(j) != ObjectType::DEBRIS) continue;
+
+                ++out.narrow_pairs_checked;
+
+                const double dx = sx - store.rx(j);
+                const double dy = sy - store.ry(j);
+                const double dz = sz - store.rz(j);
+                const double d2 = dx * dx + dy * dy + dz * dz;
+                if (d2 < collision_threshold_sq) {
+                    ++out.collisions_detected;
+                }
+            }
+        }
     }
 
     store.set_failed_last_tick(out.failed_objects);

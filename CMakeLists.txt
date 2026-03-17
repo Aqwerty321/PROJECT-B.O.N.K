@@ -46,6 +46,9 @@ set(PROJECTBONK_JULIA_INSTALL_ROOT "${CMAKE_BINARY_DIR}/_deps/julia" CACHE PATH
     "Directory used for automatic Julia download")
 
 include(FetchContent)
+include(CTest)
+
+set(PROJECTBONK_TOPLEVEL_BUILD_TESTING "${BUILD_TESTING}")
 
 # ---------------------------------------------------------------------------
 # jluna .src symlink helper (unchanged from previous working version)
@@ -258,6 +261,10 @@ if(NOT jluna_FOUND)
         endif()
     endif()
 
+    # Disable third-party tests while configuring jluna, then restore
+    # top-level BUILD_TESTING for ProjectBONK tests.
+    set(BUILD_TESTING OFF CACHE BOOL "Disable third-party tests" FORCE)
+
     if(JLUNA_DIR)
         message(STATUS
             "jluna not found via find_package(); using source directory "
@@ -267,7 +274,6 @@ if(NOT jluna_FOUND)
     else()
         message(STATUS
             "jluna not found via find_package(); fetching from source")
-        set(BUILD_TESTING OFF CACHE BOOL "Disable third-party tests" FORCE)
         set(jluna_DEVELOPER_MODE OFF CACHE BOOL
             "Disable jluna developer mode" FORCE)
         FetchContent_Declare(
@@ -283,6 +289,9 @@ if(NOT jluna_FOUND)
         projectbonk_prepare_jluna_shim("${jluna_SOURCE_DIR}")
         add_subdirectory("${jluna_SOURCE_DIR}" "${jluna_BINARY_DIR}")
     endif()
+
+    set(BUILD_TESTING "${PROJECTBONK_TOPLEVEL_BUILD_TESTING}" CACHE BOOL
+        "Enable project tests" FORCE)
 
     if(TARGET jluna AND NOT TARGET jluna::jluna)
         add_library(jluna::jluna ALIAS jluna)
@@ -424,3 +433,18 @@ target_compile_options(offline_multiobjective_tuner PRIVATE
     -O3
     -DNDEBUG
 )
+
+if(BUILD_TESTING)
+    add_test(
+        NAME phase2_regression_gate_test
+        COMMAND "$<TARGET_FILE:phase2_regression>" 3000 300 86400 --strict-adaptive
+    )
+    add_test(
+        NAME phase2_regression_gate_short_step_test
+        COMMAND "$<TARGET_FILE:phase2_regression>" 3000 1 120 --strict-adaptive
+    )
+    add_test(
+        NAME broad_phase_sanity_gate_test
+        COMMAND "$<TARGET_FILE:broad_phase_validation>" 3 50 10000 1
+    )
+endif()

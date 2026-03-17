@@ -109,6 +109,13 @@ cmake --build build --target broad_phase_sanity_gate
 ./scripts/broad_phase_sanity_gate.sh
 ```
 
+Optional: run CTest safety suite.
+
+```bash
+cmake -S . -B build -DBUILD_TESTING=ON
+ctest --test-dir build --output-on-failure
+```
+
 Optional: build and run Phase 3 synthetic tick benchmark.
 
 ```bash

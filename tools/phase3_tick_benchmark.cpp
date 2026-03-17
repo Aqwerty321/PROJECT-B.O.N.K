@@ -142,17 +142,22 @@ int main(int argc, char** argv)
     std::uint64_t sum_fast = 0;
     std::uint64_t sum_rk4 = 0;
     std::uint64_t sum_esc = 0;
+    std::uint64_t sum_narrow_pairs = 0;
+    std::uint64_t sum_collisions = 0;
+    std::uint64_t sum_maneuvers = 0;
     std::uint64_t sum_failed = 0;
     std::uint64_t sum_broad_pairs = 0;
     std::uint64_t sum_broad_candidates = 0;
     std::uint64_t sum_broad_overlap = 0;
+
+    const cascade::StepRunConfig cfg{};
 
     const int total_ticks = warmup_ticks + measure_ticks;
     for (int t = 0; t < total_ticks; ++t) {
         cascade::StepRunStats stats{};
 
         auto t0 = std::chrono::steady_clock::now();
-        const bool ok = cascade::run_simulation_step(store, clock, step_seconds, stats);
+        const bool ok = cascade::run_simulation_step(store, clock, step_seconds, stats, cfg);
         auto t1 = std::chrono::steady_clock::now();
         if (!ok) {
             std::cerr << "run_simulation_step failed\n";
@@ -166,6 +171,9 @@ int main(int argc, char** argv)
             sum_fast += stats.used_fast;
             sum_rk4 += stats.used_rk4;
             sum_esc += stats.escalated_after_probe;
+            sum_narrow_pairs += stats.narrow_pairs_checked;
+            sum_collisions += stats.collisions_detected;
+            sum_maneuvers += stats.maneuvers_executed;
             sum_failed += stats.failed_objects;
             sum_broad_pairs += stats.broad_pairs_considered;
             sum_broad_candidates += stats.broad_candidates;
@@ -191,6 +199,9 @@ int main(int argc, char** argv)
     std::cout << "adaptive_fast_total=" << sum_fast << "\n";
     std::cout << "adaptive_rk4_total=" << sum_rk4 << "\n";
     std::cout << "escalated_after_probe_total=" << sum_esc << "\n";
+    std::cout << "narrow_pairs_checked_total=" << sum_narrow_pairs << "\n";
+    std::cout << "collisions_detected_total=" << sum_collisions << "\n";
+    std::cout << "maneuvers_executed_total=" << sum_maneuvers << "\n";
     std::cout << "failed_objects_total=" << sum_failed << "\n";
     std::cout << "broad_pairs_considered_total=" << sum_broad_pairs << "\n";
     std::cout << "broad_candidates_total=" << sum_broad_candidates << "\n";

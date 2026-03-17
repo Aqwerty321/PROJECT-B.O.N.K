@@ -18,6 +18,11 @@ struct StepRunStats {
     std::uint64_t used_rk4 = 0;
     std::uint64_t escalated_after_probe = 0;
 
+    // Narrow-phase collision sweep (satellite vs debris at target epoch)
+    std::uint64_t narrow_pairs_checked = 0;
+    std::uint64_t collisions_detected = 0;
+    std::uint64_t maneuvers_executed = 0;
+
     // Broad-phase (conservative shell overlap)
     std::uint64_t broad_pairs_considered = 0;
     std::uint64_t broad_candidates = 0;
