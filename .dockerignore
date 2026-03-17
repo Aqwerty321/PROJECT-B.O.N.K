@@ -18,6 +18,9 @@ compile_commands.json
 .idea/
 .tmp-jluna/
 
+# jluna .src symlink (local build artifact)
+.src
+
 # Binary artifacts
 *.o
 *.obj
