@@ -5,6 +5,7 @@
 
 #include "state_store.hpp"
 #include "sim_clock.hpp"
+#include "broad_phase.hpp"
 
 #include <cstdint>
 
@@ -25,8 +26,15 @@ struct StepRunStats {
     std::uint64_t broad_fail_open_objects = 0;
     std::uint64_t broad_fail_open_satellites = 0;
     double broad_shell_margin_km = 0.0;
+    bool broad_dcriterion_enabled = false;
+    double broad_a_bin_width_km = 0.0;
+    int broad_band_neighbor_bins = 0;
 
     double target_epoch_s = 0.0;
+};
+
+struct StepRunConfig {
+    BroadPhaseConfig broad_phase{};
 };
 
 // Runs one simulation step with adaptive propagation.
@@ -34,6 +42,7 @@ struct StepRunStats {
 bool run_simulation_step(StateStore& store,
                          SimClock& clock,
                          double step_seconds,
-                         StepRunStats& out) noexcept;
+                         StepRunStats& out,
+                         const StepRunConfig& cfg = StepRunConfig{}) noexcept;
 
 } // namespace cascade

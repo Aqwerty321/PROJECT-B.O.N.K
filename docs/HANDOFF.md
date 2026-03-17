@@ -54,8 +54,16 @@ Date: 2026-03-17
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target ProjectBONK phase2_regression phase2_regression_gate broad_phase_validation broad_phase_sanity_gate phase3_tick_benchmark offline_multiobjective_tuner -j"$(nproc)"
+cmake --build build --target ProjectBONK
+cmake --build build --target phase2_regression_gate
+cmake --build build --target broad_phase_sanity_gate
+cmake --build build --target phase3_tick_benchmark
+cmake --build build --target offline_multiobjective_tuner
 ```
+
+Note: this environment intermittently reports "No rule to make target" on some
+multi-target invocations even when targets exist; separate target builds are
+used in runbooks and CI for reliability.
 
 ### Mandatory safety gate
 
@@ -86,16 +94,37 @@ cmake --build build --target broad_phase_sanity_gate
 ./build/offline_multiobjective_tuner 240 50 10000 3 2
 ```
 
+## PS completeness matrix
+
+| Endpoint | PS requires | Current status | Gap | Next task |
+|---|---|---|---|---|
+| `POST /api/telemetry` | strict ingest + ACK counters | implemented | no payload-level quality metrics in response | keep response PS-clean, expose extra diagnostics only in debug |
+| `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | collisions/maneuvers still placeholder values | wire narrow-phase + maneuver executor outputs |
+| `POST /api/maneuver/schedule` | validation incl LOS/fuel/cooldown | partial | LOS/cooldown not fully enforced yet | integrate scheduler + station visibility model |
+| `GET /api/visualization/snapshot` | geodetic satellite/debris visualization fields | partial | lat/lon/alt still placeholders | add ECI->geodetic conversion path |
+| `GET /api/status` | health/tick/object counters | implemented | no queue/narrow-phase stats yet | add internal metrics expansion without schema drift |
+
 ## Phase 4 readiness checklist
 
-- [ ] adaptive regression gate stays green (`strict_adaptive`)
-- [ ] broad-phase counters exposed and stable under smoke scenarios
+- [x] adaptive regression gate stays green (`strict_adaptive`)
+- [x] broad-phase counters exposed and stable under smoke scenarios
 - [x] broad-phase validation harness confirms indexed path does not miss shell baseline pairs
-- [ ] candidate reduction is measurable without violating safety policy
-- [ ] handoff docs updated with exact commands/results used for acceptance
+- [x] candidate reduction is measurable without violating safety policy
+- [x] handoff docs updated with exact commands/results used for acceptance
 
 ## Known open items before full Phase 4 integration
 
 - narrow-phase confirmation pipeline not yet wired to broad-phase candidate list
 - D-criterion is intentionally conservative; tune only through offline path
 - CI now enforces both adaptive regression gate and broad-phase sanity gate
+
+## Latest acceptance outputs
+
+- `phase2_regression_gate`: PASS (both sweeps in strict adaptive mode)
+- `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`,
+  `dcriterion_rejected_total=0`)
+- `phase3_tick_benchmark 50 10000 30`:
+  mean `6.890 ms`, median `6.915 ms`, p95 `7.604 ms`
+- `offline_multiobjective_tuner 240 50 10000 3 2`:
+  strict-zero-risk enabled, disqualified `43`, safe population `197`, pareto
+  set `3`

@@ -29,8 +29,9 @@ struct BroadPhaseConfig {
     double high_e_fail_open = 0.2;
 
     // Conservative D-criterion gate (only used when both elements are valid
-    // and below high_e_fail_open). Large threshold to avoid false negatives.
-    bool enable_dcriterion = true;
+    // and below high_e_fail_open). Disabled by default in runtime until
+    // narrow-phase integration is complete.
+    bool enable_dcriterion = false;
     double dcriterion_threshold = 2.0;
 };
 

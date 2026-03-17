@@ -43,8 +43,9 @@ Observed:
 
 - objects: `10050` (`50` satellites + `10000` debris)
 - step: `30s`
-- median tick: `~4.0 ms`
-- p95 tick: `~4.3 ms`
+- mean tick: `~6.9 ms`
+- median tick: `~6.9 ms`
+- p95 tick: `~7.6 ms`
 - broad-phase counters available from engine stats (`pairs considered`,
   `shell-overlap candidates`)
 
@@ -83,3 +84,17 @@ Observed:
 - `phase2_regression_gate` (strict adaptive propagation)
 - `broad_phase_sanity_gate` (indexed broad-phase vs shell baseline)
 - CI workflow runs both gates on push/PR
+- runtime broad-phase keeps D-criterion disabled by default until Phase 4
+  narrow-phase integration proves no-FN behavior end-to-end
+
+Latest gate snapshot:
+
+- adaptive gate: PASS on both configured sweeps
+- broad-phase sanity gate: PASS (`missing_vs_shell_baseline_total = 0`)
+
+Latest tuner snapshot (`240 50 10000 3 2`):
+
+- strict-zero-risk: enabled
+- disqualified non-zero-risk candidates: `43`
+- safe population: `197`
+- pareto set size: `3`

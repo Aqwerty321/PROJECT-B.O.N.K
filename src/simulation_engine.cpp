@@ -12,7 +12,8 @@ namespace cascade {
 bool run_simulation_step(StateStore& store,
                          SimClock& clock,
                          double step_seconds,
-                         StepRunStats& out) noexcept
+                         StepRunStats& out,
+                         const StepRunConfig& cfg) noexcept
 {
     out = StepRunStats{};
     if (!clock.is_initialized() || !(step_seconds > 0.0)) {
@@ -25,7 +26,7 @@ bool run_simulation_step(StateStore& store,
     // Conservative broad-phase candidate generation. This is currently used
     // for diagnostics and performance accounting; narrow-phase integration is
     // introduced in later phases.
-    const BroadPhaseResult broad = generate_broad_phase_candidates(store);
+    const BroadPhaseResult broad = generate_broad_phase_candidates(store, cfg.broad_phase);
     out.broad_pairs_considered = broad.pairs_considered;
     out.broad_candidates = static_cast<std::uint64_t>(broad.candidates.size());
     out.broad_shell_overlap_pass = broad.shell_overlap_pass;
@@ -33,6 +34,9 @@ bool run_simulation_step(StateStore& store,
     out.broad_fail_open_objects = broad.fail_open_objects;
     out.broad_fail_open_satellites = broad.fail_open_satellites;
     out.broad_shell_margin_km = broad.shell_margin_km;
+    out.broad_dcriterion_enabled = cfg.broad_phase.enable_dcriterion;
+    out.broad_a_bin_width_km = cfg.broad_phase.a_bin_width_km;
+    out.broad_band_neighbor_bins = cfg.broad_phase.band_neighbor_bins;
 
     for (std::size_t i = 0; i < store.size(); ++i) {
         Vec3 r{store.rx(i), store.ry(i), store.rz(i)};

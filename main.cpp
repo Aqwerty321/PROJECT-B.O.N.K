@@ -27,6 +27,18 @@ static cascade::StateStore  g_store;
 static cascade::SimClock    g_clock;
 static std::shared_mutex    g_mutex;
 static std::atomic<int64_t> g_tick_count{0};
+static cascade::StepRunConfig g_step_cfg = [] {
+    cascade::StepRunConfig cfg;
+    cfg.broad_phase.enable_dcriterion = false; // diagnostics-only until Phase 4
+    cfg.broad_phase.shell_margin_km = 50.0;
+    cfg.broad_phase.invalid_shell_pad_km = 200.0;
+    cfg.broad_phase.a_bin_width_km = 500.0;
+    cfg.broad_phase.i_bin_width_rad = 0.3490658503988659;
+    cfg.broad_phase.band_neighbor_bins = 2;
+    cfg.broad_phase.high_e_fail_open = 0.2;
+    cfg.broad_phase.dcriterion_threshold = 2.0;
+    return cfg;
+}();
 
 struct PropagationStats {
     std::uint64_t fast_last_tick = 0;
@@ -40,6 +52,9 @@ struct PropagationStats {
     std::uint64_t broad_fail_open_objects_last_tick = 0;
     std::uint64_t broad_fail_open_satellites_last_tick = 0;
     double broad_shell_margin_km_last_tick = 0.0;
+    bool broad_dcriterion_enabled_last_tick = false;
+    double broad_a_bin_width_km_last_tick = 0.0;
+    int broad_band_neighbor_bins_last_tick = 0;
 
     std::uint64_t fast_total = 0;
     std::uint64_t rk4_total = 0;
@@ -170,7 +185,8 @@ static std::string build_conflicts_json(const cascade::StateStore& store)
 }
 
 static std::string build_propagation_json(const cascade::StateStore& store,
-                                          const PropagationStats& stats)
+                                          const PropagationStats& stats,
+                                          const cascade::StepRunConfig& cfg)
 {
     std::string out;
     out.reserve(320);
@@ -197,6 +213,12 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.broad_fail_open_satellites_last_tick);
     out += ",\"broad_shell_margin_km\":";
     out += cascade::fmt_double(stats.broad_shell_margin_km_last_tick, 3);
+    out += ",\"broad_dcriterion_enabled\":";
+    out += (stats.broad_dcriterion_enabled_last_tick ? "true" : "false");
+    out += ",\"broad_a_bin_width_km\":";
+    out += cascade::fmt_double(stats.broad_a_bin_width_km_last_tick, 3);
+    out += ",\"broad_band_neighbor_bins\":";
+    out += std::to_string(stats.broad_band_neighbor_bins_last_tick);
     out += "},\"totals\":{";
     out += "\"adaptive_fast\":";
     out += std::to_string(stats.fast_total);
@@ -230,7 +252,23 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += "\"fast_lane_ext_min_perigee_alt_km\":650.0,";
     out += "\"probe_max_step_s\":120.0,";
     out += "\"probe_pos_thresh_km\":0.5,";
-    out += "\"probe_vel_thresh_ms\":0.5";
+    out += "\"probe_vel_thresh_ms\":0.5,";
+    out += "\"broad_shell_margin_km\":";
+    out += cascade::fmt_double(cfg.broad_phase.shell_margin_km, 3);
+    out += ",\"broad_invalid_shell_pad_km\":";
+    out += cascade::fmt_double(cfg.broad_phase.invalid_shell_pad_km, 3);
+    out += ",\"broad_a_bin_width_km\":";
+    out += cascade::fmt_double(cfg.broad_phase.a_bin_width_km, 3);
+    out += ",\"broad_i_bin_width_rad\":";
+    out += cascade::fmt_double(cfg.broad_phase.i_bin_width_rad, 6);
+    out += ",\"broad_band_neighbor_bins\":";
+    out += std::to_string(cfg.broad_phase.band_neighbor_bins);
+    out += ",\"broad_high_e_fail_open\":";
+    out += cascade::fmt_double(cfg.broad_phase.high_e_fail_open, 3);
+    out += ",\"broad_dcriterion_enabled\":";
+    out += (cfg.broad_phase.enable_dcriterion ? "true" : "false");
+    out += ",\"broad_dcriterion_threshold\":";
+    out += cascade::fmt_double(cfg.broad_phase.dcriterion_threshold, 3);
     out += "}}";
     return out;
 }
@@ -394,7 +432,7 @@ int main()
                 return;
             }
 
-            const bool ran = cascade::run_simulation_step(g_store, g_clock, step_s, stats);
+            const bool ran = cascade::run_simulation_step(g_store, g_clock, step_s, stats, g_step_cfg);
             if (!ran) {
                 set_error_json(res, 422, "SIM_STEP_REJECTED", "simulation step could not be executed");
                 return;
@@ -410,6 +448,9 @@ int main()
             g_prop_stats.broad_fail_open_objects_last_tick = stats.broad_fail_open_objects;
             g_prop_stats.broad_fail_open_satellites_last_tick = stats.broad_fail_open_satellites;
             g_prop_stats.broad_shell_margin_km_last_tick = stats.broad_shell_margin_km;
+            g_prop_stats.broad_dcriterion_enabled_last_tick = stats.broad_dcriterion_enabled;
+            g_prop_stats.broad_a_bin_width_km_last_tick = stats.broad_a_bin_width_km;
+            g_prop_stats.broad_band_neighbor_bins_last_tick = stats.broad_band_neighbor_bins;
 
             g_prop_stats.fast_total += stats.used_fast;
             g_prop_stats.rk4_total += stats.used_rk4;
@@ -493,7 +534,7 @@ int main()
         std::string out;
         {
             std::shared_lock lock(g_mutex);
-            out = build_propagation_json(g_store, g_prop_stats);
+            out = build_propagation_json(g_store, g_prop_stats, g_step_cfg);
         }
         res.status = 200;
         res.set_content(out, "application/json");
