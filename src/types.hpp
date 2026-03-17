@@ -1,0 +1,78 @@
+// ---------------------------------------------------------------------------
+// types.hpp — core type aliases, Vec3, ObjectType, physics/propulsion constants
+// ---------------------------------------------------------------------------
+#pragma once
+
+#include <cstdint>
+#include <cstddef>
+
+namespace cascade {
+
+// ---------------------------------------------------------------------------
+// Physics constants (SI-compatible, all distances in km, time in seconds)
+// ---------------------------------------------------------------------------
+inline constexpr double MU_KM3_S2          = 398600.4418;   // km³/s²
+inline constexpr double R_EARTH_KM         = 6378.137;      // km
+inline constexpr double J2                 = 1.08263e-3;    // dimensionless
+inline constexpr double G0_M_S2            = 9.80665;       // m/s²  (Tsiolkovsky)
+inline constexpr double G0_KM_S2           = G0_M_S2 * 1.0e-3; // km/s²
+
+// ---------------------------------------------------------------------------
+// Satellite propulsion constants (PS.md §5)
+// ---------------------------------------------------------------------------
+inline constexpr double SAT_DRY_MASS_KG        = 500.0;        // kg
+inline constexpr double SAT_INITIAL_FUEL_KG    = 50.0;         // kg
+inline constexpr double SAT_WET_MASS_KG        = SAT_DRY_MASS_KG + SAT_INITIAL_FUEL_KG;
+inline constexpr double SAT_ISP_S              = 300.0;        // s
+inline constexpr double SAT_MAX_DELTAV_KM_S    = 15.0e-3;      // km/s  (15 m/s)
+inline constexpr double SAT_COOLDOWN_S         = 600.0;        // s
+inline constexpr double SAT_FUEL_EOL_KG        = SAT_INITIAL_FUEL_KG * 0.05; // 2.5 kg guard
+
+// ---------------------------------------------------------------------------
+// Conjunction / collision threshold (PS.md §3)
+// ---------------------------------------------------------------------------
+inline constexpr double COLLISION_THRESHOLD_KM = 0.100;   // 100 m
+
+// ---------------------------------------------------------------------------
+// Pre-allocation capacity (50 sats + 10 000 debris + small margin)
+// ---------------------------------------------------------------------------
+inline constexpr std::size_t DEFAULT_CAPACITY  = 10'100;
+
+// ---------------------------------------------------------------------------
+// Object type
+// ---------------------------------------------------------------------------
+enum class ObjectType : uint8_t {
+    SATELLITE = 0,
+    DEBRIS    = 1
+};
+
+// ---------------------------------------------------------------------------
+// Satellite operational status
+// ---------------------------------------------------------------------------
+enum class SatStatus : uint8_t {
+    NOMINAL      = 0,
+    MANEUVERING  = 1,
+    FUEL_LOW     = 2,
+    OFFLINE      = 3
+};
+
+inline const char* sat_status_str(SatStatus s) noexcept {
+    switch (s) {
+        case SatStatus::NOMINAL:     return "NOMINAL";
+        case SatStatus::MANEUVERING: return "MANEUVERING";
+        case SatStatus::FUEL_LOW:    return "FUEL_LOW";
+        case SatStatus::OFFLINE:     return "OFFLINE";
+        default:                     return "UNKNOWN";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Minimal 3D vector used in API-layer code (hot path uses raw SoA arrays)
+// ---------------------------------------------------------------------------
+struct Vec3 {
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+} // namespace cascade

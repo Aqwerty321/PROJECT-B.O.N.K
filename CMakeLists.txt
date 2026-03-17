@@ -302,10 +302,20 @@ endif()
 # ===================================================================
 # Main executable
 # ===================================================================
-add_executable(ProjectBONK main.cpp)
+add_executable(ProjectBONK
+    main.cpp
+    src/state_store.cpp
+    src/telemetry.cpp
+    src/sim_clock.cpp
+)
 
 set_target_properties(ProjectBONK PROPERTIES
     BUILD_RPATH "${CMAKE_INSTALL_PREFIX}"
+)
+
+# Include src/ so headers can be included without path prefix
+target_include_directories(ProjectBONK PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
 )
 
 # Aggressive optimisation flags (no -march=native for cross-CPU compat)
