@@ -13,6 +13,7 @@ is no longer coupled to endpoint handler logic and can be benchmarked/reused.
 - Added `src/simulation_engine.cpp`
 - Added `src/broad_phase.hpp`
 - Added `src/broad_phase.cpp`
+- Added `tuner/offline_multiobjective_tuner.cpp` (offline scaffold)
 - Refactored `main.cpp` simulate endpoint to call `run_simulation_step(...)`
 - Added synthetic benchmark `tools/phase3_tick_benchmark.cpp`
 - Updated `CMakeLists.txt` with:
@@ -63,3 +64,13 @@ Observed:
 - expose structured tick stats in `/api/status` (without breaking PS schema)
 - add orbital-band indexing and D-criterion stage before shell overlap
 - connect broad-phase candidate list into Phase 4 narrow-phase pipeline
+
+## Offline tuner scaffold
+
+`offline_multiobjective_tuner` is intentionally separate from runtime path.
+
+- explores broad-phase config space
+- reports Pareto candidates minimizing:
+  - D-criterion rejection proxy (risk)
+  - pairs after band indexing (compute)
+  - candidate count (compute)

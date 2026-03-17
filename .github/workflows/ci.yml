@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-gate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            gcc-12 g++-12 \
+            libboost-all-dev \
+            git curl wget
+
+      - name: Configure
+        env:
+          CC: /usr/bin/gcc-12
+          CXX: /usr/bin/g++-12
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build project and regression gate
+        run: cmake --build build --target ProjectBONK phase2_regression_gate -j"$(nproc)"
+
+      - name: Run strict adaptive regression gate script
+        run: ./scripts/phase2_regression_gate.sh

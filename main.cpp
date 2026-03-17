@@ -36,6 +36,9 @@ struct PropagationStats {
     std::uint64_t broad_pairs_last_tick = 0;
     std::uint64_t broad_candidates_last_tick = 0;
     std::uint64_t broad_overlap_pass_last_tick = 0;
+    std::uint64_t broad_dcriterion_rejected_last_tick = 0;
+    std::uint64_t broad_fail_open_objects_last_tick = 0;
+    std::uint64_t broad_fail_open_satellites_last_tick = 0;
     double broad_shell_margin_km_last_tick = 0.0;
 
     std::uint64_t fast_total = 0;
@@ -45,6 +48,9 @@ struct PropagationStats {
     std::uint64_t broad_pairs_total = 0;
     std::uint64_t broad_candidates_total = 0;
     std::uint64_t broad_overlap_pass_total = 0;
+    std::uint64_t broad_dcriterion_rejected_total = 0;
+    std::uint64_t broad_fail_open_objects_total = 0;
+    std::uint64_t broad_fail_open_satellites_total = 0;
 };
 
 static PropagationStats g_prop_stats;
@@ -183,6 +189,12 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.broad_candidates_last_tick);
     out += ",\"broad_shell_overlap_pass\":";
     out += std::to_string(stats.broad_overlap_pass_last_tick);
+    out += ",\"broad_dcriterion_rejected\":";
+    out += std::to_string(stats.broad_dcriterion_rejected_last_tick);
+    out += ",\"broad_fail_open_objects\":";
+    out += std::to_string(stats.broad_fail_open_objects_last_tick);
+    out += ",\"broad_fail_open_satellites\":";
+    out += std::to_string(stats.broad_fail_open_satellites_last_tick);
     out += ",\"broad_shell_margin_km\":";
     out += cascade::fmt_double(stats.broad_shell_margin_km_last_tick, 3);
     out += "},\"totals\":{";
@@ -200,6 +212,12 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.broad_candidates_total);
     out += ",\"broad_shell_overlap_pass\":";
     out += std::to_string(stats.broad_overlap_pass_total);
+    out += ",\"broad_dcriterion_rejected\":";
+    out += std::to_string(stats.broad_dcriterion_rejected_total);
+    out += ",\"broad_fail_open_objects\":";
+    out += std::to_string(stats.broad_fail_open_objects_total);
+    out += ",\"broad_fail_open_satellites\":";
+    out += std::to_string(stats.broad_fail_open_satellites_total);
     out += "},\"config\":{";
     out += "\"mode_threshold_step_seconds\":21600,";
     out += "\"mode_threshold_perigee_alt_km\":350.0,";
@@ -388,6 +406,9 @@ int main()
             g_prop_stats.broad_pairs_last_tick = stats.broad_pairs_considered;
             g_prop_stats.broad_candidates_last_tick = stats.broad_candidates;
             g_prop_stats.broad_overlap_pass_last_tick = stats.broad_shell_overlap_pass;
+            g_prop_stats.broad_dcriterion_rejected_last_tick = stats.broad_dcriterion_rejected;
+            g_prop_stats.broad_fail_open_objects_last_tick = stats.broad_fail_open_objects;
+            g_prop_stats.broad_fail_open_satellites_last_tick = stats.broad_fail_open_satellites;
             g_prop_stats.broad_shell_margin_km_last_tick = stats.broad_shell_margin_km;
 
             g_prop_stats.fast_total += stats.used_fast;
@@ -396,6 +417,9 @@ int main()
             g_prop_stats.broad_pairs_total += stats.broad_pairs_considered;
             g_prop_stats.broad_candidates_total += stats.broad_candidates;
             g_prop_stats.broad_overlap_pass_total += stats.broad_shell_overlap_pass;
+            g_prop_stats.broad_dcriterion_rejected_total += stats.broad_dcriterion_rejected;
+            g_prop_stats.broad_fail_open_objects_total += stats.broad_fail_open_objects;
+            g_prop_stats.broad_fail_open_satellites_total += stats.broad_fail_open_satellites;
 
             new_ts = g_clock.to_iso();
         }

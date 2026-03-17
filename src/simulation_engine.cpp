@@ -29,6 +29,9 @@ bool run_simulation_step(StateStore& store,
     out.broad_pairs_considered = broad.pairs_considered;
     out.broad_candidates = static_cast<std::uint64_t>(broad.candidates.size());
     out.broad_shell_overlap_pass = broad.shell_overlap_pass;
+    out.broad_dcriterion_rejected = broad.dcriterion_rejected;
+    out.broad_fail_open_objects = broad.fail_open_objects;
+    out.broad_fail_open_satellites = broad.fail_open_satellites;
     out.broad_shell_margin_km = broad.shell_margin_km;
 
     for (std::size_t i = 0; i < store.size(); ++i) {

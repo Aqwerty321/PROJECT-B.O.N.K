@@ -6,6 +6,7 @@
 #include "state_store.hpp"
 
 #include <cmath>
+#include <unordered_map>
 
 namespace cascade {
 
@@ -37,6 +38,44 @@ inline bool intervals_overlap(double a_min, double a_max,
     return !(a_max < b_min || b_max < a_min);
 }
 
+inline bool fail_open_object(const StateStore& store,
+                             std::size_t idx,
+                             const BroadPhaseConfig& cfg)
+{
+    if (!store.elements_valid(idx)) return true;
+    return store.e(idx) > cfg.high_e_fail_open;
+}
+
+inline int a_bin_of(double a_km, double a_bin_width_km) {
+    return static_cast<int>(std::floor(a_km / a_bin_width_km));
+}
+
+inline int i_bin_of(double i_rad, double i_bin_width_rad) {
+    return static_cast<int>(std::floor(i_rad / i_bin_width_rad));
+}
+
+inline std::int64_t make_bin_key(int a_bin, int i_bin) {
+    return (static_cast<std::int64_t>(a_bin) << 32)
+         ^ static_cast<std::uint32_t>(i_bin);
+}
+
+inline double dcriterion_simple(const StateStore& store,
+                                std::size_t i,
+                                std::size_t j)
+{
+    const double a1 = store.a_km(i);
+    const double a2 = store.a_km(j);
+    const double e1 = store.e(i);
+    const double e2 = store.e(j);
+    const double i1 = store.i_rad(i);
+    const double i2 = store.i_rad(j);
+
+    const double da = (a1 - a2) / (std::abs(a1 + a2) + EPS_NUM);
+    const double de = e1 - e2;
+    const double di = 2.0 * std::sin(0.5 * (i1 - i2));
+    return std::sqrt(da * da + de * de + di * di);
+}
+
 } // namespace
 
 BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
@@ -49,33 +88,136 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
         return out;
     }
 
+    const std::size_t n = store.size();
     const std::size_t sat_count = store.satellite_count();
     const std::size_t deb_count = store.debris_count();
-
-    // Conservative reserve: satellites against all non-self objects.
     out.candidates.reserve(sat_count * (deb_count + sat_count));
 
-    for (std::size_t i = 0; i < store.size(); ++i) {
+    std::vector<std::uint32_t> fail_open_indices;
+    fail_open_indices.reserve(n / 8 + 8);
+
+    std::unordered_map<std::int64_t, std::vector<std::uint32_t>> bands;
+    bands.reserve(n);
+
+    for (std::size_t idx = 0; idx < n; ++idx) {
+        if (fail_open_object(store, idx, cfg)) {
+            fail_open_indices.push_back(static_cast<std::uint32_t>(idx));
+            continue;
+        }
+
+        const int a_bin = a_bin_of(store.a_km(idx), cfg.a_bin_width_km);
+        const int i_bin = i_bin_of(store.i_rad(idx), cfg.i_bin_width_rad);
+        bands[make_bin_key(a_bin, i_bin)].push_back(static_cast<std::uint32_t>(idx));
+    }
+
+    out.fail_open_objects = static_cast<std::uint64_t>(fail_open_indices.size());
+
+    std::vector<std::uint32_t> seen_stamp(n, 0);
+    std::uint32_t stamp = 0;
+
+    for (std::size_t i = 0; i < n; ++i) {
         if (store.type(i) != ObjectType::SATELLITE) continue;
+
+        // For transparency, count full naive pair space per satellite.
+        out.pairs_considered += static_cast<std::uint64_t>(n - 1);
 
         double sat_min = 0.0;
         double sat_max = 0.0;
         shell_bounds(store, i, cfg, sat_min, sat_max);
 
-        for (std::size_t j = 0; j < store.size(); ++j) {
-            if (j == i) continue;
+        const bool sat_fail_open = fail_open_object(store, i, cfg);
+        if (sat_fail_open) {
+            ++out.fail_open_satellites;
+            for (std::size_t j = 0; j < n; ++j) {
+                if (j == i) continue;
 
-            ++out.pairs_considered;
+                ++out.pairs_after_band_index;
+
+                double obj_min = 0.0;
+                double obj_max = 0.0;
+                shell_bounds(store, j, cfg, obj_min, obj_max);
+                if (!intervals_overlap(sat_min, sat_max, obj_min, obj_max)) {
+                    continue;
+                }
+
+                ++out.shell_overlap_pass;
+
+                if (cfg.enable_dcriterion
+                    && store.elements_valid(i)
+                    && store.elements_valid(j)
+                    && store.e(i) <= cfg.high_e_fail_open
+                    && store.e(j) <= cfg.high_e_fail_open)
+                {
+                    const double d = dcriterion_simple(store, i, j);
+                    if (d > cfg.dcriterion_threshold) {
+                        ++out.dcriterion_rejected;
+                        continue;
+                    }
+                }
+
+                out.candidates.push_back(BroadPhasePair{
+                    static_cast<std::uint32_t>(i),
+                    static_cast<std::uint32_t>(j)
+                });
+            }
+            continue;
+        }
+
+        ++stamp;
+        if (stamp == 0) {
+            std::fill(seen_stamp.begin(), seen_stamp.end(), 0);
+            stamp = 1;
+        }
+
+        // Always include fail-open objects.
+        for (std::uint32_t idx : fail_open_indices) {
+            if (idx == i) continue;
+            seen_stamp[idx] = stamp;
+        }
+
+        const int sat_a_bin = a_bin_of(store.a_km(i), cfg.a_bin_width_km);
+        const int sat_i_bin = i_bin_of(store.i_rad(i), cfg.i_bin_width_rad);
+
+        for (int da = -cfg.band_neighbor_bins; da <= cfg.band_neighbor_bins; ++da) {
+            for (int di = -cfg.band_neighbor_bins; di <= cfg.band_neighbor_bins; ++di) {
+                const std::int64_t key = make_bin_key(sat_a_bin + da, sat_i_bin + di);
+                auto it = bands.find(key);
+                if (it == bands.end()) continue;
+                for (std::uint32_t idx : it->second) {
+                    if (idx == i) continue;
+                    seen_stamp[idx] = stamp;
+                }
+            }
+        }
+
+        for (std::size_t j = 0; j < n; ++j) {
+            if (j == i) continue;
+            if (seen_stamp[j] != stamp) continue;
+
+            ++out.pairs_after_band_index;
 
             double obj_min = 0.0;
             double obj_max = 0.0;
             shell_bounds(store, j, cfg, obj_min, obj_max);
-
             if (!intervals_overlap(sat_min, sat_max, obj_min, obj_max)) {
                 continue;
             }
 
             ++out.shell_overlap_pass;
+
+            if (cfg.enable_dcriterion
+                && store.elements_valid(i)
+                && store.elements_valid(j)
+                && store.e(i) <= cfg.high_e_fail_open
+                && store.e(j) <= cfg.high_e_fail_open)
+            {
+                const double d = dcriterion_simple(store, i, j);
+                if (d > cfg.dcriterion_threshold) {
+                    ++out.dcriterion_rejected;
+                    continue;
+                }
+            }
+
             out.candidates.push_back(BroadPhasePair{
                 static_cast<std::uint32_t>(i),
                 static_cast<std::uint32_t>(j)

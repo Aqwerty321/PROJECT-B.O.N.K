@@ -214,6 +214,7 @@ Keep components small and deterministic. Responsibilities:
 * **Scheduler / Comms**: LOS check vs ground_stations.csv; schedule upload windows; include 10s signal latency.
 * **Frontend**: maps, TCA ripples, trails, cascade graph, boot animation; connect to engine GET endpoints for state.
 * **Tuner**: standalone C++ harness for parameter search using Monte-Carlo sampling and constrained optimization (CMA-ES). Produces constants used by engine.
+  * Current implementation includes an offline multi-objective scaffold for broad-phase tuning (separate from runtime path).
 
 ---
 
@@ -236,6 +237,7 @@ Keep components small and deterministic. Responsibilities:
 
 * Provide Dockerfile + `docker build -t cascade .` and `docker run -p 8000:8000 cascade`
 * Include unit tests (C++ Catch2 or doctest) and a performance script to run scenario sweeps.
+* Enforce adaptive propagation safety with a hard-fail regression gate (`phase2_regression_gate`) in CI.
 
 ---
 

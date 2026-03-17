@@ -21,6 +21,9 @@ struct StepRunStats {
     std::uint64_t broad_pairs_considered = 0;
     std::uint64_t broad_candidates = 0;
     std::uint64_t broad_shell_overlap_pass = 0;
+    std::uint64_t broad_dcriterion_rejected = 0;
+    std::uint64_t broad_fail_open_objects = 0;
+    std::uint64_t broad_fail_open_satellites = 0;
     double broad_shell_margin_km = 0.0;
 
     double target_epoch_s = 0.0;

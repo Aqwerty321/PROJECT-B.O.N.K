@@ -381,3 +381,23 @@ target_compile_options(phase3_tick_benchmark PRIVATE
     -O3
     -DNDEBUG
 )
+
+# ===================================================================
+# Offline multi-objective tuner scaffold (separate from runtime path)
+# ===================================================================
+add_executable(offline_multiobjective_tuner
+    tuner/offline_multiobjective_tuner.cpp
+    src/broad_phase.cpp
+    src/state_store.cpp
+    src/sim_clock.cpp
+    src/orbit_math.cpp
+)
+
+target_include_directories(offline_multiobjective_tuner PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+target_compile_options(offline_multiobjective_tuner PRIVATE
+    -O3
+    -DNDEBUG
+)

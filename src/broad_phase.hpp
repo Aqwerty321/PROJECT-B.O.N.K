@@ -19,6 +19,19 @@ struct BroadPhaseConfig {
     // available. This intentionally over-approximates to protect against
     // false negatives.
     double invalid_shell_pad_km = 200.0;
+
+    // Orbital band indexing (conservative settings)
+    double a_bin_width_km = 500.0;
+    double i_bin_width_rad = 0.3490658503988659; // 20 deg
+    int band_neighbor_bins = 2;
+
+    // Objects above this eccentricity are routed to fail-open path.
+    double high_e_fail_open = 0.2;
+
+    // Conservative D-criterion gate (only used when both elements are valid
+    // and below high_e_fail_open). Large threshold to avoid false negatives.
+    bool enable_dcriterion = true;
+    double dcriterion_threshold = 2.0;
 };
 
 struct BroadPhasePair {
@@ -29,7 +42,11 @@ struct BroadPhasePair {
 struct BroadPhaseResult {
     std::vector<BroadPhasePair> candidates;
     std::uint64_t pairs_considered = 0;
+    std::uint64_t pairs_after_band_index = 0;
     std::uint64_t shell_overlap_pass = 0;
+    std::uint64_t dcriterion_rejected = 0;
+    std::uint64_t fail_open_objects = 0;
+    std::uint64_t fail_open_satellites = 0;
     double shell_margin_km = 0.0;
 };
 

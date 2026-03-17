@@ -108,6 +108,13 @@ cmake --build build --target phase3_tick_benchmark -j"$(nproc)"
 ./build/phase3_tick_benchmark
 ```
 
+Optional: run offline multi-objective tuner scaffold (separate path).
+
+```bash
+cmake --build build --target offline_multiobjective_tuner -j"$(nproc)"
+./build/offline_multiobjective_tuner 200 50 10000
+```
+
 CMake will automatically:
 
 - Fetch `simdjson` v3.9.4 and `cpp-httplib` v0.15.3 via FetchContent.
