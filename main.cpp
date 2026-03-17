@@ -21,8 +21,7 @@
 #include "state_store.hpp"
 #include "sim_clock.hpp"
 #include "telemetry.hpp"
-#include "orbit_math.hpp"
-#include "propagator.hpp"
+#include "simulation_engine.hpp"
 
 static cascade::StateStore  g_store;
 static cascade::SimClock    g_clock;
@@ -344,10 +343,7 @@ int main()
 
         const double step_s = static_cast<double>(step_s_i64);
         std::string new_ts;
-        std::uint64_t failed = 0;
-        std::uint64_t used_fast = 0;
-        std::uint64_t used_rk4 = 0;
-        std::uint64_t escalated = 0;
+        cascade::StepRunStats stats{};
 
         {
             std::unique_lock lock(g_mutex);
@@ -357,76 +353,19 @@ int main()
                 return;
             }
 
-            const double target_epoch = g_clock.epoch_s() + step_s;
-
-            for (std::size_t i = 0; i < g_store.size(); ++i) {
-                cascade::Vec3 r{g_store.rx(i), g_store.ry(i), g_store.rz(i)};
-                cascade::Vec3 v{g_store.vx(i), g_store.vy(i), g_store.vz(i)};
-
-                cascade::OrbitalElements el{};
-                bool el_ok = false;
-                if (g_store.elements_valid(i)) {
-                    el.a_km = g_store.a_km(i);
-                    el.e = g_store.e(i);
-                    el.i_rad = g_store.i_rad(i);
-                    el.raan_rad = g_store.raan_rad(i);
-                    el.argp_rad = g_store.argp_rad(i);
-                    el.M_rad = g_store.M_rad(i);
-                    el.n_rad_s = g_store.n_rad_s(i);
-                    el.p_km = g_store.p_km(i);
-                    el.rp_km = g_store.rp_km(i);
-                    el.ra_km = g_store.ra_km(i);
-                    el_ok = true;
-                } else {
-                    el_ok = cascade::eci_to_elements(r, v, el);
-                }
-
-                if (!el_ok) {
-                    ++failed;
-                    continue;
-                }
-
-                const double obj_epoch = g_store.telemetry_epoch_s(i);
-                double obj_dt = target_epoch - obj_epoch;
-                if (obj_dt < 0.0) {
-                    obj_dt = 0.0;
-                }
-
-                bool ok = true;
-                if (obj_dt > 0.0) {
-                    cascade::AdaptivePropagationResult prop = cascade::propagate_adaptive(r, v, el, obj_dt);
-                    ok = prop.ok;
-                    if (prop.used_rk4) ++used_rk4;
-                    else ++used_fast;
-                    if (prop.escalated_after_probe) ++escalated;
-                }
-
-                if (!ok) {
-                    ++failed;
-                    continue;
-                }
-
-                g_store.rx_mut(i) = r.x;
-                g_store.ry_mut(i) = r.y;
-                g_store.rz_mut(i) = r.z;
-                g_store.vx_mut(i) = v.x;
-                g_store.vy_mut(i) = v.y;
-                g_store.vz_mut(i) = v.z;
-                const double applied_epoch = (obj_epoch > target_epoch) ? obj_epoch : target_epoch;
-                g_store.set_telemetry_epoch_s(i, applied_epoch);
-                g_store.set_elements(i, el, true);
+            const bool ran = cascade::run_simulation_step(g_store, g_clock, step_s, stats);
+            if (!ran) {
+                set_error_json(res, 422, "SIM_STEP_REJECTED", "simulation step could not be executed");
+                return;
             }
 
-            g_store.set_failed_last_tick(failed);
+            g_prop_stats.fast_last_tick = stats.used_fast;
+            g_prop_stats.rk4_last_tick = stats.used_rk4;
+            g_prop_stats.escalated_last_tick = stats.escalated_after_probe;
+            g_prop_stats.fast_total += stats.used_fast;
+            g_prop_stats.rk4_total += stats.used_rk4;
+            g_prop_stats.escalated_total += stats.escalated_after_probe;
 
-            g_prop_stats.fast_last_tick = used_fast;
-            g_prop_stats.rk4_last_tick = used_rk4;
-            g_prop_stats.escalated_last_tick = escalated;
-            g_prop_stats.fast_total += used_fast;
-            g_prop_stats.rk4_total += used_rk4;
-            g_prop_stats.escalated_total += escalated;
-
-            g_clock.set_epoch_s(target_epoch);
             new_ts = g_clock.to_iso();
         }
 

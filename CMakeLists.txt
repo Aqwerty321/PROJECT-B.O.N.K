@@ -309,6 +309,7 @@ add_executable(ProjectBONK
     src/sim_clock.cpp
     src/orbit_math.cpp
     src/propagator.cpp
+    src/simulation_engine.cpp
 )
 
 set_target_properties(ProjectBONK PROPERTIES
@@ -347,6 +348,27 @@ target_include_directories(phase2_regression PRIVATE
 )
 
 target_compile_options(phase2_regression PRIVATE
+    -O3
+    -DNDEBUG
+)
+
+# ===================================================================
+# Phase 3 tick benchmark harness
+# ===================================================================
+add_executable(phase3_tick_benchmark
+    tools/phase3_tick_benchmark.cpp
+    src/state_store.cpp
+    src/sim_clock.cpp
+    src/orbit_math.cpp
+    src/propagator.cpp
+    src/simulation_engine.cpp
+)
+
+target_include_directories(phase3_tick_benchmark PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+target_compile_options(phase3_tick_benchmark PRIVATE
     -O3
     -DNDEBUG
 )

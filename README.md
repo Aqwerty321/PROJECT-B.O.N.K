@@ -93,6 +93,13 @@ cmake --build build --target phase2_regression -j"$(nproc)"
 ./build/phase2_regression 3000
 ```
 
+Optional: build and run Phase 3 synthetic tick benchmark.
+
+```bash
+cmake --build build --target phase3_tick_benchmark -j"$(nproc)"
+./build/phase3_tick_benchmark
+```
+
 CMake will automatically:
 
 - Fetch `simdjson` v3.9.4 and `cpp-httplib` v0.15.3 via FetchContent.
