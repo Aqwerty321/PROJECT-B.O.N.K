@@ -18,6 +18,9 @@ compile_commands.json
 .idea/
 .tmp-jluna/
 
+# Clangd / LSP caches
+.cache/
+
 # jluna .src symlink (local build artifact)
 .src
 

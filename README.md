@@ -52,7 +52,7 @@ curl -s -X POST http://localhost:8000/api/telemetry -H 'Content-Type: applicatio
 ## API Endpoints
 
 All endpoints are served on port **8000** (bound to `0.0.0.0`).
-Response schemas follow `Problem Statement And Project Tech Stack/PS.md`.
+Response schemas follow `PS.md`.
 
 | Method | Path | Status | Description |
 |---|---|---|---|
@@ -125,9 +125,8 @@ The Dockerfile is structured for fast incremental rebuilds:
 ├── CMakeLists.txt          # Build system (C++20, FetchContent deps)
 ├── Dockerfile              # Single-container build & run
 ├── main.cpp                # API server entry point
-├── Problem Statement And Project Tech Stack/
-│   ├── PS.md               # Authoritative problem statement (IIT Delhi)
-│   └── ARCHITECTURE.md     # Internal architecture & dependency guide
+├── PS.md                   # Authoritative problem statement (IIT Delhi)
+├── ARCHITECTURE.md         # Internal architecture & dependency guide
 ├── README.md               # This file
 └── .dockerignore
 ```
