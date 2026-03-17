@@ -349,8 +349,11 @@ Keep components small and deterministic. Responsibilities:
 
   * Synthetic runner: 10k debris, 50 sats, run pipeline for 100 random Δt values (1–86,400s).
   * Measure false negatives vs full RK4 propagate reference for each scenario.
-* Tuner tests: run Monte-Carlo sampling to tune margins on a synthetic/adversarial bank (C++ harness; parallelized).
+* Tuner tests: run deterministic train/eval scenario splits and enforce strict zero-risk constraints before accepting compute-oriented improvements.
 * CI smoke: `docker build` plus `./run_smoke.sh` which runs a 2-second service sanity check and returns.
+* CI safety gates must include:
+  * `phase2_regression_gate` (adaptive propagation quality)
+  * `broad_phase_sanity_gate` (indexed broad-phase cannot miss shell baseline pairs)
 
 **Hardware estimate for dev**
 

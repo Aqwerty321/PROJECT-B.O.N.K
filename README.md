@@ -101,6 +101,14 @@ cmake --build build --target phase2_regression_gate
 ./scripts/phase2_regression_gate.sh
 ```
 
+Hard-fail broad-phase sanity gate:
+
+```bash
+cmake --build build --target broad_phase_sanity_gate
+# or
+./scripts/broad_phase_sanity_gate.sh
+```
+
 Optional: build and run Phase 3 synthetic tick benchmark.
 
 ```bash
@@ -112,7 +120,8 @@ Optional: run offline multi-objective tuner scaffold (separate path).
 
 ```bash
 cmake --build build --target offline_multiobjective_tuner -j"$(nproc)"
-./build/offline_multiobjective_tuner 200 50 10000
+# args: samples satellites debris train_scenarios eval_scenarios
+./build/offline_multiobjective_tuner 240 50 10000 3 2
 ```
 
 CMake will automatically:
@@ -157,7 +166,9 @@ The Dockerfile is structured for fast incremental rebuilds:
 ├── Dockerfile              # Single-container build & run
 ├── main.cpp                # API server entry point
 ├── src/                    # Engine modules (state, telemetry, orbit math, propagation)
-├── tools/                  # Local dev tools (phase2_regression harness)
+├── tools/                  # Local dev tools (regression/benchmark/validation)
+├── tuner/                  # Offline optimization scaffold (not runtime path)
+├── scripts/                # Safety gate runner scripts
 ├── docs/                   # Phase reports and implementation notes
 ├── PS.md                   # Authoritative problem statement (IIT Delhi)
 ├── ARCHITECTURE.md         # Internal architecture & dependency guide

@@ -360,6 +360,29 @@ add_custom_target(phase2_regression_gate
     USES_TERMINAL
 )
 
+add_executable(broad_phase_validation
+    tools/broad_phase_validation.cpp
+    src/broad_phase.cpp
+    src/state_store.cpp
+    src/sim_clock.cpp
+    src/orbit_math.cpp
+)
+
+target_include_directories(broad_phase_validation PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+target_compile_options(broad_phase_validation PRIVATE
+    -O3
+    -DNDEBUG
+)
+
+add_custom_target(broad_phase_sanity_gate
+    COMMAND "$<TARGET_FILE:broad_phase_validation>" 3 50 10000 1
+    DEPENDS broad_phase_validation
+    USES_TERMINAL
+)
+
 # ===================================================================
 # Phase 3 tick benchmark harness
 # ===================================================================

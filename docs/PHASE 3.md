@@ -14,6 +14,8 @@ is no longer coupled to endpoint handler logic and can be benchmarked/reused.
 - Added `src/broad_phase.hpp`
 - Added `src/broad_phase.cpp`
 - Added `tuner/offline_multiobjective_tuner.cpp` (offline scaffold)
+- Added `tools/broad_phase_validation.cpp`
+- Added `scripts/broad_phase_sanity_gate.sh`
 - Refactored `main.cpp` simulate endpoint to call `run_simulation_step(...)`
 - Added synthetic benchmark `tools/phase3_tick_benchmark.cpp`
 - Updated `CMakeLists.txt` with:
@@ -69,8 +71,15 @@ Observed:
 
 `offline_multiobjective_tuner` is intentionally separate from runtime path.
 
-- explores broad-phase config space
-- reports Pareto candidates minimizing:
-  - D-criterion rejection proxy (risk)
-  - pairs after band indexing (compute)
-  - candidate count (compute)
+- uses deterministic train/eval scenario split
+- strict safety rule: disqualify any candidate with non-zero risk proxy on
+  train or eval
+- reports Pareto candidates minimizing safe compute objectives:
+  - pairs after band indexing
+  - candidate count
+
+## Safety gates
+
+- `phase2_regression_gate` (strict adaptive propagation)
+- `broad_phase_sanity_gate` (indexed broad-phase vs shell baseline)
+- CI workflow runs both gates on push/PR

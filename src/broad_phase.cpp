@@ -43,7 +43,13 @@ inline bool fail_open_object(const StateStore& store,
                              const BroadPhaseConfig& cfg)
 {
     if (!store.elements_valid(idx)) return true;
-    return store.e(idx) > cfg.high_e_fail_open;
+    if (store.e(idx) > cfg.high_e_fail_open) return true;
+
+    const double span_km = store.ra_km(idx) - store.rp_km(idx);
+    const double max_span_for_index = cfg.band_neighbor_bins * cfg.a_bin_width_km
+                                    - 2.0 * cfg.shell_margin_km;
+    if (max_span_for_index <= 0.0) return true;
+    return span_km > max_span_for_index;
 }
 
 inline int a_bin_of(double a_km, double a_bin_width_km) {
@@ -106,8 +112,7 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
         }
 
         const int a_bin = a_bin_of(store.a_km(idx), cfg.a_bin_width_km);
-        const int i_bin = i_bin_of(store.i_rad(idx), cfg.i_bin_width_rad);
-        bands[make_bin_key(a_bin, i_bin)].push_back(static_cast<std::uint32_t>(idx));
+        bands[make_bin_key(a_bin, 0)].push_back(static_cast<std::uint32_t>(idx));
     }
 
     out.fail_open_objects = static_cast<std::uint64_t>(fail_open_indices.size());
@@ -176,17 +181,14 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
         }
 
         const int sat_a_bin = a_bin_of(store.a_km(i), cfg.a_bin_width_km);
-        const int sat_i_bin = i_bin_of(store.i_rad(i), cfg.i_bin_width_rad);
 
         for (int da = -cfg.band_neighbor_bins; da <= cfg.band_neighbor_bins; ++da) {
-            for (int di = -cfg.band_neighbor_bins; di <= cfg.band_neighbor_bins; ++di) {
-                const std::int64_t key = make_bin_key(sat_a_bin + da, sat_i_bin + di);
-                auto it = bands.find(key);
-                if (it == bands.end()) continue;
-                for (std::uint32_t idx : it->second) {
-                    if (idx == i) continue;
-                    seen_stamp[idx] = stamp;
-                }
+            const std::int64_t key = make_bin_key(sat_a_bin + da, 0);
+            auto it = bands.find(key);
+            if (it == bands.end()) continue;
+            for (std::uint32_t idx : it->second) {
+                if (idx == i) continue;
+                seen_stamp[idx] = stamp;
             }
         }
 
