@@ -108,18 +108,30 @@ if(TARGET simdjson AND NOT TARGET simdjson::simdjson)
 endif()
 
 # ---------------------------------------------------------------------------
-# 3. cpp-httplib — header-only HTTP library
+# 3. cpp-httplib — single header-only HTTP library
+#    Downloaded directly; avoids FetchContent/git issues on CMake 3.22.
 # ---------------------------------------------------------------------------
-FetchContent_Declare(
-    httplib
-    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-    GIT_TAG        v0.15.3
-    DOWNLOAD_ONLY  ON
-)
-FetchContent_MakeAvailable(httplib)
+set(HTTPLIB_DIR "${CMAKE_BINARY_DIR}/_deps/httplib")
+set(HTTPLIB_HEADER "${HTTPLIB_DIR}/httplib.h")
+
+if(NOT EXISTS "${HTTPLIB_HEADER}")
+    message(STATUS "Downloading cpp-httplib v0.15.3 header ...")
+    file(MAKE_DIRECTORY "${HTTPLIB_DIR}")
+    file(DOWNLOAD
+        "https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.15.3/httplib.h"
+        "${HTTPLIB_HEADER}"
+        TLS_VERIFY ON
+        STATUS HTTPLIB_DL_STATUS
+    )
+    list(GET HTTPLIB_DL_STATUS 0 HTTPLIB_DL_RC)
+    if(NOT HTTPLIB_DL_RC EQUAL 0)
+        list(GET HTTPLIB_DL_STATUS 1 HTTPLIB_DL_MSG)
+        message(FATAL_ERROR "Failed to download httplib.h: ${HTTPLIB_DL_MSG}")
+    endif()
+endif()
 
 add_library(httplib INTERFACE)
-target_include_directories(httplib INTERFACE "${httplib_SOURCE_DIR}")
+target_include_directories(httplib INTERFACE "${HTTPLIB_DIR}")
 
 # ---------------------------------------------------------------------------
 # 4. Julia resolution (auto-download on Linux when not on PATH)

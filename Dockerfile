@@ -29,7 +29,7 @@ RUN set -eux; \
     JULIA_TARBALL="julia-${JULIA_VERSION}-linux-x86_64.tar.gz"; \
     JULIA_BASE_URL="https://julialang-s3.julialang.org/bin/linux/x64/1.10"; \
     wget -q -O "${JULIA_TARBALL}" "${JULIA_BASE_URL}/${JULIA_TARBALL}"; \
-    EXPECTED_SHA="a7298207f72f2b27b2ab1ce392a6ea37afbd1e1a9d157239e26be44c77384d3a"; \
+    EXPECTED_SHA="a7298207f72f2b27b2ab1ce392a6ea37afbd1fbee0f1f8d190b054dcaba878fe"; \
     echo "${EXPECTED_SHA}  ${JULIA_TARBALL}" | sha256sum -c -; \
     tar -xzf "${JULIA_TARBALL}" -C /opt/; \
     ln -sf /opt/julia-${JULIA_VERSION}/bin/julia /usr/local/bin/julia; \
