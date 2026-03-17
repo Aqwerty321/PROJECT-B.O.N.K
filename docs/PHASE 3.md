@@ -104,13 +104,22 @@ Latest integration snapshot:
   execute on `simulate/step`
 - `/api/debug/propagation` now includes narrow-phase counters:
   `narrow_pairs_checked`, `collisions_detected`, `maneuvers_executed`
+- `/api/visualization/snapshot` now emits geodetic `lat/lon/alt` derived via
+  ECI -> ECEF -> WGS-84 conversion path
+- maneuver scheduling now performs a static ground-station LOS check at each
+  burn time using provided PS station set and min-elevation limits
+- `simulate/step` now includes a conservative auto-COLA hook that can queue
+  and execute a minimal prograde impulse for satellites flagged in collision
 
 Current status note:
 
 - LOS validation is currently a conservative burn-time-in-future proxy;
-  station-geometry LOS integration remains pending
+- station-geometry LOS windows are currently static point checks (no latency/
+  upload-window planner yet)
 - collision detection remains instantaneous at tick epoch; TCA-window narrow-
   phase integration remains pending
+- auto-COLA currently uses fixed small impulse and does not perform recovery
+  planning yet
 
 Latest tuner snapshot (`240 50 10000 3 2`):
 

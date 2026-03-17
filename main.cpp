@@ -25,6 +25,7 @@
 #include "sim_clock.hpp"
 #include "telemetry.hpp"
 #include "simulation_engine.hpp"
+#include "earth_frame.hpp"
 
 static cascade::StateStore  g_store;
 static cascade::SimClock    g_clock;
@@ -51,6 +52,23 @@ struct ScheduledBurn {
     double delta_v_norm_km_s = 0.0;
 };
 
+struct GroundStation {
+    const char* id;
+    double lat_deg;
+    double lon_deg;
+    double alt_km;
+    double min_el_deg;
+};
+
+static constexpr GroundStation k_ground_stations[] = {
+    {"GS-001", 13.0333,   77.5167, 0.820,  5.0},
+    {"GS-002", 78.2297,   15.4077, 0.400,  5.0},
+    {"GS-003", 35.4266, -116.8900, 1.000, 10.0},
+    {"GS-004",-53.1500,  -70.9167, 0.030,  5.0},
+    {"GS-005", 28.5450,   77.1926, 0.225, 15.0},
+    {"GS-006",-77.8463,  166.6682, 0.010,  5.0}
+};
+
 static std::vector<ScheduledBurn> g_burn_queue;
 static std::unordered_map<std::string, double> g_last_burn_epoch_by_sat;
 
@@ -70,6 +88,28 @@ static double propellant_used_kg(double mass_kg, double delta_v_km_s) noexcept
     }
     const double mass_ratio = std::exp(-delta_v_km_s / ve_km_s);
     return mass_kg * (1.0 - mass_ratio);
+}
+
+static bool has_ground_station_los(const cascade::Vec3& sat_eci_km,
+                                   double epoch_s) noexcept
+{
+    const cascade::Vec3 sat_ecef = cascade::eci_to_ecef(sat_eci_km, epoch_s);
+
+    for (const GroundStation& gs : k_ground_stations) {
+        const double lat_rad = gs.lat_deg * cascade::PI / 180.0;
+        const double lon_rad = gs.lon_deg * cascade::PI / 180.0;
+        const double min_el_rad = gs.min_el_deg * cascade::PI / 180.0;
+        const double el = cascade::elevation_angle_rad(
+            sat_ecef,
+            lat_rad,
+            lon_rad,
+            gs.alt_km
+        );
+        if (el >= min_el_rad) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static std::uint64_t execute_due_maneuvers(cascade::StateStore& store,
@@ -121,6 +161,86 @@ static std::uint64_t execute_due_maneuvers(cascade::StateStore& store,
     return executed;
 }
 
+static bool has_pending_burn_in_cooldown_window(const std::string& sat_id,
+                                                 double epoch_s) noexcept
+{
+    for (const ScheduledBurn& b : g_burn_queue) {
+        if (b.satellite_id != sat_id) continue;
+        const double dt = std::abs(b.burn_epoch_s - epoch_s);
+        if (dt + cascade::EPS_NUM < cascade::SAT_COOLDOWN_S) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static std::uint64_t plan_collision_avoidance_burns(cascade::StateStore& store,
+                                                     const cascade::StepRunStats& step_stats,
+                                                     double epoch_s,
+                                                     std::uint64_t tick_id)
+{
+    std::uint64_t planned = 0;
+
+    for (std::uint32_t sat_idx_u32 : step_stats.collision_sat_indices) {
+        const std::size_t sat_idx = static_cast<std::size_t>(sat_idx_u32);
+        if (sat_idx >= store.size()) continue;
+        if (store.type(sat_idx) != cascade::ObjectType::SATELLITE) continue;
+
+        const std::string sat_id = store.id(sat_idx);
+
+        const auto last_it = g_last_burn_epoch_by_sat.find(sat_id);
+        if (last_it != g_last_burn_epoch_by_sat.end()) {
+            const double dt = epoch_s - last_it->second;
+            if (dt + cascade::EPS_NUM < cascade::SAT_COOLDOWN_S) {
+                continue;
+            }
+        }
+
+        if (has_pending_burn_in_cooldown_window(sat_id, epoch_s)) {
+            continue;
+        }
+
+        const cascade::Vec3 sat_eci{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+        if (!has_ground_station_los(sat_eci, epoch_s)) {
+            continue;
+        }
+
+        const cascade::Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+        const double v_norm = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+        if (v_norm < cascade::EPS_NUM) {
+            continue;
+        }
+
+        constexpr double k_auto_dv_km_s = 0.001; // 1 m/s conservative impulse
+        const cascade::Vec3 dv{
+            (v.x / v_norm) * k_auto_dv_km_s,
+            (v.y / v_norm) * k_auto_dv_km_s,
+            (v.z / v_norm) * k_auto_dv_km_s
+        };
+
+        const double mass_before = store.mass_kg(sat_idx);
+        const double fuel_before = store.fuel_kg(sat_idx);
+        const double fuel_need = propellant_used_kg(mass_before, k_auto_dv_km_s);
+        const double fuel_after = fuel_before - fuel_need;
+        if (fuel_after <= cascade::SAT_FUEL_EOL_KG + cascade::EPS_NUM) {
+            store.set_sat_status(sat_idx, cascade::SatStatus::FUEL_LOW);
+            continue;
+        }
+
+        ScheduledBurn burn;
+        burn.id = "AUTO-COLA-" + std::to_string(tick_id) + "-" + std::to_string(planned);
+        burn.satellite_id = sat_id;
+        burn.burn_epoch_s = epoch_s;
+        burn.delta_v_km_s = dv;
+        burn.delta_v_norm_km_s = k_auto_dv_km_s;
+
+        g_burn_queue.push_back(std::move(burn));
+        ++planned;
+    }
+
+    return planned;
+}
+
 struct PropagationStats {
     std::uint64_t fast_last_tick = 0;
     std::uint64_t rk4_last_tick = 0;
@@ -128,6 +248,7 @@ struct PropagationStats {
     std::uint64_t narrow_pairs_last_tick = 0;
     std::uint64_t collisions_last_tick = 0;
     std::uint64_t maneuvers_last_tick = 0;
+    std::uint64_t auto_planned_last_tick = 0;
 
     std::uint64_t broad_pairs_last_tick = 0;
     std::uint64_t broad_candidates_last_tick = 0;
@@ -146,6 +267,7 @@ struct PropagationStats {
     std::uint64_t narrow_pairs_total = 0;
     std::uint64_t collisions_total = 0;
     std::uint64_t maneuvers_total = 0;
+    std::uint64_t auto_planned_total = 0;
 
     std::uint64_t broad_pairs_total = 0;
     std::uint64_t broad_candidates_total = 0;
@@ -207,6 +329,7 @@ static std::string build_snapshot(const cascade::StateStore& store,
 {
     std::string out;
     out.reserve(store.satellite_count() * 128 + store.debris_count() * 56 + 128);
+    const double epoch_s = clock.epoch_s();
 
     out += "{\"timestamp\":";
     cascade::append_json_string(out, clock.to_iso());
@@ -220,7 +343,19 @@ static std::string build_snapshot(const cascade::StateStore& store,
 
         out += "{\"id\":";
         cascade::append_json_string(out, store.id(i));
-        out += ",\"lat\":0.0,\"lon\":0.0,\"fuel_kg\":";
+
+        const cascade::Vec3 eci{store.rx(i), store.ry(i), store.rz(i)};
+        const cascade::Vec3 ecef = cascade::eci_to_ecef(eci, epoch_s);
+        double lat_deg = 0.0;
+        double lon_deg = 0.0;
+        double alt_km = 0.0;
+        (void)cascade::ecef_to_geodetic(ecef, lat_deg, lon_deg, alt_km);
+
+        out += ",\"lat\":";
+        out += cascade::fmt_double(lat_deg, 6);
+        out += ",\"lon\":";
+        out += cascade::fmt_double(lon_deg, 6);
+        out += ",\"fuel_kg\":";
         out += cascade::fmt_double(store.fuel_kg(i), 3);
         out += ",\"status\":";
         cascade::append_json_string(out, cascade::sat_status_str(store.sat_status(i)));
@@ -236,7 +371,21 @@ static std::string build_snapshot(const cascade::StateStore& store,
 
         out += '[';
         cascade::append_json_string(out, store.id(i));
-        out += ",0.0,0.0,0.0]";
+
+        const cascade::Vec3 eci{store.rx(i), store.ry(i), store.rz(i)};
+        const cascade::Vec3 ecef = cascade::eci_to_ecef(eci, epoch_s);
+        double lat_deg = 0.0;
+        double lon_deg = 0.0;
+        double alt_km = 0.0;
+        (void)cascade::ecef_to_geodetic(ecef, lat_deg, lon_deg, alt_km);
+
+        out += ',';
+        out += cascade::fmt_double(lat_deg, 6);
+        out += ',';
+        out += cascade::fmt_double(lon_deg, 6);
+        out += ',';
+        out += cascade::fmt_double(alt_km, 3);
+        out += ']';
     }
 
     out += "]}";
@@ -312,6 +461,8 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.collisions_last_tick);
     out += ",\"maneuvers_executed\":";
     out += std::to_string(stats.maneuvers_last_tick);
+    out += ",\"auto_planned_maneuvers\":";
+    out += std::to_string(stats.auto_planned_last_tick);
     out += ",\"failed_objects\":";
     out += std::to_string(store.failed_last_tick());
     out += ",\"broad_pairs_considered\":";
@@ -347,6 +498,8 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.collisions_total);
     out += ",\"maneuvers_executed\":";
     out += std::to_string(stats.maneuvers_total);
+    out += ",\"auto_planned_maneuvers\":";
+    out += std::to_string(stats.auto_planned_total);
     out += ",\"failed_objects\":";
     out += std::to_string(store.failed_propagation_total());
     out += ",\"broad_pairs_considered\":";
@@ -535,7 +688,7 @@ int main()
         const std::string sat_id(sat_sv);
         bool found_sat = false;
         bool cooldown_ok = true;
-        bool future_ok = true;
+        bool los_ok = true;
         double projected_fuel_remaining = 0.0;
         double projected_mass_remaining = 0.0;
         double clock_epoch_s = 0.0;
@@ -578,8 +731,18 @@ int main()
 
                 for (const ScheduledBurn& b : parsed_burns) {
                     if (b.burn_epoch_s + cascade::EPS_NUM < clock_epoch_s) {
-                        future_ok = false;
+                        los_ok = false;
                         break;
+                    }
+                }
+
+                if (los_ok) {
+                    const cascade::Vec3 sat_eci{g_store.rx(idx), g_store.ry(idx), g_store.rz(idx)};
+                    for (const ScheduledBurn& b : parsed_burns) {
+                        if (!has_ground_station_los(sat_eci, b.burn_epoch_s)) {
+                            los_ok = false;
+                            break;
+                        }
                     }
                 }
 
@@ -591,7 +754,7 @@ int main()
                     projected_mass_remaining -= fuel_need;
                 }
 
-                if (cooldown_ok && future_ok && projected_fuel_remaining > cascade::SAT_FUEL_EOL_KG) {
+                if (cooldown_ok && los_ok && projected_fuel_remaining > cascade::SAT_FUEL_EOL_KG) {
                     for (const ScheduledBurn& b : parsed_burns) {
                         g_burn_queue.push_back(b);
                     }
@@ -606,8 +769,8 @@ int main()
 
         const bool sufficient_fuel = (projected_fuel_remaining > cascade::SAT_FUEL_EOL_KG);
 
-        if (!future_ok) {
-            set_error_json(res, 422, "GROUND_STATION_LOS_UNAVAILABLE", "burnTime must be >= current simulation timestamp");
+        if (!los_ok) {
+            set_error_json(res, 422, "GROUND_STATION_LOS_UNAVAILABLE", "no ground station LOS for one or more burn times");
             return;
         }
 
@@ -680,6 +843,13 @@ int main()
                 return;
             }
 
+            const std::uint64_t tick_id = static_cast<std::uint64_t>(g_tick_count.load()) + 1;
+            const std::uint64_t auto_planned = plan_collision_avoidance_burns(
+                g_store,
+                stats,
+                g_clock.epoch_s(),
+                tick_id
+            );
             stats.maneuvers_executed = execute_due_maneuvers(g_store, g_clock.epoch_s());
 
             g_prop_stats.fast_last_tick = stats.used_fast;
@@ -688,6 +858,7 @@ int main()
             g_prop_stats.narrow_pairs_last_tick = stats.narrow_pairs_checked;
             g_prop_stats.collisions_last_tick = stats.collisions_detected;
             g_prop_stats.maneuvers_last_tick = stats.maneuvers_executed;
+            g_prop_stats.auto_planned_last_tick = auto_planned;
             g_prop_stats.broad_pairs_last_tick = stats.broad_pairs_considered;
             g_prop_stats.broad_candidates_last_tick = stats.broad_candidates;
             g_prop_stats.broad_overlap_pass_last_tick = stats.broad_shell_overlap_pass;
@@ -705,6 +876,7 @@ int main()
             g_prop_stats.narrow_pairs_total += stats.narrow_pairs_checked;
             g_prop_stats.collisions_total += stats.collisions_detected;
             g_prop_stats.maneuvers_total += stats.maneuvers_executed;
+            g_prop_stats.auto_planned_total += auto_planned;
             g_prop_stats.broad_pairs_total += stats.broad_pairs_considered;
             g_prop_stats.broad_candidates_total += stats.broad_candidates;
             g_prop_stats.broad_overlap_pass_total += stats.broad_shell_overlap_pass;

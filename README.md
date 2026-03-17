@@ -114,9 +114,17 @@ Maneuver schedule endpoint currently enforces:
 - per-burn delta-V limit (`<= 15 m/s`)
 - 600s cooldown within sequence and against last executed burn per satellite
 - projected fuel/mass check via Tsiolkovsky relation
-- reject past burn times (`GROUND_STATION_LOS_UNAVAILABLE` placeholder policy)
+- static LOS-at-burn-time check against PS ground station set and minimum
+  elevation limits
 - burn queue execution on `POST /api/simulate/step` with
   `maneuvers_executed` reported in response
+
+Simulation step currently includes a conservative auto-COLA hook: when
+collision detections are present, eligible satellites may receive a small
+prograde burn (subject to LOS/cooldown/fuel safety checks).
+
+Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
+computed from ECI state vectors.
 
 Optional: run CTest safety suite.
 

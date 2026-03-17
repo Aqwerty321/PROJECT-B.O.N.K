@@ -7,6 +7,8 @@
 #include "orbit_math.hpp"
 #include "propagator.hpp"
 
+#include <vector>
+
 namespace cascade {
 
 bool run_simulation_step(StateStore& store,
@@ -93,6 +95,8 @@ bool run_simulation_step(StateStore& store,
     out.broad_a_bin_width_km = cfg.broad_phase.a_bin_width_km;
     out.broad_band_neighbor_bins = cfg.broad_phase.band_neighbor_bins;
 
+    std::vector<std::uint8_t> sat_collision_mark(store.size(), 0);
+
     // Conservative narrow-phase sweep at target epoch.
     const double collision_threshold_sq = COLLISION_THRESHOLD_KM * COLLISION_THRESHOLD_KM;
 
@@ -114,6 +118,7 @@ bool run_simulation_step(StateStore& store,
             const double d2 = dx * dx + dy * dy + dz * dz;
             if (d2 < collision_threshold_sq) {
                 ++out.collisions_detected;
+                sat_collision_mark[sat_idx] = 1;
             }
         }
     } else {
@@ -135,8 +140,15 @@ bool run_simulation_step(StateStore& store,
                 const double d2 = dx * dx + dy * dy + dz * dz;
                 if (d2 < collision_threshold_sq) {
                     ++out.collisions_detected;
+                    sat_collision_mark[i] = 1;
                 }
             }
+        }
+    }
+
+    for (std::size_t i = 0; i < store.size(); ++i) {
+        if (sat_collision_mark[i] != 0) {
+            out.collision_sat_indices.push_back(static_cast<std::uint32_t>(i));
         }
     }
 

@@ -113,9 +113,9 @@ ctest --test-dir build --output-on-failure
 | Endpoint | PS requires | Current status | Gap | Next task |
 |---|---|---|---|---|
 | `POST /api/telemetry` | strict ingest + ACK counters | implemented | no payload-level quality metrics in response | keep response PS-clean, expose extra diagnostics only in debug |
-| `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | collision detection is instantaneous-threshold at tick epoch (no TCA window yet) | upgrade to TCA-window narrow-phase + planner hookup |
-| `POST /api/maneuver/schedule` | validation incl LOS/fuel/cooldown | partial | LOS modeled as burn-time-in-future proxy only; no station geometry yet | integrate scheduler + station visibility model |
-| `GET /api/visualization/snapshot` | geodetic satellite/debris visualization fields | partial | lat/lon/alt still placeholders | add ECI->geodetic conversion path |
+| `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | collision detection is instantaneous-threshold at tick epoch (no TCA window yet) | upgrade to TCA-window narrow-phase with conservative no-FN fallback |
+| `POST /api/maneuver/schedule` | validation incl LOS/fuel/cooldown | partial | static LOS-at-burn-time check added (no latency/window planner yet) | integrate scheduler + station visibility window model |
+| `GET /api/visualization/snapshot` | geodetic satellite/debris visualization fields | implemented | no uncertainty/quality fields yet | add optional confidence metadata in debug path |
 | `GET /api/status` | health/tick/object counters | implemented | no queue/narrow-phase stats yet | add internal metrics expansion without schema drift |
 
 ## Phase 4 readiness checklist
@@ -128,7 +128,7 @@ ctest --test-dir build --output-on-failure
 
 ## Known open items before full Phase 4 integration
 
-- automatic COLA/recovery planner not yet wired (manual schedule execution path only)
+- automatic recovery planner not wired; current auto-COLA is minimal prograde impulse
 - D-criterion is intentionally conservative; tune only through offline path
 - CI now enforces both adaptive regression gate and broad-phase sanity gate
 
@@ -138,7 +138,7 @@ ctest --test-dir build --output-on-failure
 - `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`,
   `dcriterion_rejected_total=0`)
 - `phase3_tick_benchmark 50 10000 30`:
-  mean `6.884 ms`, median `6.738 ms`, p95 `7.439 ms`
+  mean `7.927 ms`, median `7.839 ms`, p95 `8.821 ms`
 - `offline_multiobjective_tuner 240 50 10000 3 2`:
   strict-zero-risk enabled, disqualified `43`, safe population `197`, pareto
   set `3`
@@ -146,4 +146,9 @@ ctest --test-dir build --output-on-failure
   `collisions_detected=1`, `maneuvers_executed=1`
 - API smoke (schedule validation):
   `COOLDOWN_VIOLATION` for <600s spacing,
-  `GROUND_STATION_LOS_UNAVAILABLE` for past burn times
+  `GROUND_STATION_LOS_UNAVAILABLE` for no-LOS burn windows
+- API smoke (geodetic snapshot):
+  populated `lat/lon/alt` fields from ECI->ECEF->WGS84 conversion
+- API smoke (auto planning):
+  collision on `simulate/step` auto-queues/executes conservative burn,
+  debug shows `auto_planned_maneuvers=1`

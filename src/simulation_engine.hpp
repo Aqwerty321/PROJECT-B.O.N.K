@@ -8,6 +8,7 @@
 #include "broad_phase.hpp"
 
 #include <cstdint>
+#include <vector>
 
 namespace cascade {
 
@@ -22,6 +23,7 @@ struct StepRunStats {
     std::uint64_t narrow_pairs_checked = 0;
     std::uint64_t collisions_detected = 0;
     std::uint64_t maneuvers_executed = 0;
+    std::vector<std::uint32_t> collision_sat_indices;
 
     // Broad-phase (conservative shell overlap)
     std::uint64_t broad_pairs_considered = 0;

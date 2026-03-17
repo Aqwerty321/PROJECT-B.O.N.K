@@ -314,6 +314,7 @@ endif()
 add_executable(ProjectBONK
     main.cpp
     src/broad_phase.cpp
+    src/earth_frame.cpp
     src/state_store.cpp
     src/telemetry.cpp
     src/sim_clock.cpp
