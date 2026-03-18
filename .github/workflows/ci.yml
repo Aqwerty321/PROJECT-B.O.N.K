@@ -46,6 +46,7 @@ jobs:
           cmake --build build --target recovery_slot_acceptance_gate
           cmake --build build --target recovery_planner_invariants_gate
           cmake --build build --target maneuver_ops_invariants_regression_gate
+          cmake --build build --target api_contract_regression_gate
 
       - name: Run strict adaptive regression gate script
         run: ./scripts/phase2_regression_gate.sh
@@ -64,6 +65,9 @@ jobs:
 
       - name: Run maneuver ops invariants gate script
         run: ./scripts/maneuver_ops_invariants_gate.sh
+
+      - name: Run API contract gate script
+        run: ./scripts/api_contract_gate.sh
 
       - name: Run CTest safety suite
         run: ctest --test-dir build --output-on-failure

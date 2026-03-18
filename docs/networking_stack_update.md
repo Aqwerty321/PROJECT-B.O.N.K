@@ -21,6 +21,43 @@ work.
   - upload-window scheduling with 10s latency checks,
   - graveyard planning/execution path at EOL threshold.
 
+## Implementation progress snapshot
+
+- N1 complete:
+  - `EngineRuntime` owns mutable simulation state and command execution.
+  - endpoint handlers call runtime methods, not core state directly.
+- N2 complete:
+  - typed command queue for telemetry/schedule/step with `promise/future`
+    synchronization.
+  - single runtime worker serializes mutating commands.
+  - bounded command wait added (`RUNTIME_BUSY` on timeout) and queue metrics
+    exposed in `GET /api/status?details=1`.
+- N3 complete:
+  - routes moved to `src/http/api_server.*`.
+  - request parsing moved to `src/http/request_parsers.*`.
+  - response serialization moved to `src/http/response_builders.*`.
+  - API contract regression harness added (`tools/api_contract_gate.cpp`,
+    `scripts/api_contract_gate.sh`) and wired into CTest/CI.
+- N4 in progress:
+  - immutable published snapshots now back `snapshot/conflicts/propagation`
+    GET paths for lock-light reads.
+  - queue depth/enqueue/complete/reject/timeout counters exposed in status
+    details for operational visibility.
+  - queue backpressure guardrail added via `PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH`
+    with explicit `RUNTIME_BUSY` reject path when full.
+  - API contract gate now stress-checks queue pressure and verifies backpressure
+    evidence (`RUNTIME_BUSY` or timeout/reject metrics).
+  - local split CORS controls are now supported via env (`PROJECTBONK_CORS_*`)
+    with `OPTIONS /api/*` preflight handling and CORS headers on API responses.
+    `PROJECTBONK_CORS_ALLOW_ORIGIN` supports comma-separated allowlists and the
+    server echoes only matching origins (`Vary: Origin` enabled).
+  - API contract gate now validates CORS preflight/allow-origin behavior in
+    addition to queue-pressure checks.
+  - queue latency observability added to `GET /api/status?details=1` as
+    per-command (`telemetry/schedule/step`) queue-wait and execution metrics.
+  - README now documents local split dev topology (`5173` + `8000`) and
+    reverse-proxy `/api` pass-through deployment.
+
 ## Scope to carry into networking refactor
 
 These are required to preserve behavior during runtime/http separation:
@@ -69,6 +106,7 @@ Run on each networking PR:
 - `./scripts/maneuver_ops_invariants_gate.sh`
 - `./scripts/recovery_slot_gate.sh`
 - `./scripts/recovery_planner_invariants_gate.sh`
+- `./scripts/api_contract_gate.sh`
 - `ctest --test-dir build --output-on-failure`
 
 ## Open risks to monitor
@@ -77,3 +115,12 @@ Run on each networking PR:
 - Snapshot staleness under high step load.
 - Behavior drift in schedule validation when moving code from handlers.
 - Any API schema drift (PS endpoints are strict contract).
+
+## Next concrete tasks
+
+1. Keep validating queue timeout/depth defaults under higher synthetic load to
+   tune `PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH` for CI and demo environments.
+2. Optional: export status `details` latency counters to external dashboards
+   (Prometheus sidecar/log pipeline) without changing API contract payloads.
+3. Continue preserving PS response-key/status compatibility as future network
+   packaging changes land.

@@ -67,6 +67,75 @@ Response schemas follow `PS.md`.
 
 ---
 
+## Frontend/Backend Split (Dev)
+
+Backend remains on port `8000`. For local split development with a frontend dev
+server on `5173`, enable CORS on the backend process:
+
+```bash
+PROJECTBONK_CORS_ENABLE=true \
+PROJECTBONK_CORS_ALLOW_ORIGIN=http://localhost:5173 \
+./build/ProjectBONK
+```
+
+Optional CORS controls:
+
+- `PROJECTBONK_CORS_ALLOW_CREDENTIALS=true|false` (default: `false`)
+- `PROJECTBONK_CORS_ALLOW_ORIGIN` supports comma-separated origins (default
+  when enabled: `http://localhost:5173`)
+- `PROJECTBONK_CORS_ALLOW_METHODS` (default: `GET, POST, OPTIONS`)
+- `PROJECTBONK_CORS_ALLOW_HEADERS` (default: `Content-Type, X-Source-Id`)
+
+The backend echoes `Access-Control-Allow-Origin` only for matching allowed
+origins and sets `Vary: Origin` for cache safety.
+
+Example allowlist:
+
+```bash
+PROJECTBONK_CORS_ENABLE=true \
+PROJECTBONK_CORS_ALLOW_ORIGIN="http://localhost:5173,https://demo.example.com" \
+./build/ProjectBONK
+```
+
+CORS is disabled by default. API schemas and status/error contracts remain
+unchanged (see `PS.md`).
+
+---
+
+## Reverse Proxy Deployment (Demo/Prod)
+
+For a single-origin deployment, serve frontend static files and proxy `/api/*`
+to `ProjectBONK` on `127.0.0.1:8000`.
+
+Minimal nginx example:
+
+```nginx
+server {
+    listen 80;
+    server_name _;
+
+    root /srv/cascade-frontend;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+Keep `/api` path and response payloads unchanged to preserve PS contract
+compatibility.
+
+---
+
 ## Local Build (Ubuntu 22.04)
 
 Docker is the recommended path. Local builds work on Linux with Julia runtime
@@ -172,7 +241,8 @@ Full-window refinement budget is adaptive per tick (candidate load, step
 duration, and propagation failure pressure).
 
 `GET /api/status` keeps PS-compatible default fields; add `?details=1` (or
-`?verbose=1`) to include internal diagnostics metrics.
+`?verbose=1`) to include internal diagnostics metrics such as queue depth,
+backpressure counters, and per-command queue/execution latency stats.
 
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.
