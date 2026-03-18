@@ -67,7 +67,7 @@ Observed:
 
 - integrate per-tick arena allocation strategy
 - tune adaptive full-window refinement budget policy using mixed load scenarios
-- add recovery-burn planner after evasion burns
+- evolve from inverse-impulse recovery to orbital-slot-targeted recovery
 
 ## Offline tuner scaffold
 
@@ -119,6 +119,10 @@ Latest integration snapshot:
   load, step size, and propagation failure pressure
 - `/api/status` now supports optional details mode (`?details=1`) exposing
   internal metrics without changing default PS response schema
+- auto-COLA now records a pending recovery request and the runtime attempts a
+  cooldown/LOS/fuel-safe recovery burn plan each tick
+- status details/debug endpoints now expose recovery planner counters
+  (`recovery_planned`, `recovery_deferred`, `recovery_completed`)
 
 Current status note:
 
@@ -129,8 +133,9 @@ Current status note:
   pass is budgeted and only applies to ultra-near-threshold pairs)
 - adaptive budget telemetry is exposed via debug counters to monitor safety/
   performance tradeoff over time
-- auto-COLA currently uses fixed small impulse and does not perform recovery
-  planning yet
+- recovery planner currently uses inverse-of-executed auto-COLA impulse and
+  may defer when conjunction pressure persists; orbital-slot targeting remains
+  pending
 
 Latest tuner snapshot (`240 50 10000 3 2`):
 
