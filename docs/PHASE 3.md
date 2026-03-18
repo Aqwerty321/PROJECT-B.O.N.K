@@ -116,6 +116,8 @@ Latest integration snapshot:
   threshold pairs, with fail-open behavior if refinement integration fails
 - narrow-phase now includes a budgeted full-window RK4 sample refinement for
   ultra-near-threshold pairs, with fail-open and budget-exhaustion counters
+- full-window refinement budget is now adaptive per tick based on candidate
+  load, step size, and propagation failure pressure
 
 Current status note:
 
@@ -125,6 +127,8 @@ Current status note:
 - TCA-window narrow-phase is conservative and currently linearized; high-
 - fidelity RK4 conjunction window solver remains pending (current full-window
   pass is budgeted and only applies to ultra-near-threshold pairs)
+- adaptive budget telemetry is exposed via debug counters to monitor safety/
+  performance tradeoff over time
 - auto-COLA currently uses fixed small impulse and does not perform recovery
   planning yet
 

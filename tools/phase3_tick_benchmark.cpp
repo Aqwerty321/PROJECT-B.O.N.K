@@ -151,6 +151,7 @@ int main(int argc, char** argv)
     std::uint64_t sum_full_refined_pairs = 0;
     std::uint64_t sum_full_refine_cleared = 0;
     std::uint64_t sum_full_refine_fail_open = 0;
+    std::uint64_t sum_full_refine_budget_allocated = 0;
     std::uint64_t sum_full_refine_budget_exhausted = 0;
     std::uint64_t sum_failed = 0;
     std::uint64_t sum_broad_pairs = 0;
@@ -187,6 +188,7 @@ int main(int argc, char** argv)
             sum_full_refined_pairs += stats.narrow_full_refined_pairs;
             sum_full_refine_cleared += stats.narrow_full_refine_cleared;
             sum_full_refine_fail_open += stats.narrow_full_refine_fail_open;
+            sum_full_refine_budget_allocated += stats.narrow_full_refine_budget_allocated;
             sum_full_refine_budget_exhausted += stats.narrow_full_refine_budget_exhausted;
             sum_failed += stats.failed_objects;
             sum_broad_pairs += stats.broad_pairs_considered;
@@ -222,6 +224,7 @@ int main(int argc, char** argv)
     std::cout << "narrow_full_refined_pairs_total=" << sum_full_refined_pairs << "\n";
     std::cout << "narrow_full_refine_cleared_total=" << sum_full_refine_cleared << "\n";
     std::cout << "narrow_full_refine_fail_open_total=" << sum_full_refine_fail_open << "\n";
+    std::cout << "narrow_full_refine_budget_allocated_total=" << sum_full_refine_budget_allocated << "\n";
     std::cout << "narrow_full_refine_budget_exhausted_total=" << sum_full_refine_budget_exhausted << "\n";
     std::cout << "failed_objects_total=" << sum_failed << "\n";
     std::cout << "broad_pairs_considered_total=" << sum_broad_pairs << "\n";

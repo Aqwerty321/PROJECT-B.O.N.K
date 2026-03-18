@@ -132,6 +132,9 @@ micro-window pass; refinement failures are treated fail-open for safety.
 Ultra-near-threshold pairs may trigger a budgeted sampled full-window RK4
 refinement pass before final collision classification.
 
+Full-window refinement budget is adaptive per tick (candidate load, step
+duration, and propagation failure pressure).
+
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.
 

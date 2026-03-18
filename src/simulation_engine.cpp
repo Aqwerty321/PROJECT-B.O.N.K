@@ -261,7 +261,37 @@ bool run_simulation_step(StateStore& store,
     const double full_refine_band_km = 0.012;
     const double full_refine_band_sq = (screening_threshold_km + full_refine_band_km)
                                      * (screening_threshold_km + full_refine_band_km);
-    std::uint64_t full_refine_budget = 48;
+
+    const std::uint64_t pair_hint = out.failed_objects == 0
+        ? static_cast<std::uint64_t>(broad.candidates.size())
+        : static_cast<std::uint64_t>(store.satellite_count())
+            * static_cast<std::uint64_t>(store.debris_count());
+
+    std::uint64_t full_refine_budget = 32;
+    if (pair_hint > 2000000ULL) {
+        full_refine_budget = 12;
+    } else if (pair_hint > 500000ULL) {
+        full_refine_budget = 20;
+    } else if (pair_hint < 100000ULL) {
+        full_refine_budget = 64;
+    } else if (pair_hint < 300000ULL) {
+        full_refine_budget = 48;
+    }
+
+    if (step_seconds > 120.0) {
+        full_refine_budget = full_refine_budget / 2;
+    } else if (step_seconds <= 5.0) {
+        full_refine_budget += 16;
+    }
+
+    if (out.failed_objects > 0) {
+        full_refine_budget = full_refine_budget / 2;
+    }
+
+    if (full_refine_budget < 4) full_refine_budget = 4;
+    if (full_refine_budget > 96) full_refine_budget = 96;
+
+    out.narrow_full_refine_budget_allocated = full_refine_budget;
 
     const auto full_window_min_d2_rk4 = [&](std::size_t sat_idx,
                                             std::size_t obj_idx,

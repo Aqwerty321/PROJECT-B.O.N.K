@@ -254,6 +254,7 @@ struct PropagationStats {
     std::uint64_t narrow_full_refined_pairs_last_tick = 0;
     std::uint64_t narrow_full_refine_cleared_last_tick = 0;
     std::uint64_t narrow_full_refine_fail_open_last_tick = 0;
+    std::uint64_t narrow_full_refine_budget_allocated_last_tick = 0;
     std::uint64_t narrow_full_refine_budget_exhausted_last_tick = 0;
     std::uint64_t auto_planned_last_tick = 0;
 
@@ -280,6 +281,7 @@ struct PropagationStats {
     std::uint64_t narrow_full_refined_pairs_total = 0;
     std::uint64_t narrow_full_refine_cleared_total = 0;
     std::uint64_t narrow_full_refine_fail_open_total = 0;
+    std::uint64_t narrow_full_refine_budget_allocated_total = 0;
     std::uint64_t narrow_full_refine_budget_exhausted_total = 0;
     std::uint64_t auto_planned_total = 0;
 
@@ -487,6 +489,8 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.narrow_full_refine_cleared_last_tick);
     out += ",\"narrow_full_refine_fail_open\":";
     out += std::to_string(stats.narrow_full_refine_fail_open_last_tick);
+    out += ",\"narrow_full_refine_budget_allocated\":";
+    out += std::to_string(stats.narrow_full_refine_budget_allocated_last_tick);
     out += ",\"narrow_full_refine_budget_exhausted\":";
     out += std::to_string(stats.narrow_full_refine_budget_exhausted_last_tick);
     out += ",\"auto_planned_maneuvers\":";
@@ -538,6 +542,8 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.narrow_full_refine_cleared_total);
     out += ",\"narrow_full_refine_fail_open\":";
     out += std::to_string(stats.narrow_full_refine_fail_open_total);
+    out += ",\"narrow_full_refine_budget_allocated\":";
+    out += std::to_string(stats.narrow_full_refine_budget_allocated_total);
     out += ",\"narrow_full_refine_budget_exhausted\":";
     out += std::to_string(stats.narrow_full_refine_budget_exhausted_total);
     out += ",\"auto_planned_maneuvers\":";
@@ -906,6 +912,7 @@ int main()
             g_prop_stats.narrow_full_refined_pairs_last_tick = stats.narrow_full_refined_pairs;
             g_prop_stats.narrow_full_refine_cleared_last_tick = stats.narrow_full_refine_cleared;
             g_prop_stats.narrow_full_refine_fail_open_last_tick = stats.narrow_full_refine_fail_open;
+            g_prop_stats.narrow_full_refine_budget_allocated_last_tick = stats.narrow_full_refine_budget_allocated;
             g_prop_stats.narrow_full_refine_budget_exhausted_last_tick = stats.narrow_full_refine_budget_exhausted;
             g_prop_stats.auto_planned_last_tick = auto_planned;
             g_prop_stats.broad_pairs_last_tick = stats.broad_pairs_considered;
@@ -931,6 +938,7 @@ int main()
             g_prop_stats.narrow_full_refined_pairs_total += stats.narrow_full_refined_pairs;
             g_prop_stats.narrow_full_refine_cleared_total += stats.narrow_full_refine_cleared;
             g_prop_stats.narrow_full_refine_fail_open_total += stats.narrow_full_refine_fail_open;
+            g_prop_stats.narrow_full_refine_budget_allocated_total += stats.narrow_full_refine_budget_allocated;
             g_prop_stats.narrow_full_refine_budget_exhausted_total += stats.narrow_full_refine_budget_exhausted;
             g_prop_stats.auto_planned_total += auto_planned;
             g_prop_stats.broad_pairs_total += stats.broad_pairs_considered;
