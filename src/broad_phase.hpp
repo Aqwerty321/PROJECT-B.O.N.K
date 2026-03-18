@@ -32,6 +32,7 @@ struct BroadPhaseConfig {
     // and below high_e_fail_open). Disabled by default in runtime until
     // narrow-phase integration is complete.
     bool enable_dcriterion = false;
+    bool shadow_dcriterion = true;
     double dcriterion_threshold = 2.0;
 };
 
@@ -46,6 +47,7 @@ struct BroadPhaseResult {
     std::uint64_t pairs_after_band_index = 0;
     std::uint64_t shell_overlap_pass = 0;
     std::uint64_t dcriterion_rejected = 0;
+    std::uint64_t dcriterion_shadow_rejected = 0;
     std::uint64_t fail_open_objects = 0;
     std::uint64_t fail_open_satellites = 0;
     double shell_margin_km = 0.0;

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "maneuver_common.hpp"
+#include "maneuver_recovery_planner.hpp"
 #include "sim_clock.hpp"
 #include "simulation_engine.hpp"
 #include "state_store.hpp"
@@ -69,6 +70,7 @@ struct PropagationStats {
     std::uint64_t narrow_full_refine_fail_open_last_tick = 0;
     std::uint64_t narrow_full_refine_budget_allocated_last_tick = 0;
     std::uint64_t narrow_full_refine_budget_exhausted_last_tick = 0;
+    std::uint64_t narrow_uncertainty_promoted_pairs_last_tick = 0;
     std::uint64_t auto_planned_last_tick = 0;
     std::uint64_t recovery_pending_marked_last_tick = 0;
     std::uint64_t recovery_planned_last_tick = 0;
@@ -89,6 +91,7 @@ struct PropagationStats {
     std::uint64_t broad_candidates_last_tick = 0;
     std::uint64_t broad_overlap_pass_last_tick = 0;
     std::uint64_t broad_dcriterion_rejected_last_tick = 0;
+    std::uint64_t broad_dcriterion_shadow_rejected_last_tick = 0;
     std::uint64_t broad_fail_open_objects_last_tick = 0;
     std::uint64_t broad_fail_open_satellites_last_tick = 0;
     double broad_shell_margin_km_last_tick = 0.0;
@@ -110,6 +113,7 @@ struct PropagationStats {
     std::uint64_t narrow_full_refine_fail_open_total = 0;
     std::uint64_t narrow_full_refine_budget_allocated_total = 0;
     std::uint64_t narrow_full_refine_budget_exhausted_total = 0;
+    std::uint64_t narrow_uncertainty_promoted_pairs_total = 0;
     std::uint64_t auto_planned_total = 0;
     std::uint64_t recovery_pending_marked_total = 0;
     std::uint64_t recovery_planned_total = 0;
@@ -133,6 +137,7 @@ struct PropagationStats {
     std::uint64_t broad_candidates_total = 0;
     std::uint64_t broad_overlap_pass_total = 0;
     std::uint64_t broad_dcriterion_rejected_total = 0;
+    std::uint64_t broad_dcriterion_shadow_rejected_total = 0;
     std::uint64_t broad_fail_open_objects_total = 0;
     std::uint64_t broad_fail_open_satellites_total = 0;
 };
@@ -251,6 +256,7 @@ private:
     SimClock clock_;
     std::atomic<std::int64_t> tick_count_{0};
     StepRunConfig step_cfg_{};
+    RecoveryPlannerConfig recovery_cfg_{};
     PropagationStats prop_stats_{};
 
     std::vector<ScheduledBurn> burn_queue_;

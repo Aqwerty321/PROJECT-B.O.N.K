@@ -100,6 +100,15 @@ inline double refine_pair_min_d2_rk4(const Vec3& sat_r0,
     return min_d2;
 }
 
+inline double relative_speed_km_s(const Vec3& sat_v,
+                                  const Vec3& deb_v) noexcept
+{
+    const double dvx = sat_v.x - deb_v.x;
+    const double dvy = sat_v.y - deb_v.y;
+    const double dvz = sat_v.z - deb_v.z;
+    return std::sqrt(dvx * dvx + dvy * dvy + dvz * dvz);
+}
+
 } // namespace
 
 bool run_simulation_step(StateStore& store,
@@ -190,6 +199,7 @@ bool run_simulation_step(StateStore& store,
     out.broad_candidates = static_cast<std::uint64_t>(broad.candidates.size());
     out.broad_shell_overlap_pass = broad.shell_overlap_pass;
     out.broad_dcriterion_rejected = broad.dcriterion_rejected;
+    out.broad_dcriterion_shadow_rejected = broad.dcriterion_shadow_rejected;
     out.broad_fail_open_objects = broad.fail_open_objects;
     out.broad_fail_open_satellites = broad.fail_open_satellites;
     out.broad_shell_margin_km = broad.shell_margin_km;
@@ -201,7 +211,7 @@ bool run_simulation_step(StateStore& store,
 
     // Conservative narrow-phase sweep over [t0, t1] using multiple linear
     // TCA approximations derived from step endpoints.
-    const double tca_guard_km = 0.02;
+    const double tca_guard_km = std::max(0.0, cfg.narrow_phase.tca_guard_km);
     const double screening_threshold_km = COLLISION_THRESHOLD_KM + tca_guard_km;
     const double collision_threshold_sq = screening_threshold_km * screening_threshold_km;
 
@@ -255,19 +265,27 @@ bool run_simulation_step(StateStore& store,
 
     // If propagation failed for any object this tick, fall back to full
     // SATELLITE-vs-DEBRIS scan to avoid relying on broad-phase filtering.
-    const double refine_band_km = 0.10;
+    const double refine_band_km = std::max(0.0, cfg.narrow_phase.refine_band_km);
     const double refine_band_sq = (screening_threshold_km + refine_band_km)
                                 * (screening_threshold_km + refine_band_km);
-    const double full_refine_band_km = 0.20;
+    const double full_refine_band_km = std::max(0.0, cfg.narrow_phase.full_refine_band_km);
     const double full_refine_band_sq = (screening_threshold_km + full_refine_band_km)
                                      * (screening_threshold_km + full_refine_band_km);
+
+    const double high_rel_speed_km_s = std::max(0.0, cfg.narrow_phase.high_rel_speed_km_s);
+    const double high_rel_speed_extra_band_km =
+        std::max(0.0, cfg.narrow_phase.high_rel_speed_extra_band_km);
+    const double high_rel_speed_band_sq =
+        (screening_threshold_km + full_refine_band_km + high_rel_speed_extra_band_km)
+        * (screening_threshold_km + full_refine_band_km + high_rel_speed_extra_band_km);
 
     const std::uint64_t pair_hint = out.failed_objects == 0
         ? static_cast<std::uint64_t>(broad.candidates.size())
         : static_cast<std::uint64_t>(store.satellite_count())
             * static_cast<std::uint64_t>(store.debris_count());
 
-    std::uint64_t full_refine_budget = 64;
+    std::uint64_t full_refine_budget =
+        std::max<std::uint64_t>(cfg.narrow_phase.full_refine_budget_base, 1);
     if (pair_hint > 2000000ULL) {
         full_refine_budget = 20;
     } else if (pair_hint > 500000ULL) {
@@ -288,16 +306,22 @@ bool run_simulation_step(StateStore& store,
         full_refine_budget = full_refine_budget / 2;
     }
 
-    if (full_refine_budget < 8) full_refine_budget = 8;
-    if (full_refine_budget > 192) full_refine_budget = 192;
+    const std::uint64_t budget_min =
+        std::max<std::uint64_t>(cfg.narrow_phase.full_refine_budget_min, 1);
+    const std::uint64_t budget_max =
+        std::max<std::uint64_t>(cfg.narrow_phase.full_refine_budget_max, budget_min);
+    if (full_refine_budget < budget_min) full_refine_budget = budget_min;
+    if (full_refine_budget > budget_max) full_refine_budget = budget_max;
 
     out.narrow_full_refine_budget_allocated = full_refine_budget;
 
     const auto full_window_min_d2_rk4 = [&](std::size_t sat_idx,
                                             std::size_t obj_idx,
                                             bool& ok) noexcept {
-        constexpr int k_samples = 16;
-        constexpr double k_substep_s = 1.0;
+        const std::uint32_t sample_count =
+            std::max<std::uint32_t>(cfg.narrow_phase.full_refine_samples, 1U);
+        const double rk4_substep_s =
+            std::max(0.1, cfg.narrow_phase.full_refine_substep_s);
 
         Vec3 rs{rx0[sat_idx], ry0[sat_idx], rz0[sat_idx]};
         Vec3 vs{vx0[sat_idx], vy0[sat_idx], vz0[sat_idx]};
@@ -306,10 +330,10 @@ bool run_simulation_step(StateStore& store,
 
         ok = true;
         double min_d2 = norm2(rs.x - rd.x, rs.y - rd.y, rs.z - rd.z);
-        const double dt = step_seconds / static_cast<double>(k_samples);
-        for (int s = 0; s < k_samples; ++s) {
-            if (!propagate_rk4_j2_substep(rs, vs, dt, k_substep_s)
-                || !propagate_rk4_j2_substep(rd, vd, dt, k_substep_s)) {
+        const double dt = step_seconds / static_cast<double>(sample_count);
+        for (std::uint32_t s = 0; s < sample_count; ++s) {
+            if (!propagate_rk4_j2_substep(rs, vs, dt, rk4_substep_s)
+                || !propagate_rk4_j2_substep(rd, vd, dt, rk4_substep_s)) {
                 ok = false;
                 return 0.0;
             }
@@ -326,6 +350,17 @@ bool run_simulation_step(StateStore& store,
         ++out.narrow_pairs_checked;
 
         double d2 = tca_min_d2(sat_idx, obj_idx);
+        const double rel_speed = relative_speed_km_s(
+            Vec3{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)},
+            Vec3{store.vx(obj_idx), store.vy(obj_idx), store.vz(obj_idx)}
+        );
+        const bool uncertainty_promoted =
+            (d2 > full_refine_band_sq
+             && rel_speed >= high_rel_speed_km_s
+             && d2 <= high_rel_speed_band_sq + 1e-9);
+        if (uncertainty_promoted) {
+            ++out.narrow_uncertainty_promoted_pairs;
+        }
 
         if (d2 >= collision_threshold_sq && d2 <= refine_band_sq) {
             const Vec3 sat_r0{rx0[sat_idx], ry0[sat_idx], rz0[sat_idx]};
@@ -340,7 +375,7 @@ bool run_simulation_step(StateStore& store,
                 deb_r0,
                 deb_v0,
                 step_seconds,
-                5.0,
+                std::max(0.1, cfg.narrow_phase.micro_refine_max_step_s),
                 refine_ok
             );
 
@@ -356,7 +391,8 @@ bool run_simulation_step(StateStore& store,
             }
         }
 
-        if (d2 > collision_threshold_sq && d2 <= full_refine_band_sq + 1e-9) {
+        if (d2 > collision_threshold_sq
+            && (d2 <= full_refine_band_sq + 1e-9 || uncertainty_promoted)) {
             if (full_refine_budget == 0) {
                 ++out.narrow_full_refine_budget_exhausted;
                 // Fail-open policy: if a pair is near-threshold but budget is

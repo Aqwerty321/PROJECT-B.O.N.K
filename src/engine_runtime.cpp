@@ -14,6 +14,7 @@
 #include <cmath>
 #include <exception>
 #include <mutex>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -25,6 +26,52 @@ constexpr double k_signal_latency_s = SIGNAL_LATENCY_S;
 constexpr double k_stationkeeping_box_radius_km = STATIONKEEPING_BOX_RADIUS_KM;
 constexpr double k_auto_upload_horizon_s = AUTO_UPLOAD_HORIZON_S;
 constexpr std::chrono::seconds k_command_timeout{15};
+
+double env_double(std::string_view key,
+                  double default_value,
+                  double min_value,
+                  double max_value) noexcept
+{
+    const char* raw = std::getenv(std::string(key).c_str());
+    if (raw == nullptr) {
+        return default_value;
+    }
+
+    char* end = nullptr;
+    const double parsed = std::strtod(raw, &end);
+    if (end == nullptr || *end != '\0' || !std::isfinite(parsed)) {
+        return default_value;
+    }
+
+    if (parsed < min_value || parsed > max_value) {
+        return default_value;
+    }
+
+    return parsed;
+}
+
+std::uint64_t env_u64(std::string_view key,
+                      std::uint64_t default_value,
+                      std::uint64_t min_value,
+                      std::uint64_t max_value) noexcept
+{
+    const char* raw = std::getenv(std::string(key).c_str());
+    if (raw == nullptr) {
+        return default_value;
+    }
+
+    char* end = nullptr;
+    const unsigned long long parsed = std::strtoull(raw, &end, 10);
+    if (end == nullptr || *end != '\0') {
+        return default_value;
+    }
+
+    if (parsed < min_value || parsed > max_value) {
+        return default_value;
+    }
+
+    return static_cast<std::uint64_t>(parsed);
+}
 
 std::uint64_t plan_collision_avoidance_burns(
     StateStore& store,
@@ -248,7 +295,8 @@ std::string build_conflicts_json(const StateStore& store)
 
 std::string build_propagation_json(const StateStore& store,
                                    const PropagationStats& stats,
-                                   const StepRunConfig& cfg)
+                                   const StepRunConfig& cfg,
+                                   const RecoveryPlannerConfig& recovery_cfg)
 {
     std::string out;
     out.reserve(320);
@@ -281,6 +329,8 @@ std::string build_propagation_json(const StateStore& store,
     out += std::to_string(stats.narrow_full_refine_budget_allocated_last_tick);
     out += ",\"narrow_full_refine_budget_exhausted\":";
     out += std::to_string(stats.narrow_full_refine_budget_exhausted_last_tick);
+    out += ",\"narrow_uncertainty_promoted_pairs\":";
+    out += std::to_string(stats.narrow_uncertainty_promoted_pairs_last_tick);
     out += ",\"auto_planned_maneuvers\":";
     out += std::to_string(stats.auto_planned_last_tick);
     out += ",\"recovery_pending_marked\":";
@@ -321,6 +371,8 @@ std::string build_propagation_json(const StateStore& store,
     out += std::to_string(stats.broad_overlap_pass_last_tick);
     out += ",\"broad_dcriterion_rejected\":";
     out += std::to_string(stats.broad_dcriterion_rejected_last_tick);
+    out += ",\"broad_dcriterion_shadow_rejected\":";
+    out += std::to_string(stats.broad_dcriterion_shadow_rejected_last_tick);
     out += ",\"broad_fail_open_objects\":";
     out += std::to_string(stats.broad_fail_open_objects_last_tick);
     out += ",\"broad_fail_open_satellites\":";
@@ -362,6 +414,8 @@ std::string build_propagation_json(const StateStore& store,
     out += std::to_string(stats.narrow_full_refine_budget_allocated_total);
     out += ",\"narrow_full_refine_budget_exhausted\":";
     out += std::to_string(stats.narrow_full_refine_budget_exhausted_total);
+    out += ",\"narrow_uncertainty_promoted_pairs\":";
+    out += std::to_string(stats.narrow_uncertainty_promoted_pairs_total);
     out += ",\"auto_planned_maneuvers\":";
     out += std::to_string(stats.auto_planned_total);
     out += ",\"recovery_pending_marked\":";
@@ -426,6 +480,8 @@ std::string build_propagation_json(const StateStore& store,
     out += std::to_string(stats.broad_overlap_pass_total);
     out += ",\"broad_dcriterion_rejected\":";
     out += std::to_string(stats.broad_dcriterion_rejected_total);
+    out += ",\"broad_dcriterion_shadow_rejected\":";
+    out += std::to_string(stats.broad_dcriterion_shadow_rejected_total);
     out += ",\"broad_fail_open_objects\":";
     out += std::to_string(stats.broad_fail_open_objects_total);
     out += ",\"broad_fail_open_satellites\":";
@@ -443,6 +499,39 @@ std::string build_propagation_json(const StateStore& store,
     out += "\"probe_max_step_s\":120.0,";
     out += "\"probe_pos_thresh_km\":0.5,";
     out += "\"probe_vel_thresh_ms\":0.5,";
+    out += "\"narrow_tca_guard_km\":";
+    out += fmt_double(cfg.narrow_phase.tca_guard_km, 3);
+    out += ",\"narrow_refine_band_km\":";
+    out += fmt_double(cfg.narrow_phase.refine_band_km, 3);
+    out += ",\"narrow_full_refine_band_km\":";
+    out += fmt_double(cfg.narrow_phase.full_refine_band_km, 3);
+    out += ",\"narrow_high_rel_speed_km_s\":";
+    out += fmt_double(cfg.narrow_phase.high_rel_speed_km_s, 3);
+    out += ",\"narrow_high_rel_speed_extra_band_km\":";
+    out += fmt_double(cfg.narrow_phase.high_rel_speed_extra_band_km, 3);
+    out += ",\"narrow_full_refine_budget_base\":";
+    out += std::to_string(cfg.narrow_phase.full_refine_budget_base);
+    out += ",\"narrow_full_refine_budget_min\":";
+    out += std::to_string(cfg.narrow_phase.full_refine_budget_min);
+    out += ",\"narrow_full_refine_budget_max\":";
+    out += std::to_string(cfg.narrow_phase.full_refine_budget_max);
+    out += ",\"narrow_full_refine_samples\":";
+    out += std::to_string(cfg.narrow_phase.full_refine_samples);
+    out += ",\"narrow_full_refine_substep_s\":";
+    out += fmt_double(cfg.narrow_phase.full_refine_substep_s, 3);
+    out += ",\"narrow_micro_refine_max_step_s\":";
+    out += fmt_double(cfg.narrow_phase.micro_refine_max_step_s, 3);
+    out += ",\"recovery_scale_t\":";
+    out += fmt_double(recovery_cfg.scale_t, 8);
+    out += ",\"recovery_scale_r\":";
+    out += fmt_double(recovery_cfg.scale_r, 8);
+    out += ",\"recovery_radial_share\":";
+    out += fmt_double(recovery_cfg.radial_share, 6);
+    out += ",\"recovery_scale_n\":";
+    out += fmt_double(recovery_cfg.scale_n, 8);
+    out += ",\"recovery_fallback_norm_km_s\":";
+    out += fmt_double(recovery_cfg.fallback_norm_km_s, 8);
+    out += ",";
     out += "\"broad_shell_margin_km\":";
     out += fmt_double(cfg.broad_phase.shell_margin_km, 3);
     out += ",\"broad_invalid_shell_pad_km\":";
@@ -457,6 +546,8 @@ std::string build_propagation_json(const StateStore& store,
     out += fmt_double(cfg.broad_phase.high_e_fail_open, 3);
     out += ",\"broad_dcriterion_enabled\":";
     out += (cfg.broad_phase.enable_dcriterion ? "true" : "false");
+    out += ",\"broad_dcriterion_shadow\":";
+    out += (cfg.broad_phase.shadow_dcriterion ? "true" : "false");
     out += ",\"broad_dcriterion_threshold\":";
     out += fmt_double(cfg.broad_phase.dcriterion_threshold, 3);
     out += "}}";
@@ -468,6 +559,7 @@ std::string build_propagation_json(const StateStore& store,
 EngineRuntime::EngineRuntime()
 {
     step_cfg_.broad_phase.enable_dcriterion = false;
+    step_cfg_.broad_phase.shadow_dcriterion = true;
     step_cfg_.broad_phase.shell_margin_km = 50.0;
     step_cfg_.broad_phase.invalid_shell_pad_km = 200.0;
     step_cfg_.broad_phase.a_bin_width_km = 500.0;
@@ -475,6 +567,55 @@ EngineRuntime::EngineRuntime()
     step_cfg_.broad_phase.band_neighbor_bins = 2;
     step_cfg_.broad_phase.high_e_fail_open = 0.2;
     step_cfg_.broad_phase.dcriterion_threshold = 2.0;
+
+    step_cfg_.broad_phase.enable_dcriterion =
+        env_u64("PROJECTBONK_BROAD_DCRITERION_ENABLE", 0, 0, 1) == 1;
+    step_cfg_.broad_phase.shadow_dcriterion =
+        env_u64("PROJECTBONK_BROAD_DCRITERION_SHADOW", 1, 0, 1) == 1;
+    step_cfg_.broad_phase.shell_margin_km =
+        env_double("PROJECTBONK_BROAD_SHELL_MARGIN_KM", 50.0, 0.0, 500.0);
+    step_cfg_.broad_phase.invalid_shell_pad_km =
+        env_double("PROJECTBONK_BROAD_INVALID_SHELL_PAD_KM", 200.0, 0.0, 2000.0);
+    step_cfg_.broad_phase.a_bin_width_km =
+        env_double("PROJECTBONK_BROAD_A_BIN_WIDTH_KM", 500.0, 10.0, 5000.0);
+    step_cfg_.broad_phase.i_bin_width_rad =
+        env_double("PROJECTBONK_BROAD_I_BIN_WIDTH_RAD", 0.3490658503988659, 0.01, PI);
+    step_cfg_.broad_phase.band_neighbor_bins = static_cast<int>(
+        env_u64("PROJECTBONK_BROAD_BAND_NEIGHBOR_BINS", 2, 0, 12)
+    );
+    step_cfg_.broad_phase.high_e_fail_open =
+        env_double("PROJECTBONK_BROAD_HIGH_E_FAIL_OPEN", 0.2, 0.0, 0.99);
+    step_cfg_.broad_phase.dcriterion_threshold =
+        env_double("PROJECTBONK_BROAD_DCRITERION_THRESHOLD", 2.0, 0.0, 10.0);
+
+    step_cfg_.narrow_phase.tca_guard_km =
+        env_double("PROJECTBONK_NARROW_TCA_GUARD_KM", 0.02, 0.0, 1.0);
+    step_cfg_.narrow_phase.refine_band_km =
+        env_double("PROJECTBONK_NARROW_REFINE_BAND_KM", 0.10, 0.0, 2.0);
+    step_cfg_.narrow_phase.full_refine_band_km =
+        env_double("PROJECTBONK_NARROW_FULL_REFINE_BAND_KM", 0.20, 0.0, 5.0);
+    step_cfg_.narrow_phase.high_rel_speed_km_s =
+        env_double("PROJECTBONK_NARROW_HIGH_REL_SPEED_KM_S", 8.0, 0.0, 30.0);
+    step_cfg_.narrow_phase.high_rel_speed_extra_band_km =
+        env_double("PROJECTBONK_NARROW_HIGH_REL_SPEED_EXTRA_BAND_KM", 0.10, 0.0, 5.0);
+    step_cfg_.narrow_phase.full_refine_budget_base =
+        env_u64("PROJECTBONK_NARROW_FULL_REFINE_BUDGET_BASE", 64, 1, 4096);
+    step_cfg_.narrow_phase.full_refine_budget_min =
+        env_u64("PROJECTBONK_NARROW_FULL_REFINE_BUDGET_MIN", 8, 1, 4096);
+    step_cfg_.narrow_phase.full_refine_budget_max =
+        env_u64("PROJECTBONK_NARROW_FULL_REFINE_BUDGET_MAX", 192, 1, 4096);
+    if (step_cfg_.narrow_phase.full_refine_budget_max < step_cfg_.narrow_phase.full_refine_budget_min) {
+        step_cfg_.narrow_phase.full_refine_budget_max = step_cfg_.narrow_phase.full_refine_budget_min;
+    }
+    step_cfg_.narrow_phase.full_refine_samples = static_cast<std::uint32_t>(
+        env_u64("PROJECTBONK_NARROW_FULL_REFINE_SAMPLES", 16, 1, 256)
+    );
+    step_cfg_.narrow_phase.full_refine_substep_s =
+        env_double("PROJECTBONK_NARROW_FULL_REFINE_SUBSTEP_S", 1.0, 0.05, 30.0);
+    step_cfg_.narrow_phase.micro_refine_max_step_s =
+        env_double("PROJECTBONK_NARROW_MICRO_REFINE_MAX_STEP_S", 5.0, 0.05, 60.0);
+
+    recovery_cfg_ = recovery_planner_config_from_env();
 
     const char* queue_depth_env = std::getenv("PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH");
     if (queue_depth_env != nullptr) {
@@ -796,7 +937,7 @@ void EngineRuntime::publish_read_views()
         std::shared_lock lock(mutex_);
         next->snapshot_json = build_snapshot(store_, clock_);
         next->conflicts_json = build_conflicts_json(store_);
-        next->propagation_json = build_propagation_json(store_, prop_stats_, step_cfg_);
+        next->propagation_json = build_propagation_json(store_, prop_stats_, step_cfg_, recovery_cfg_);
     }
 
     std::atomic_store_explicit(&published_views_, std::const_pointer_cast<const PublishedReadViews>(next), std::memory_order_release);
@@ -1095,6 +1236,9 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
             stationkeeping_uptime_penalty_samples_tick
         );
 
+        // Station-keeping path only proposes corrective burns after slot-box
+        // breach and still obeys cooldown/LOS/fuel safety checks.
+
         const ManeuverExecStats exec_stats = cascade::execute_due_maneuvers(
             store_,
             clock_.epoch_s(),
@@ -1116,7 +1260,8 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
             recovery_requests_by_sat_,
             graveyard_requested_by_sat_,
             slot_reference_by_sat_,
-            k_auto_upload_horizon_s
+            k_auto_upload_horizon_s,
+            recovery_cfg_
         );
 
         const GraveyardPlanStats grave_plan = cascade::plan_graveyard_burns(
@@ -1142,6 +1287,7 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         prop_stats_.narrow_full_refine_fail_open_last_tick = stats.narrow_full_refine_fail_open;
         prop_stats_.narrow_full_refine_budget_allocated_last_tick = stats.narrow_full_refine_budget_allocated;
         prop_stats_.narrow_full_refine_budget_exhausted_last_tick = stats.narrow_full_refine_budget_exhausted;
+        prop_stats_.narrow_uncertainty_promoted_pairs_last_tick = stats.narrow_uncertainty_promoted_pairs;
         prop_stats_.auto_planned_last_tick = auto_planned + stationkeeping_recovery_planned;
         prop_stats_.recovery_pending_marked_last_tick = exec_stats.recovery_pending_marked;
         prop_stats_.recovery_planned_last_tick = rec_plan.planned;
@@ -1171,6 +1317,7 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         prop_stats_.broad_candidates_last_tick = stats.broad_candidates;
         prop_stats_.broad_overlap_pass_last_tick = stats.broad_shell_overlap_pass;
         prop_stats_.broad_dcriterion_rejected_last_tick = stats.broad_dcriterion_rejected;
+        prop_stats_.broad_dcriterion_shadow_rejected_last_tick = stats.broad_dcriterion_shadow_rejected;
         prop_stats_.broad_fail_open_objects_last_tick = stats.broad_fail_open_objects;
         prop_stats_.broad_fail_open_satellites_last_tick = stats.broad_fail_open_satellites;
         prop_stats_.broad_shell_margin_km_last_tick = stats.broad_shell_margin_km;
@@ -1192,6 +1339,7 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         prop_stats_.narrow_full_refine_fail_open_total += stats.narrow_full_refine_fail_open;
         prop_stats_.narrow_full_refine_budget_allocated_total += stats.narrow_full_refine_budget_allocated;
         prop_stats_.narrow_full_refine_budget_exhausted_total += stats.narrow_full_refine_budget_exhausted;
+        prop_stats_.narrow_uncertainty_promoted_pairs_total += stats.narrow_uncertainty_promoted_pairs;
         prop_stats_.auto_planned_total += auto_planned + stationkeeping_recovery_planned;
         prop_stats_.recovery_pending_marked_total += exec_stats.recovery_pending_marked;
         prop_stats_.recovery_planned_total += rec_plan.planned;
@@ -1218,6 +1366,7 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         prop_stats_.broad_candidates_total += stats.broad_candidates;
         prop_stats_.broad_overlap_pass_total += stats.broad_shell_overlap_pass;
         prop_stats_.broad_dcriterion_rejected_total += stats.broad_dcriterion_rejected;
+        prop_stats_.broad_dcriterion_shadow_rejected_total += stats.broad_dcriterion_shadow_rejected;
         prop_stats_.broad_fail_open_objects_total += stats.broad_fail_open_objects;
         prop_stats_.broad_fail_open_satellites_total += stats.broad_fail_open_satellites;
 
@@ -1332,7 +1481,8 @@ std::uint64_t EngineRuntime::enforce_stationkeeping_recovery(double epoch_s,
             store_,
             i,
             req,
-            slot_reference_by_sat_
+            slot_reference_by_sat_,
+            recovery_cfg_
         );
         const double dv_norm = cascade::dv_norm_km_s(dv);
         if (dv_norm <= EPS_NUM) {
@@ -1545,6 +1695,10 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += ",";
         append_latency_snapshot(out, "step", step_latency);
         out += "}";
+        out += ",\"broad_phase_shadow_dcriterion_rejected_total\":";
+        out += std::to_string(prop_stats_.broad_dcriterion_shadow_rejected_total);
+        out += ",\"narrow_uncertainty_promoted_pairs_total\":";
+        out += std::to_string(prop_stats_.narrow_uncertainty_promoted_pairs_total);
         out += ",\"propagation_last_tick\":{";
         out += "\"narrow_pairs_checked\":";
         out += std::to_string(prop_stats_.narrow_pairs_last_tick);
@@ -1590,10 +1744,14 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(prop_stats_.narrow_full_refine_budget_allocated_last_tick);
         out += ",\"narrow_full_refine_budget_exhausted\":";
         out += std::to_string(prop_stats_.narrow_full_refine_budget_exhausted_last_tick);
+        out += ",\"narrow_uncertainty_promoted_pairs\":";
+        out += std::to_string(prop_stats_.narrow_uncertainty_promoted_pairs_last_tick);
         out += ",\"broad_candidates\":";
         out += std::to_string(prop_stats_.broad_candidates_last_tick);
         out += ",\"broad_pairs_considered\":";
         out += std::to_string(prop_stats_.broad_pairs_last_tick);
+        out += ",\"broad_dcriterion_shadow_rejected\":";
+        out += std::to_string(prop_stats_.broad_dcriterion_shadow_rejected_last_tick);
         out += "},\"propagation_totals\":{";
         out += "\"narrow_pairs_checked\":";
         out += std::to_string(prop_stats_.narrow_pairs_total);
@@ -1663,6 +1821,10 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(prop_stats_.narrow_full_refine_budget_allocated_total);
         out += ",\"narrow_full_refine_budget_exhausted\":";
         out += std::to_string(prop_stats_.narrow_full_refine_budget_exhausted_total);
+        out += ",\"narrow_uncertainty_promoted_pairs\":";
+        out += std::to_string(prop_stats_.narrow_uncertainty_promoted_pairs_total);
+        out += ",\"broad_dcriterion_shadow_rejected\":";
+        out += std::to_string(prop_stats_.broad_dcriterion_shadow_rejected_total);
         out += ",\"broad_candidates\":";
         out += std::to_string(prop_stats_.broad_candidates_total);
         out += ",\"broad_pairs_considered\":";
@@ -1695,7 +1857,7 @@ std::string EngineRuntime::propagation_json() const
     }
 
     std::shared_lock lock(mutex_);
-    return build_propagation_json(store_, prop_stats_, step_cfg_);
+    return build_propagation_json(store_, prop_stats_, step_cfg_, recovery_cfg_);
 }
 
 } // namespace cascade
