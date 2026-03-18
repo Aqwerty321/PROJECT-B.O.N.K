@@ -116,7 +116,7 @@ ctest --test-dir build --output-on-failure
 | `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | adaptive-budget full-window refinement exists; no exhaustive high-fidelity solve for all candidates | tune adaptive budget policy on real scenario mixes |
 | `POST /api/maneuver/schedule` | validation incl LOS/fuel/cooldown | partial | static LOS-at-burn-time check added (no latency/window planner yet) | integrate scheduler + station visibility window model |
 | `GET /api/visualization/snapshot` | geodetic satellite/debris visualization fields | implemented | no uncertainty/quality fields yet | add optional confidence metadata in debug path |
-| `GET /api/status` | health/tick/object counters | implemented | no queue/narrow-phase stats yet | add internal metrics expansion without schema drift |
+| `GET /api/status` | health/tick/object counters | implemented | default schema remains PS-clean; details mode is non-PS extension | tune/expand optional details mode as needed |
 
 ## Phase 4 readiness checklist
 
@@ -138,7 +138,7 @@ ctest --test-dir build --output-on-failure
 - `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`,
   `dcriterion_rejected_total=0`)
 - `phase3_tick_benchmark 50 10000 30`:
-  mean `13.899 ms`, median `13.593 ms`, p95 `16.892 ms`
+  mean `13.468 ms`, median `13.388 ms`, p95 `14.704 ms`
 - `offline_multiobjective_tuner 240 50 10000 3 2`:
   strict-zero-risk enabled, disqualified `43`, safe population `197`, pareto
   set `3`
@@ -164,3 +164,6 @@ ctest --test-dir build --output-on-failure
 - Adaptive budget note:
   per-tick budget allocation now scales with candidate load, step length,
   and propagation-failure pressure (reported in debug counters)
+- Status endpoint note:
+  `GET /api/status?details=1` now returns optional internal metrics (queue,
+  refinement, broad-phase load) while default response remains PS-compatible

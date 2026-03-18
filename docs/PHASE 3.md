@@ -66,9 +66,8 @@ Observed:
 ## Next Phase 3 tasks
 
 - integrate per-tick arena allocation strategy
-- expose structured tick stats in `/api/status` (without breaking PS schema)
-- map collision detections to maneuver executor outputs
-- move from instantaneous threshold checks to TCA-window narrow-phase
+- tune adaptive full-window refinement budget policy using mixed load scenarios
+- add recovery-burn planner after evasion burns
 
 ## Offline tuner scaffold
 
@@ -118,10 +117,11 @@ Latest integration snapshot:
   ultra-near-threshold pairs, with fail-open and budget-exhaustion counters
 - full-window refinement budget is now adaptive per tick based on candidate
   load, step size, and propagation failure pressure
+- `/api/status` now supports optional details mode (`?details=1`) exposing
+  internal metrics without changing default PS response schema
 
 Current status note:
 
-- LOS validation is currently a conservative burn-time-in-future proxy;
 - station-geometry LOS windows are currently static point checks (no latency/
   upload-window planner yet)
 - TCA-window narrow-phase is conservative and currently linearized; high-

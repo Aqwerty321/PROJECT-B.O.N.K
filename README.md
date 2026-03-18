@@ -135,6 +135,9 @@ refinement pass before final collision classification.
 Full-window refinement budget is adaptive per tick (candidate load, step
 duration, and propagation failure pressure).
 
+`GET /api/status` keeps PS-compatible default fields; add `?details=1` (or
+`?verbose=1`) to include internal diagnostics metrics.
+
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.
 

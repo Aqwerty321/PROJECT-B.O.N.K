@@ -982,23 +982,106 @@ int main()
     // ------------------------------------------------------------------
     // GET /api/status
     // ------------------------------------------------------------------
-    svr.Get("/api/status", [](const httplib::Request&, httplib::Response& res) {
+    svr.Get("/api/status", [](const httplib::Request& req, httplib::Response& res) {
+        const auto truthy = [](const std::string& v) {
+            return v == "1" || v == "true" || v == "yes" || v == "on";
+        };
+
+        bool include_details = false;
+        if (req.has_param("details")) {
+            include_details = truthy(req.get_param_value("details"));
+        }
+        if (!include_details && req.has_param("verbose")) {
+            include_details = truthy(req.get_param_value("verbose"));
+        }
+
         std::size_t obj_count = 0;
+        std::size_t sat_count = 0;
+        std::size_t deb_count = 0;
+        std::size_t pending_burn_queue = 0;
         double uptime = 0.0;
+        std::uint64_t failed_last_tick = 0;
+        std::uint64_t failed_total = 0;
+        std::uint64_t tick_count = static_cast<std::uint64_t>(g_tick_count.load());
+        PropagationStats prop{};
         {
             std::shared_lock lock(g_mutex);
             obj_count = g_store.size();
+            sat_count = g_store.satellite_count();
+            deb_count = g_store.debris_count();
+            pending_burn_queue = g_burn_queue.size();
             uptime = g_clock.uptime_s();
+            failed_last_tick = g_store.failed_last_tick();
+            failed_total = g_store.failed_propagation_total();
+            prop = g_prop_stats;
         }
 
         std::string out;
-        out.reserve(128);
+        out.reserve(include_details ? 960 : 128);
         out += "{\"status\":\"NOMINAL\",\"uptime_s\":";
         out += cascade::fmt_double(uptime, 1);
         out += ",\"tick_count\":";
-        out += std::to_string(g_tick_count.load());
+        out += std::to_string(tick_count);
         out += ",\"object_count\":";
         out += std::to_string(obj_count);
+
+        if (include_details) {
+            out += ",\"internal_metrics\":{";
+            out += "\"satellite_count\":";
+            out += std::to_string(sat_count);
+            out += ",\"debris_count\":";
+            out += std::to_string(deb_count);
+            out += ",\"pending_burn_queue\":";
+            out += std::to_string(pending_burn_queue);
+            out += ",\"failed_objects_last_tick\":";
+            out += std::to_string(failed_last_tick);
+            out += ",\"failed_objects_total\":";
+            out += std::to_string(failed_total);
+            out += ",\"propagation_last_tick\":{";
+            out += "\"narrow_pairs_checked\":";
+            out += std::to_string(prop.narrow_pairs_last_tick);
+            out += ",\"collisions_detected\":";
+            out += std::to_string(prop.collisions_last_tick);
+            out += ",\"maneuvers_executed\":";
+            out += std::to_string(prop.maneuvers_last_tick);
+            out += ",\"auto_planned_maneuvers\":";
+            out += std::to_string(prop.auto_planned_last_tick);
+            out += ",\"narrow_refined_pairs\":";
+            out += std::to_string(prop.narrow_refined_pairs_last_tick);
+            out += ",\"narrow_full_refined_pairs\":";
+            out += std::to_string(prop.narrow_full_refined_pairs_last_tick);
+            out += ",\"narrow_full_refine_budget_allocated\":";
+            out += std::to_string(prop.narrow_full_refine_budget_allocated_last_tick);
+            out += ",\"narrow_full_refine_budget_exhausted\":";
+            out += std::to_string(prop.narrow_full_refine_budget_exhausted_last_tick);
+            out += ",\"broad_candidates\":";
+            out += std::to_string(prop.broad_candidates_last_tick);
+            out += ",\"broad_pairs_considered\":";
+            out += std::to_string(prop.broad_pairs_last_tick);
+            out += "},\"propagation_totals\":{";
+            out += "\"narrow_pairs_checked\":";
+            out += std::to_string(prop.narrow_pairs_total);
+            out += ",\"collisions_detected\":";
+            out += std::to_string(prop.collisions_total);
+            out += ",\"maneuvers_executed\":";
+            out += std::to_string(prop.maneuvers_total);
+            out += ",\"auto_planned_maneuvers\":";
+            out += std::to_string(prop.auto_planned_total);
+            out += ",\"narrow_refined_pairs\":";
+            out += std::to_string(prop.narrow_refined_pairs_total);
+            out += ",\"narrow_full_refined_pairs\":";
+            out += std::to_string(prop.narrow_full_refined_pairs_total);
+            out += ",\"narrow_full_refine_budget_allocated\":";
+            out += std::to_string(prop.narrow_full_refine_budget_allocated_total);
+            out += ",\"narrow_full_refine_budget_exhausted\":";
+            out += std::to_string(prop.narrow_full_refine_budget_exhausted_total);
+            out += ",\"broad_candidates\":";
+            out += std::to_string(prop.broad_candidates_total);
+            out += ",\"broad_pairs_considered\":";
+            out += std::to_string(prop.broad_pairs_total);
+            out += "}}";
+        }
+
         out += '}';
         res.status = 200;
         res.set_content(out, "application/json");
