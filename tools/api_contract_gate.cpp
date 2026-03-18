@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <iostream>
+#include <utility>
 #include <thread>
 #include <sstream>
 #include <string>
@@ -122,6 +123,88 @@ bool require_http(const httplib::Result& res,
     return true;
 }
 
+GateResult run_cors_check(std::string_view host,
+                          int port)
+{
+    GateResult out;
+
+    httplib::Client cli(std::string(host), port);
+    cli.set_connection_timeout(2, 0);
+    cli.set_read_timeout(5, 0);
+
+    httplib::Headers headers{
+        {"Origin", "http://localhost:5173"},
+        {"Access-Control-Request-Method", "POST"},
+        {"Access-Control-Request-Headers", "Content-Type, X-Source-Id"}
+    };
+
+    auto preflight = cli.Options("/api/telemetry", headers);
+    if (!preflight || preflight->status != 204) {
+        out.pass = false;
+        out.reason = "CORS preflight failed for /api/telemetry";
+        return out;
+    }
+
+    const auto has_header = [&](const httplib::Response& r, std::string_view key, std::string_view val) {
+        const auto it = r.headers.find(std::string(key));
+        if (it == r.headers.end()) return false;
+        return it->second == val;
+    };
+
+    if (!has_header(*preflight, "Access-Control-Allow-Origin", "http://localhost:5173")) {
+        out.pass = false;
+        out.reason = "CORS preflight missing allow-origin";
+        return out;
+    }
+    if (!has_header(*preflight, "Vary", "Origin")) {
+        out.pass = false;
+        out.reason = "CORS preflight missing Vary: Origin";
+        return out;
+    }
+    if (!contains(preflight->get_header_value("Access-Control-Allow-Methods"), "POST")) {
+        out.pass = false;
+        out.reason = "CORS preflight missing POST allow-method";
+        return out;
+    }
+    if (!contains(preflight->get_header_value("Access-Control-Allow-Headers"), "X-Source-Id")) {
+        out.pass = false;
+        out.reason = "CORS preflight missing X-Source-Id allow-header";
+        return out;
+    }
+
+    auto res = cli.Get("/api/status", httplib::Headers{{"Origin", "http://localhost:5173"}});
+    if (!res || res->status != 200) {
+        out.pass = false;
+        out.reason = "CORS simple request status check failed";
+        return out;
+    }
+    if (!has_header(*res, "Access-Control-Allow-Origin", "http://localhost:5173")) {
+        out.pass = false;
+        out.reason = "CORS simple response missing allow-origin";
+        return out;
+    }
+    if (!has_header(*res, "Vary", "Origin")) {
+        out.pass = false;
+        out.reason = "CORS simple response missing Vary: Origin";
+        return out;
+    }
+
+    auto blocked = cli.Get("/api/status", httplib::Headers{{"Origin", "http://localhost:9999"}});
+    if (!blocked || blocked->status != 200) {
+        out.pass = false;
+        out.reason = "CORS disallowed-origin status check failed";
+        return out;
+    }
+    const auto blocked_header = blocked->headers.find("Access-Control-Allow-Origin");
+    if (blocked_header != blocked->headers.end()) {
+        out.pass = false;
+        out.reason = "CORS disallowed-origin unexpectedly allowed";
+        return out;
+    }
+
+    return out;
+}
+
 GateResult run_queue_backpressure_check(std::string_view host,
                                         int port)
 {
@@ -165,7 +248,6 @@ GateResult run_queue_backpressure_check(std::string_view host,
         out.reason = "status details missing queue timeout metric after load";
         return out;
     }
-
     if (!saw_busy) {
         // Accept metric-only evidence to avoid occasional scheduling races.
         if (!contains(status_res->body, "\"command_queue_rejected_total\":")
@@ -302,6 +384,33 @@ GateResult run_contract_checks(std::string_view host,
         if (!queue_check.pass) {
             out.pass = false;
             out.reason = queue_check.reason;
+            return out;
+        }
+    }
+
+    {
+        auto res = cli.Get("/api/status?details=1");
+        std::string reason;
+        if (!require_http(res, 200, "\"internal_metrics\"", reason)) {
+            out.pass = false;
+            out.reason = "status details contract failed: " + reason;
+            return out;
+        }
+        if (!contains(res->body, "\"command_latency_us\"")
+            || !contains(res->body, "\"telemetry\"")
+            || !contains(res->body, "\"schedule\"")
+            || !contains(res->body, "\"step\"")) {
+            out.pass = false;
+            out.reason = "status details missing command latency metrics";
+            return out;
+        }
+    }
+
+    {
+        const GateResult cors = run_cors_check(host, port);
+        if (!cors.pass) {
+            out.pass = false;
+            out.reason = cors.reason;
             return out;
         }
     }

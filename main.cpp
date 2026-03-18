@@ -26,7 +26,8 @@ int main()
     cascade::EngineRuntime runtime;
     httplib::Server svr;
 
-    cascade::http::register_routes(svr, runtime);
+    const cascade::http::ApiServerConfig api_cfg = cascade::http::api_server_config_from_env();
+    cascade::http::register_routes(svr, runtime, api_cfg);
 
     if (!svr.listen("0.0.0.0", 8000)) {
         std::cerr << "FATAL: failed to bind to 0.0.0.0:8000\n";
