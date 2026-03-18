@@ -53,7 +53,7 @@ RecoveryPlannerConfig recovery_planner_config_from_env()
     cfg.max_request_ratio = env_double(
         "PROJECTBONK_RECOVERY_MAX_REQUEST_RATIO",
         cfg.max_request_ratio,
-        0.1,
+        0.01,
         1.0
     );
     return cfg;

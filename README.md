@@ -225,6 +225,18 @@ Recovery burns are now slot-targeted (heuristic element-delta correction using
 semi-major axis/eccentricity/inclination/RAAN deltas), then capped to burn
 limits.
 
+Recovery planner calibration can be configured at runtime with:
+
+- `PROJECTBONK_RECOVERY_SCALE_T`
+- `PROJECTBONK_RECOVERY_SCALE_R`
+- `PROJECTBONK_RECOVERY_RADIAL_SHARE`
+- `PROJECTBONK_RECOVERY_SCALE_N`
+- `PROJECTBONK_RECOVERY_FALLBACK_NORM_KM_S`
+- `PROJECTBONK_RECOVERY_MAX_REQUEST_RATIO`
+
+`PROJECTBONK_RECOVERY_MAX_REQUEST_RATIO` bounds per-burn commanded recovery
+norm relative to remaining requested recovery budget.
+
 Recovery planner counters are visible in debug/status details outputs
 (`recovery_planned`, `recovery_deferred`, `recovery_completed`).
 
@@ -295,6 +307,11 @@ Strict sweep criteria:
 - every scenario must execute at least one recovery burn
 - candidate mean fuel must satisfy
   `mean_fuel_used_kg <= default_candidate_mean_fuel_used_kg * 1.10`
+
+Current deterministic sweep snapshot in this branch:
+
+- strict and strict-expanded profiles select `fallback_1e-4_ratio_0.05`
+- see `docs/PHASE 4.md` for exact evidence and artifact paths
 
 Promotion policy for this milestone:
 

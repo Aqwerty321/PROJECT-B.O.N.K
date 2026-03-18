@@ -220,12 +220,10 @@ Strict sweep interpretation:
   `upload_prune=PASS`, `graveyard_offline_transition=PASS`)
 - strict recovery sweep (`./scripts/recovery_slot_sweep.sh ./build 24 0.08`):
   writes `build/recovery_slot_sweep_strict.json`; latest strict run reports
-  `selection.status=FAIL` with reason
-  `no candidate met strict scenario + fuel-ratio criteria` (deterministic
-  across repeated runs)
-- recovery sweep candidate evidence now includes additional request-ratio
-  variants (`request_ratio_*`, `fallback_1e-4_ratio_*`); current strict profile
-  still has no candidate passing both slot-error and fuel-ratio constraints
+  `selection.status=PASS` with selected candidate
+  `fallback_1e-4_ratio_0.05`
+- repeated strict and strict-expanded sweeps selected the same candidate in this
+  branch snapshot (see `docs/PHASE 4.md` artifact list)
 - `phase3_tick_benchmark 50 10000 30`:
   mean `13.291 ms`, median `13.271 ms`, p95 `13.538 ms`
 - `offline_multiobjective_tuner 240 50 10000 3 2`:

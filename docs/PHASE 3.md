@@ -207,13 +207,12 @@ Safety-gate snapshot on this kickoff branch:
 
 Recovery calibration evidence update:
 
-- strict sweep (`./scripts/recovery_slot_sweep.sh ./build 24 0.08`) still reports
-  `selection.status=FAIL` under `fuel_ratio_cap=1.10`
-- in current synthetic sweep, `fallback_1e-4` is scenario-safe but exceeds fuel
-  cap (mean fuel ratio `~1.361x` vs default)
-- additional request-ratio candidates (`request_ratio_*`,
-  `fallback_1e-4_ratio_*`) are now evaluated in sweep output; none satisfy both
-  strict scenario and fuel-ratio criteria yet
+- strict sweep now reports `selection.status=PASS` under `fuel_ratio_cap=1.10`
+  after adding request-ratio candidate coverage
+- selected strict candidate: `fallback_1e-4_ratio_0.05`
+- deterministic repeat sweeps on strict and strict-expanded profiles selected
+  the same candidate in this branch snapshot
+- detailed evidence and artifacts are tracked in `docs/PHASE 4.md`
 
 Latest tuner snapshot (`240 50 10000 3 2`):
 

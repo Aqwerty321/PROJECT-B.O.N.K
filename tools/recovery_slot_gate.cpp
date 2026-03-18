@@ -692,7 +692,7 @@ std::vector<NamedGains> build_sweep_candidates()
     }
 
     {
-        const std::array<double, 6> ratios{0.20, 0.30, 0.40, 0.50, 0.60, 0.80};
+        const std::array<double, 8> ratios{0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.80};
         for (double ratio : ratios) {
             RecoveryGains g = base;
             g.max_request_ratio = ratio;
@@ -705,7 +705,7 @@ std::vector<NamedGains> build_sweep_candidates()
     }
 
     {
-        const std::array<double, 4> ratios{0.20, 0.30, 0.40, 0.50};
+        const std::array<double, 6> ratios{0.05, 0.10, 0.20, 0.30, 0.40, 0.50};
         for (double ratio : ratios) {
             RecoveryGains g = base;
             g.fallback_norm_km_s = 1e-4;
