@@ -397,7 +397,8 @@ ScenarioOutcome test_stationkeeping_breach_triggers_recovery_plan()
         store,
         sat_idx,
         recovery_requests_by_sat[sat_id],
-        slot_reference_by_sat
+        slot_reference_by_sat,
+        cascade::RecoveryPlannerConfig{}
     );
     if (cascade::dv_norm_km_s(dv) <= cascade::EPS_NUM) {
         out.reason = "computed stationkeeping recovery dv is zero";
@@ -419,7 +420,8 @@ ScenarioOutcome test_stationkeeping_breach_triggers_recovery_plan()
             recovery_requests_by_sat,
             graveyard_requested_by_sat,
             slot_reference_by_sat,
-            cascade::AUTO_UPLOAD_HORIZON_S
+            cascade::AUTO_UPLOAD_HORIZON_S,
+            cascade::RecoveryPlannerConfig{}
         );
         if (rec.planned > 0) {
             planned_any = true;

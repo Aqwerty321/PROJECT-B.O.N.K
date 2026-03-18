@@ -6,13 +6,58 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace cascade {
+
+namespace {
+
+double env_double(std::string_view key,
+                  double default_value,
+                  double min_value,
+                  double max_value) noexcept
+{
+    const char* raw = std::getenv(std::string(key).c_str());
+    if (raw == nullptr) {
+        return default_value;
+    }
+
+    char* end = nullptr;
+    const double parsed = std::strtod(raw, &end);
+    if (end == nullptr || *end != '\0' || !std::isfinite(parsed)) {
+        return default_value;
+    }
+
+    if (parsed < min_value || parsed > max_value) {
+        return default_value;
+    }
+
+    return parsed;
+}
+
+} // namespace
+
+RecoveryPlannerConfig recovery_planner_config_from_env()
+{
+    RecoveryPlannerConfig cfg;
+    cfg.scale_t = env_double("PROJECTBONK_RECOVERY_SCALE_T", cfg.scale_t, 0.0, 1e-2);
+    cfg.scale_r = env_double("PROJECTBONK_RECOVERY_SCALE_R", cfg.scale_r, 0.0, 1e-1);
+    cfg.radial_share = env_double("PROJECTBONK_RECOVERY_RADIAL_SHARE", cfg.radial_share, 0.0, 2.0);
+    cfg.scale_n = env_double("PROJECTBONK_RECOVERY_SCALE_N", cfg.scale_n, 0.0, 1e-1);
+    cfg.fallback_norm_km_s = env_double(
+        "PROJECTBONK_RECOVERY_FALLBACK_NORM_KM_S",
+        cfg.fallback_norm_km_s,
+        0.0,
+        SAT_MAX_DELTAV_KM_S
+    );
+    return cfg;
+}
 
 Vec3 compute_slot_target_recovery_dv(const StateStore& store,
                                      std::size_t sat_idx,
                                      const RecoveryRequest& req,
-                                     std::unordered_map<std::string, SlotReference>& slot_reference_by_sat) noexcept
+                                     std::unordered_map<std::string, SlotReference>& slot_reference_by_sat,
+                                     const RecoveryPlannerConfig& cfg) noexcept
 {
     const OrbitalElements slot = derive_slot_elements_if_needed(store, sat_idx, slot_reference_by_sat);
     OrbitalElements cur{};
@@ -57,13 +102,9 @@ Vec3 compute_slot_target_recovery_dv(const StateStore& store,
     const double di = slot.i_rad - cur.i_rad;
     const double d_raan = wrap_0_2pi(slot.raan_rad - cur.raan_rad + PI) - PI;
 
-    const double scale_t = 6e-5;
-    const double scale_r = 2e-3;
-    const double scale_n = 6e-3;
-
-    const double dv_t = (da * scale_t) + (de * scale_r);
-    const double dv_r = de * (0.5 * scale_r);
-    const double dv_n = (di + d_raan) * scale_n;
+    const double dv_t = (da * cfg.scale_t) + (de * cfg.scale_r);
+    const double dv_r = de * (cfg.radial_share * cfg.scale_r);
+    const double dv_n = (di + d_raan) * cfg.scale_n;
 
     Vec3 slot_dv{
         t_hat.x * dv_t + r_hat.x * dv_r + n_hat.x * dv_n,
@@ -73,7 +114,7 @@ Vec3 compute_slot_target_recovery_dv(const StateStore& store,
 
     const double slot_norm = dv_norm_km_s(slot_dv);
     const double rem_norm = dv_norm_km_s(req.remaining_delta_v_km_s);
-    if (slot_norm < 2e-4 && rem_norm > EPS_NUM) {
+    if (slot_norm < cfg.fallback_norm_km_s && rem_norm > EPS_NUM) {
         slot_dv = req.remaining_delta_v_km_s;
     }
 
@@ -88,7 +129,8 @@ RecoveryPlanStats plan_recovery_burns(StateStore& store,
                                       std::unordered_map<std::string, RecoveryRequest>& recovery_requests_by_sat,
                                       std::unordered_map<std::string, bool>& graveyard_requested_by_sat,
                                       std::unordered_map<std::string, SlotReference>& slot_reference_by_sat,
-                                      double auto_upload_horizon_s) noexcept
+                                      double auto_upload_horizon_s,
+                                      const RecoveryPlannerConfig& cfg) noexcept
 {
     RecoveryPlanStats stats{};
     if (recovery_requests_by_sat.empty()) {
@@ -139,7 +181,7 @@ RecoveryPlanStats plan_recovery_burns(StateStore& store,
             continue;
         }
 
-        const Vec3 dv = compute_slot_target_recovery_dv(store, idx, it->second, slot_reference_by_sat);
+        const Vec3 dv = compute_slot_target_recovery_dv(store, idx, it->second, slot_reference_by_sat, cfg);
         const double dv_norm = dv_norm_km_s(dv);
         if (dv_norm <= EPS_NUM) {
             recovery_requests_by_sat.erase(it);
