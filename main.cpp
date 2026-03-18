@@ -28,7 +28,8 @@
 #include "telemetry.hpp"
 #include "simulation_engine.hpp"
 #include "earth_frame.hpp"
-#include "orbit_math.hpp"
+#include "maneuver_common.hpp"
+#include "maneuver_recovery_planner.hpp"
 
 static cascade::StateStore  g_store;
 static cascade::SimClock    g_clock;
@@ -47,435 +48,103 @@ static cascade::StepRunConfig g_step_cfg = [] {
     return cfg;
 }();
 
-struct ScheduledBurn {
-    std::string id;
-    std::string satellite_id;
-    double burn_epoch_s = 0.0;
-    cascade::Vec3 delta_v_km_s{};
-    double delta_v_norm_km_s = 0.0;
-    bool auto_generated = false;
-    bool recovery_burn = false;
-};
+using ScheduledBurn = cascade::ScheduledBurn;
+using ManeuverExecStats = cascade::ManeuverExecStats;
+using RecoveryPlanStats = cascade::RecoveryPlanStats;
+using GraveyardPlanStats = cascade::GraveyardPlanStats;
+using RecoveryRequest = cascade::RecoveryRequest;
+using SlotReference = cascade::SlotReference;
 
-struct ManeuverExecStats {
-    std::uint64_t executed = 0;
-    std::uint64_t recovery_pending_marked = 0;
-    std::uint64_t recovery_completed = 0;
-};
-
-struct RecoveryPlanStats {
-    std::uint64_t planned = 0;
-    std::uint64_t deferred = 0;
-};
-
-struct RecoveryRequest {
-    cascade::Vec3 remaining_delta_v_km_s{};
-    double earliest_epoch_s = 0.0;
-};
-
-struct GroundStation {
-    const char* id;
-    double lat_deg;
-    double lon_deg;
-    double alt_km;
-    double min_el_deg;
-};
-
-static constexpr GroundStation k_ground_stations[] = {
-    {"GS-001", 13.0333,   77.5167, 0.820,  5.0},
-    {"GS-002", 78.2297,   15.4077, 0.400,  5.0},
-    {"GS-003", 35.4266, -116.8900, 1.000, 10.0},
-    {"GS-004",-53.1500,  -70.9167, 0.030,  5.0},
-    {"GS-005", 28.5450,   77.1926, 0.225, 15.0},
-    {"GS-006",-77.8463,  166.6682, 0.010,  5.0}
-};
+static constexpr double k_signal_latency_s = cascade::SIGNAL_LATENCY_S;
+static constexpr double k_stationkeeping_box_radius_km = cascade::STATIONKEEPING_BOX_RADIUS_KM;
+static constexpr double k_auto_upload_horizon_s = cascade::AUTO_UPLOAD_HORIZON_S;
 
 static std::vector<ScheduledBurn> g_burn_queue;
 static std::unordered_map<std::string, double> g_last_burn_epoch_by_sat;
 static std::unordered_map<std::string, RecoveryRequest> g_recovery_requests_by_sat;
 
-static std::unordered_map<std::string, cascade::OrbitalElements> g_slot_elements_by_sat;
+static std::unordered_map<std::string, SlotReference> g_slot_reference_by_sat;
+static std::unordered_map<std::string, bool> g_graveyard_completed_by_sat;
+static std::unordered_map<std::string, bool> g_graveyard_requested_by_sat;
 
-static bool has_ground_station_los(const cascade::Vec3& sat_eci_km,
-                                   double epoch_s) noexcept;
 static bool has_pending_burn_in_cooldown_window(const std::string& sat_id,
-                                                double epoch_s) noexcept;
-static bool has_any_pending_burn(const std::string& sat_id) noexcept;
-
-static bool get_current_elements(const cascade::StateStore& store,
-                                 std::size_t idx,
-                                 cascade::OrbitalElements& out) noexcept
+                                                   double epoch_s) noexcept;
+static double propellant_used_kg(double mass_kg, double delta_v_km_s) noexcept;
+static bool slot_radius_error_km_at_epoch(const cascade::StateStore& store,
+                                          std::size_t sat_idx,
+                                          double epoch_s,
+                                          double& out_error_km) noexcept
 {
-    if (idx >= store.size()) return false;
-
-    if (store.elements_valid(idx)) {
-        out.a_km = store.a_km(idx);
-        out.e = store.e(idx);
-        out.i_rad = store.i_rad(idx);
-        out.raan_rad = store.raan_rad(idx);
-        out.argp_rad = store.argp_rad(idx);
-        out.M_rad = store.M_rad(idx);
-        out.n_rad_s = store.n_rad_s(idx);
-        out.p_km = store.p_km(idx);
-        out.rp_km = store.rp_km(idx);
-        out.ra_km = store.ra_km(idx);
-        return true;
-    }
-
-    const cascade::Vec3 r{store.rx(idx), store.ry(idx), store.rz(idx)};
-    const cascade::Vec3 v{store.vx(idx), store.vy(idx), store.vz(idx)};
-    return cascade::eci_to_elements(r, v, out);
-}
-
-static cascade::OrbitalElements derive_slot_elements_if_needed(const cascade::StateStore& store,
-                                                               std::size_t sat_idx) noexcept
-{
-    const std::string sat_id = store.id(sat_idx);
-    auto it = g_slot_elements_by_sat.find(sat_id);
-    if (it != g_slot_elements_by_sat.end()) {
-        return it->second;
-    }
-
-    cascade::OrbitalElements cur{};
-    if (get_current_elements(store, sat_idx, cur)) {
-        g_slot_elements_by_sat[sat_id] = cur;
-        return cur;
-    }
-
-    return cur;
-}
-
-static double slot_error_score(const cascade::OrbitalElements& slot,
-                               const cascade::OrbitalElements& cur) noexcept
-{
-    const double da = std::abs(slot.a_km - cur.a_km);
-    const double de = std::abs(slot.e - cur.e);
-    const double di = std::abs(slot.i_rad - cur.i_rad);
-    const double d_raan = std::abs(cascade::wrap_0_2pi(slot.raan_rad - cur.raan_rad + cascade::PI) - cascade::PI);
-
-    // Heuristic station-keeping error score (dimensionless weighted sum).
-    return (da / 10.0) + (de / 1e-3) + (di / 1e-3) + (d_raan / 1e-3);
-}
-
-static double dv_norm_km_s(const cascade::Vec3& dv) noexcept
-{
-    return std::sqrt(dv.x * dv.x + dv.y * dv.y + dv.z * dv.z);
+    return cascade::slot_radius_error_km_at_epoch(
+        store,
+        sat_idx,
+        epoch_s,
+        g_slot_reference_by_sat,
+        out_error_km
+    );
 }
 
 static double propellant_used_kg(double mass_kg, double delta_v_km_s) noexcept
 {
-    if (!(mass_kg > 0.0) || !(delta_v_km_s > 0.0)) {
-        return 0.0;
-    }
-    const double ve_km_s = cascade::SAT_ISP_S * cascade::G0_KM_S2;
-    if (!(ve_km_s > 0.0)) {
-        return 0.0;
-    }
-    const double mass_ratio = std::exp(-delta_v_km_s / ve_km_s);
-    return mass_kg * (1.0 - mass_ratio);
+    return cascade::propellant_used_kg(mass_kg, delta_v_km_s);
 }
 
-static bool can_schedule_burn_now(const cascade::StateStore& store,
-                                  std::size_t sat_idx,
-                                  double epoch_s) noexcept
+static GraveyardPlanStats plan_graveyard_burns(cascade::StateStore& store,
+                                               double current_epoch_s,
+                                               std::uint64_t tick_id)
 {
-    if (sat_idx >= store.size() || store.type(sat_idx) != cascade::ObjectType::SATELLITE) {
-        return false;
-    }
-
-    const std::string sat_id = store.id(sat_idx);
-    const auto last_it = g_last_burn_epoch_by_sat.find(sat_id);
-    if (last_it != g_last_burn_epoch_by_sat.end()) {
-        const double dt = epoch_s - last_it->second;
-        if (dt + cascade::EPS_NUM < cascade::SAT_COOLDOWN_S) {
-            return false;
-        }
-    }
-
-    if (has_pending_burn_in_cooldown_window(sat_id, epoch_s)) {
-        return false;
-    }
-
-    const cascade::Vec3 sat_eci{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
-    return has_ground_station_los(sat_eci, epoch_s);
-}
-
-static bool has_ground_station_los(const cascade::Vec3& sat_eci_km,
-                                   double epoch_s) noexcept
-{
-    const cascade::Vec3 sat_ecef = cascade::eci_to_ecef(sat_eci_km, epoch_s);
-
-    for (const GroundStation& gs : k_ground_stations) {
-        const double lat_rad = gs.lat_deg * cascade::PI / 180.0;
-        const double lon_rad = gs.lon_deg * cascade::PI / 180.0;
-        const double min_el_rad = gs.min_el_deg * cascade::PI / 180.0;
-        const double el = cascade::elevation_angle_rad(
-            sat_ecef,
-            lat_rad,
-            lon_rad,
-            gs.alt_km
-        );
-        if (el >= min_el_rad) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static void accumulate_recovery_request(const ScheduledBurn& burn,
-                                        double current_epoch_s) noexcept
-{
-    if (!burn.auto_generated || burn.recovery_burn) {
-        return;
-    }
-
-    RecoveryRequest& req = g_recovery_requests_by_sat[burn.satellite_id];
-    req.remaining_delta_v_km_s.x -= burn.delta_v_km_s.x;
-    req.remaining_delta_v_km_s.y -= burn.delta_v_km_s.y;
-    req.remaining_delta_v_km_s.z -= burn.delta_v_km_s.z;
-
-    const double earliest = burn.burn_epoch_s + cascade::SAT_COOLDOWN_S;
-    if (req.earliest_epoch_s < current_epoch_s) {
-        req.earliest_epoch_s = earliest;
-    } else {
-        req.earliest_epoch_s = std::max(req.earliest_epoch_s, earliest);
-    }
-}
-
-static cascade::Vec3 compute_slot_target_recovery_dv(const cascade::StateStore& store,
-                                                     std::size_t sat_idx,
-                                                     const RecoveryRequest& req) noexcept
-{
-    const cascade::OrbitalElements slot = derive_slot_elements_if_needed(store, sat_idx);
-    cascade::OrbitalElements cur{};
-    if (!get_current_elements(store, sat_idx, cur)) {
-        return req.remaining_delta_v_km_s;
-    }
-
-    const cascade::Vec3 r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
-    const cascade::Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
-
-    const double vx = v.x;
-    const double vy = v.y;
-    const double vz = v.z;
-    const double v_norm = std::sqrt(vx * vx + vy * vy + vz * vz);
-    if (v_norm < cascade::EPS_NUM) {
-        return req.remaining_delta_v_km_s;
-    }
-
-    const double rx = r.x;
-    const double ry = r.y;
-    const double rz = r.z;
-    const double r_norm = std::sqrt(rx * rx + ry * ry + rz * rz);
-    if (r_norm < cascade::EPS_NUM) {
-        return req.remaining_delta_v_km_s;
-    }
-
-    const cascade::Vec3 t_hat{vx / v_norm, vy / v_norm, vz / v_norm};
-    const cascade::Vec3 r_hat{rx / r_norm, ry / r_norm, rz / r_norm};
-
-    const double hx = ry * vz - rz * vy;
-    const double hy = rz * vx - rx * vz;
-    const double hz = rx * vy - ry * vx;
-    const double h_norm = std::sqrt(hx * hx + hy * hy + hz * hz);
-    if (h_norm < cascade::EPS_NUM) {
-        return req.remaining_delta_v_km_s;
-    }
-
-    const cascade::Vec3 n_hat{hx / h_norm, hy / h_norm, hz / h_norm};
-
-    const double da = slot.a_km - cur.a_km;
-    const double de = slot.e - cur.e;
-    const double di = slot.i_rad - cur.i_rad;
-    const double d_raan = cascade::wrap_0_2pi(slot.raan_rad - cur.raan_rad + cascade::PI) - cascade::PI;
-
-    const double scale_t = 6e-5;
-    const double scale_r = 2e-3;
-    const double scale_n = 6e-3;
-
-    const double dv_t = (da * scale_t) + (de * scale_r);
-    const double dv_r = de * (0.5 * scale_r);
-    const double dv_n = (di + d_raan) * scale_n;
-
-    cascade::Vec3 slot_dv{
-        t_hat.x * dv_t + r_hat.x * dv_r + n_hat.x * dv_n,
-        t_hat.y * dv_t + r_hat.y * dv_r + n_hat.y * dv_n,
-        t_hat.z * dv_t + r_hat.z * dv_r + n_hat.z * dv_n
-    };
-
-    const double slot_norm = dv_norm_km_s(slot_dv);
-    const double rem_norm = dv_norm_km_s(req.remaining_delta_v_km_s);
-    if (slot_norm < 2e-4 && rem_norm > cascade::EPS_NUM) {
-        slot_dv = req.remaining_delta_v_km_s;
-    }
-
-    return slot_dv;
+    return cascade::plan_graveyard_burns(
+        store,
+        current_epoch_s,
+        tick_id,
+        g_burn_queue,
+        g_graveyard_requested_by_sat,
+        g_graveyard_completed_by_sat
+    );
 }
 
 static RecoveryPlanStats plan_recovery_burns(cascade::StateStore& store,
                                              double current_epoch_s,
                                              std::uint64_t tick_id)
 {
-    RecoveryPlanStats stats{};
-    if (g_recovery_requests_by_sat.empty()) {
-        return stats;
-    }
-
-    std::vector<std::string> ready;
-    ready.reserve(g_recovery_requests_by_sat.size());
-    for (const auto& kv : g_recovery_requests_by_sat) {
-        if (kv.second.earliest_epoch_s <= current_epoch_s + cascade::EPS_NUM) {
-            ready.push_back(kv.first);
-        }
-    }
-
-    for (const std::string& sat_id : ready) {
-        auto it = g_recovery_requests_by_sat.find(sat_id);
-        if (it == g_recovery_requests_by_sat.end()) continue;
-
-        const std::size_t idx = store.find(sat_id);
-        if (idx >= store.size() || store.type(idx) != cascade::ObjectType::SATELLITE) {
-            g_recovery_requests_by_sat.erase(it);
-            continue;
-        }
-
-        if (has_any_pending_burn(sat_id)) {
-            ++stats.deferred;
-            continue;
-        }
-
-        if (!can_schedule_burn_now(store, idx, current_epoch_s)) {
-            ++stats.deferred;
-            continue;
-        }
-
-        const cascade::Vec3 dv = compute_slot_target_recovery_dv(store, idx, it->second);
-        const double dv_norm = dv_norm_km_s(dv);
-        if (dv_norm <= cascade::EPS_NUM) {
-            g_recovery_requests_by_sat.erase(it);
-            continue;
-        }
-
-        const double dv_cap = cascade::SAT_MAX_DELTAV_KM_S;
-        const double scale = (dv_norm > dv_cap) ? (dv_cap / dv_norm) : 1.0;
-        const cascade::Vec3 dv_cmd{dv.x * scale, dv.y * scale, dv.z * scale};
-        const double cmd_norm = dv_norm_km_s(dv_cmd);
-
-        const double mass_before = store.mass_kg(idx);
-        const double fuel_before = store.fuel_kg(idx);
-        const double fuel_need = propellant_used_kg(mass_before, cmd_norm);
-        if (fuel_before - fuel_need <= cascade::SAT_FUEL_EOL_KG + cascade::EPS_NUM) {
-            store.set_sat_status(idx, cascade::SatStatus::FUEL_LOW);
-            ++stats.deferred;
-            continue;
-        }
-
-        ScheduledBurn burn;
-        burn.id = "AUTO-RECOVERY-" + std::to_string(tick_id) + "-" + std::to_string(stats.planned);
-        burn.satellite_id = sat_id;
-        burn.burn_epoch_s = current_epoch_s;
-        burn.delta_v_km_s = dv_cmd;
-        burn.delta_v_norm_km_s = cmd_norm;
-        burn.auto_generated = true;
-        burn.recovery_burn = true;
-        g_burn_queue.push_back(std::move(burn));
-
-        it->second.remaining_delta_v_km_s.x -= dv_cmd.x;
-        it->second.remaining_delta_v_km_s.y -= dv_cmd.y;
-        it->second.remaining_delta_v_km_s.z -= dv_cmd.z;
-        it->second.earliest_epoch_s = current_epoch_s + cascade::SAT_COOLDOWN_S;
-
-        const double rem = dv_norm_km_s(it->second.remaining_delta_v_km_s);
-        if (rem <= 1e-6) {
-            g_recovery_requests_by_sat.erase(it);
-        }
-
-        ++stats.planned;
-    }
-
-    return stats;
+    return cascade::plan_recovery_burns(
+        store,
+        current_epoch_s,
+        tick_id,
+        g_burn_queue,
+        g_last_burn_epoch_by_sat,
+        g_recovery_requests_by_sat,
+        g_graveyard_requested_by_sat,
+        g_slot_reference_by_sat,
+        k_auto_upload_horizon_s
+    );
 }
 
 static ManeuverExecStats execute_due_maneuvers(cascade::StateStore& store,
                                                double current_epoch_s)
 {
-    ManeuverExecStats stats{};
-    std::vector<ScheduledBurn> pending;
-    pending.reserve(g_burn_queue.size());
-
-    for (const ScheduledBurn& burn : g_burn_queue) {
-        if (burn.burn_epoch_s > current_epoch_s + cascade::EPS_NUM) {
-            pending.push_back(burn);
-            continue;
-        }
-
-        const std::size_t idx = store.find(burn.satellite_id);
-        if (idx >= store.size() || store.type(idx) != cascade::ObjectType::SATELLITE) {
-            continue;
-        }
-
-        const double mass_before = store.mass_kg(idx);
-        const double fuel_before = store.fuel_kg(idx);
-        const double fuel_needed = propellant_used_kg(mass_before, burn.delta_v_norm_km_s);
-        if (fuel_needed > fuel_before + cascade::EPS_NUM) {
-            continue;
-        }
-
-        store.vx_mut(idx) += burn.delta_v_km_s.x;
-        store.vy_mut(idx) += burn.delta_v_km_s.y;
-        store.vz_mut(idx) += burn.delta_v_km_s.z;
-        store.set_elements(idx, cascade::OrbitalElements{}, false);
-
-        const double fuel_after = std::max(0.0, fuel_before - fuel_needed);
-        const double mass_after = std::max(cascade::SAT_DRY_MASS_KG, mass_before - fuel_needed);
-        store.fuel_kg_mut(idx) = fuel_after;
-        store.mass_kg_mut(idx) = mass_after;
-
-        if (fuel_after <= cascade::SAT_FUEL_EOL_KG) {
-            store.set_sat_status(idx, cascade::SatStatus::FUEL_LOW);
-        } else {
-            store.set_sat_status(idx, cascade::SatStatus::MANEUVERING);
-        }
-
-        g_last_burn_epoch_by_sat[burn.satellite_id] = burn.burn_epoch_s;
-
-        if (burn.recovery_burn) {
-            ++stats.recovery_completed;
-            g_recovery_requests_by_sat.erase(burn.satellite_id);
-        } else {
-            accumulate_recovery_request(burn, current_epoch_s);
-            ++stats.recovery_pending_marked;
-        }
-
-        ++stats.executed;
-    }
-
-    g_burn_queue.swap(pending);
-    return stats;
+    return cascade::execute_due_maneuvers(
+        store,
+        current_epoch_s,
+        g_burn_queue,
+        g_last_burn_epoch_by_sat,
+        g_recovery_requests_by_sat,
+        g_graveyard_requested_by_sat,
+        g_graveyard_completed_by_sat
+    );
 }
 
 static bool has_pending_burn_in_cooldown_window(const std::string& sat_id,
-                                                  double epoch_s) noexcept
+                                                   double epoch_s) noexcept
 {
-    for (const ScheduledBurn& b : g_burn_queue) {
-        if (b.satellite_id != sat_id) continue;
-        if (b.recovery_burn) continue;
-        const double dt = std::abs(b.burn_epoch_s - epoch_s);
-        if (dt + cascade::EPS_NUM < cascade::SAT_COOLDOWN_S) {
-            return true;
-        }
-    }
-    return false;
+    return cascade::has_pending_burn_in_cooldown_window(g_burn_queue, sat_id, epoch_s);
 }
 
-static bool has_any_pending_burn(const std::string& sat_id) noexcept
+static void validate_pending_upload_windows(cascade::StateStore& store,
+                                            double current_epoch_s,
+                                            std::uint64_t& upload_missed)
 {
-    for (const ScheduledBurn& b : g_burn_queue) {
-        if (b.satellite_id == sat_id) {
-            return true;
-        }
-    }
-    return false;
+    cascade::validate_pending_upload_windows(store, current_epoch_s, g_burn_queue, upload_missed);
 }
 
 static std::uint64_t plan_collision_avoidance_burns(cascade::StateStore& store,
@@ -489,8 +158,14 @@ static std::uint64_t plan_collision_avoidance_burns(cascade::StateStore& store,
         const std::size_t sat_idx = static_cast<std::size_t>(sat_idx_u32);
         if (sat_idx >= store.size()) continue;
         if (store.type(sat_idx) != cascade::ObjectType::SATELLITE) continue;
+        if (store.sat_status(sat_idx) == cascade::SatStatus::OFFLINE) continue;
 
         const std::string sat_id = store.id(sat_idx);
+        if (g_graveyard_requested_by_sat[sat_id]) continue;
+        auto grave_done_it = g_graveyard_completed_by_sat.find(sat_id);
+        if (grave_done_it != g_graveyard_completed_by_sat.end() && grave_done_it->second) {
+            continue;
+        }
 
         const auto last_it = g_last_burn_epoch_by_sat.find(sat_id);
         if (last_it != g_last_burn_epoch_by_sat.end()) {
@@ -501,11 +176,6 @@ static std::uint64_t plan_collision_avoidance_burns(cascade::StateStore& store,
         }
 
         if (has_pending_burn_in_cooldown_window(sat_id, epoch_s)) {
-            continue;
-        }
-
-        const cascade::Vec3 sat_eci{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
-        if (!has_ground_station_los(sat_eci, epoch_s)) {
             continue;
         }
 
@@ -528,17 +198,43 @@ static std::uint64_t plan_collision_avoidance_burns(cascade::StateStore& store,
         const double fuel_after = fuel_before - fuel_need;
         if (fuel_after <= cascade::SAT_FUEL_EOL_KG + cascade::EPS_NUM) {
             store.set_sat_status(sat_idx, cascade::SatStatus::FUEL_LOW);
+            g_graveyard_requested_by_sat[sat_id] = true;
+            continue;
+        }
+
+        double earliest_burn_epoch = epoch_s + k_signal_latency_s;
+        if (last_it != g_last_burn_epoch_by_sat.end()) {
+            earliest_burn_epoch = std::max(earliest_burn_epoch, last_it->second + cascade::SAT_COOLDOWN_S);
+        }
+
+        double burn_epoch = 0.0;
+        double upload_epoch = 0.0;
+        std::string upload_station;
+        if (!cascade::choose_burn_epoch_with_upload(
+                store,
+                g_burn_queue,
+                g_last_burn_epoch_by_sat,
+                sat_idx,
+                epoch_s,
+                earliest_burn_epoch,
+                earliest_burn_epoch + k_auto_upload_horizon_s,
+                burn_epoch,
+                upload_epoch,
+                upload_station)) {
             continue;
         }
 
         ScheduledBurn burn;
         burn.id = "AUTO-COLA-" + std::to_string(tick_id) + "-" + std::to_string(planned);
         burn.satellite_id = sat_id;
-        burn.burn_epoch_s = epoch_s;
+        burn.upload_station_id = upload_station;
+        burn.upload_epoch_s = upload_epoch;
+        burn.burn_epoch_s = burn_epoch;
         burn.delta_v_km_s = dv;
         burn.delta_v_norm_km_s = k_auto_dv_km_s;
         burn.auto_generated = true;
         burn.recovery_burn = false;
+        burn.graveyard_burn = false;
 
         g_burn_queue.push_back(std::move(burn));
         ++planned;
@@ -563,9 +259,18 @@ struct PropagationStats {
     std::uint64_t narrow_full_refine_budget_allocated_last_tick = 0;
     std::uint64_t narrow_full_refine_budget_exhausted_last_tick = 0;
     std::uint64_t auto_planned_last_tick = 0;
+    std::uint64_t recovery_pending_marked_last_tick = 0;
     std::uint64_t recovery_planned_last_tick = 0;
     std::uint64_t recovery_deferred_last_tick = 0;
     std::uint64_t recovery_completed_last_tick = 0;
+    std::uint64_t graveyard_planned_last_tick = 0;
+    std::uint64_t graveyard_deferred_last_tick = 0;
+    std::uint64_t graveyard_completed_last_tick = 0;
+    std::uint64_t upload_missed_last_tick = 0;
+    std::uint64_t stationkeeping_outside_box_last_tick = 0;
+    double stationkeeping_uptime_penalty_mean_last_tick = 0.0;
+    double stationkeeping_slot_radius_error_mean_km_last_tick = 0.0;
+    double stationkeeping_slot_radius_error_max_km_last_tick = 0.0;
     double recovery_slot_error_mean_last_tick = 0.0;
     double recovery_slot_error_max_last_tick = 0.0;
 
@@ -595,9 +300,20 @@ struct PropagationStats {
     std::uint64_t narrow_full_refine_budget_allocated_total = 0;
     std::uint64_t narrow_full_refine_budget_exhausted_total = 0;
     std::uint64_t auto_planned_total = 0;
+    std::uint64_t recovery_pending_marked_total = 0;
     std::uint64_t recovery_planned_total = 0;
     std::uint64_t recovery_deferred_total = 0;
     std::uint64_t recovery_completed_total = 0;
+    std::uint64_t graveyard_planned_total = 0;
+    std::uint64_t graveyard_deferred_total = 0;
+    std::uint64_t graveyard_completed_total = 0;
+    std::uint64_t upload_missed_total = 0;
+    std::uint64_t stationkeeping_outside_box_total = 0;
+    double stationkeeping_uptime_penalty_sum_total = 0.0;
+    std::uint64_t stationkeeping_uptime_penalty_samples_total = 0;
+    double stationkeeping_slot_radius_error_sum_total = 0.0;
+    std::uint64_t stationkeeping_slot_radius_error_samples_total = 0;
+    double stationkeeping_slot_radius_error_max_total = 0.0;
     double recovery_slot_error_sum_total = 0.0;
     std::uint64_t recovery_slot_error_samples_total = 0;
     double recovery_slot_error_max_total = 0.0;
@@ -812,12 +528,30 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.narrow_full_refine_budget_exhausted_last_tick);
     out += ",\"auto_planned_maneuvers\":";
     out += std::to_string(stats.auto_planned_last_tick);
+    out += ",\"recovery_pending_marked\":";
+    out += std::to_string(stats.recovery_pending_marked_last_tick);
     out += ",\"recovery_planned\":";
     out += std::to_string(stats.recovery_planned_last_tick);
     out += ",\"recovery_deferred\":";
     out += std::to_string(stats.recovery_deferred_last_tick);
     out += ",\"recovery_completed\":";
     out += std::to_string(stats.recovery_completed_last_tick);
+    out += ",\"graveyard_planned\":";
+    out += std::to_string(stats.graveyard_planned_last_tick);
+    out += ",\"graveyard_deferred\":";
+    out += std::to_string(stats.graveyard_deferred_last_tick);
+    out += ",\"graveyard_completed\":";
+    out += std::to_string(stats.graveyard_completed_last_tick);
+    out += ",\"upload_window_missed\":";
+    out += std::to_string(stats.upload_missed_last_tick);
+    out += ",\"stationkeeping_outside_box\":";
+    out += std::to_string(stats.stationkeeping_outside_box_last_tick);
+    out += ",\"stationkeeping_uptime_penalty_mean\":";
+    out += cascade::fmt_double(stats.stationkeeping_uptime_penalty_mean_last_tick, 6);
+    out += ",\"stationkeeping_slot_radius_error_mean_km\":";
+    out += cascade::fmt_double(stats.stationkeeping_slot_radius_error_mean_km_last_tick, 6);
+    out += ",\"stationkeeping_slot_radius_error_max_km\":";
+    out += cascade::fmt_double(stats.stationkeeping_slot_radius_error_max_km_last_tick, 6);
     out += ",\"recovery_slot_error_mean\":";
     out += cascade::fmt_double(stats.recovery_slot_error_mean_last_tick, 6);
     out += ",\"recovery_slot_error_max\":";
@@ -875,12 +609,46 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.narrow_full_refine_budget_exhausted_total);
     out += ",\"auto_planned_maneuvers\":";
     out += std::to_string(stats.auto_planned_total);
+    out += ",\"recovery_pending_marked\":";
+    out += std::to_string(stats.recovery_pending_marked_total);
     out += ",\"recovery_planned\":";
     out += std::to_string(stats.recovery_planned_total);
     out += ",\"recovery_deferred\":";
     out += std::to_string(stats.recovery_deferred_total);
     out += ",\"recovery_completed\":";
     out += std::to_string(stats.recovery_completed_total);
+    out += ",\"graveyard_planned\":";
+    out += std::to_string(stats.graveyard_planned_total);
+    out += ",\"graveyard_deferred\":";
+    out += std::to_string(stats.graveyard_deferred_total);
+    out += ",\"graveyard_completed\":";
+    out += std::to_string(stats.graveyard_completed_total);
+    out += ",\"upload_window_missed\":";
+    out += std::to_string(stats.upload_missed_total);
+    out += ",\"stationkeeping_outside_box\":";
+    out += std::to_string(stats.stationkeeping_outside_box_total);
+    out += ",\"stationkeeping_uptime_penalty_mean\":";
+    if (stats.stationkeeping_uptime_penalty_samples_total > 0) {
+        out += cascade::fmt_double(
+            stats.stationkeeping_uptime_penalty_sum_total
+                / static_cast<double>(stats.stationkeeping_uptime_penalty_samples_total),
+            6
+        );
+    } else {
+        out += "0.000000";
+    }
+    out += ",\"stationkeeping_slot_radius_error_mean_km\":";
+    if (stats.stationkeeping_slot_radius_error_samples_total > 0) {
+        out += cascade::fmt_double(
+            stats.stationkeeping_slot_radius_error_sum_total
+                / static_cast<double>(stats.stationkeeping_slot_radius_error_samples_total),
+            6
+        );
+    } else {
+        out += "0.000000";
+    }
+    out += ",\"stationkeeping_slot_radius_error_max_km\":";
+    out += cascade::fmt_double(stats.stationkeeping_slot_radius_error_max_total, 6);
     out += ",\"recovery_slot_error_mean\":";
     if (stats.recovery_slot_error_samples_total > 0) {
         out += cascade::fmt_double(
@@ -963,9 +731,31 @@ int main()
         }
 
         cascade::TelemetryIngestResult ingest;
+        std::uint64_t active_warnings = 0;
         {
             std::unique_lock lock(g_mutex);
             ingest = cascade::apply_telemetry_batch(parsed, g_store, g_clock, get_source_id(req));
+            if (ingest.ok) {
+                for (const auto& obj : parsed.valid_objects) {
+                    if (obj.type != cascade::ObjectType::SATELLITE) continue;
+                    const std::size_t idx = g_store.find(obj.id);
+                    if (idx >= g_store.size()) continue;
+
+                    cascade::OrbitalElements slot_ref{};
+                    if (cascade::get_current_elements(g_store, idx, slot_ref)) {
+                        SlotReference ref;
+                        ref.elements = slot_ref;
+                        ref.reference_epoch_s = g_store.telemetry_epoch_s(idx);
+                        g_slot_reference_by_sat[obj.id] = ref;
+                    }
+
+                    if (g_store.fuel_kg(idx) <= cascade::SAT_FUEL_EOL_KG + cascade::EPS_NUM) {
+                        g_graveyard_requested_by_sat[obj.id] = true;
+                    }
+                }
+
+                active_warnings = g_prop_stats.collisions_last_tick;
+            }
         }
 
         if (!ingest.ok) {
@@ -978,7 +768,9 @@ int main()
         out.reserve(96);
         out += "{\"status\":\"ACK\",\"processed_count\":";
         out += std::to_string(ingest.processed_count);
-        out += ",\"active_cdm_warnings\":0}";
+        out += ",\"active_cdm_warnings\":";
+        out += std::to_string(active_warnings);
+        out += '}';
         res.status = 200;
         res.set_content(out, "application/json");
     });
@@ -1047,7 +839,7 @@ int main()
                 return;
             }
 
-            const double dv_norm = dv_norm_km_s(dv);
+            const double dv_norm = cascade::dv_norm_km_s(dv);
             if (dv_norm > cascade::SAT_MAX_DELTAV_KM_S + cascade::EPS_NUM) {
                 set_error_json(res, 422, "DELTA_V_EXCEEDS_LIMIT", "burn deltaV exceeds 15 m/s limit");
                 return;
@@ -1082,11 +874,14 @@ int main()
 
         const std::string sat_id(sat_sv);
         bool found_sat = false;
+        bool sat_operational = true;
         bool cooldown_ok = true;
-        bool los_ok = true;
+        bool upload_window_ok = true;
         double projected_fuel_remaining = 0.0;
         double projected_mass_remaining = 0.0;
         double clock_epoch_s = 0.0;
+        std::vector<double> parsed_upload_epochs;
+        std::vector<std::string> parsed_upload_stations;
 
         {
             std::unique_lock lock(g_mutex);
@@ -1095,12 +890,16 @@ int main()
             const std::size_t idx = g_store.find(sat_id);
             if (idx < g_store.size() && g_store.type(idx) == cascade::ObjectType::SATELLITE) {
                 found_sat = true;
+                sat_operational = (g_store.sat_status(idx) != cascade::SatStatus::OFFLINE);
                 const double fuel_remaining = g_store.fuel_kg(idx);
                 const double mass_remaining = g_store.mass_kg(idx);
 
                 cascade::OrbitalElements slot_ref{};
-                if (get_current_elements(g_store, idx, slot_ref)) {
-                    g_slot_elements_by_sat[sat_id] = slot_ref;
+                if (cascade::get_current_elements(g_store, idx, slot_ref)) {
+                    SlotReference ref;
+                    ref.elements = slot_ref;
+                    ref.reference_epoch_s = g_clock.epoch_s();
+                    g_slot_reference_by_sat[sat_id] = ref;
                 }
 
                 const auto last_it = g_last_burn_epoch_by_sat.find(sat_id);
@@ -1129,21 +928,28 @@ int main()
                     }
                 }
 
-                for (const ScheduledBurn& b : parsed_burns) {
-                    if (b.burn_epoch_s + cascade::EPS_NUM < clock_epoch_s) {
-                        los_ok = false;
+                parsed_upload_epochs.assign(parsed_burns.size(), 0.0);
+                parsed_upload_stations.assign(parsed_burns.size(), std::string{});
+                for (std::size_t bi = 0; bi < parsed_burns.size(); ++bi) {
+                    const ScheduledBurn& b = parsed_burns[bi];
+                    if (b.burn_epoch_s <= clock_epoch_s + k_signal_latency_s + cascade::EPS_NUM) {
+                        upload_window_ok = false;
                         break;
                     }
-                }
-
-                if (los_ok) {
-                    const cascade::Vec3 sat_eci{g_store.rx(idx), g_store.ry(idx), g_store.rz(idx)};
-                    for (const ScheduledBurn& b : parsed_burns) {
-                        if (!has_ground_station_los(sat_eci, b.burn_epoch_s)) {
-                            los_ok = false;
-                            break;
-                        }
+                    double upload_epoch = 0.0;
+                    std::string upload_station;
+                    if (!cascade::compute_upload_plan_for_burn(
+                            g_store,
+                            idx,
+                            clock_epoch_s,
+                            b.burn_epoch_s,
+                            upload_epoch,
+                            upload_station)) {
+                        upload_window_ok = false;
+                        break;
                     }
+                    parsed_upload_epochs[bi] = upload_epoch;
+                    parsed_upload_stations[bi] = upload_station;
                 }
 
                 projected_fuel_remaining = fuel_remaining;
@@ -1154,11 +960,18 @@ int main()
                     projected_mass_remaining -= fuel_need;
                 }
 
-                if (cooldown_ok && los_ok && projected_fuel_remaining > cascade::SAT_FUEL_EOL_KG) {
-                    for (const ScheduledBurn& b : parsed_burns) {
-                        g_burn_queue.push_back(b);
+                if (sat_operational
+                    && cooldown_ok
+                    && upload_window_ok
+                    && projected_fuel_remaining > cascade::SAT_FUEL_EOL_KG) {
+                    for (std::size_t bi = 0; bi < parsed_burns.size(); ++bi) {
+                        ScheduledBurn b = parsed_burns[bi];
+                        b.upload_epoch_s = parsed_upload_epochs[bi];
+                        b.upload_station_id = parsed_upload_stations[bi];
+                        g_burn_queue.push_back(std::move(b));
                     }
                     g_recovery_requests_by_sat.erase(sat_id);
+                    g_graveyard_requested_by_sat[sat_id] = false;
                 }
             }
         }
@@ -1168,10 +981,20 @@ int main()
             return;
         }
 
+        if (!sat_operational) {
+            set_error_json(res, 422, "SATELLITE_OFFLINE", "satellite is offline after graveyard maneuver");
+            return;
+        }
+
+        if (g_graveyard_requested_by_sat[sat_id]) {
+            set_error_json(res, 422, "GRAVEYARD_PENDING", "satellite is reserved for graveyard transfer due to EOL fuel");
+            return;
+        }
+
         const bool sufficient_fuel = (projected_fuel_remaining > cascade::SAT_FUEL_EOL_KG);
 
-        if (!los_ok) {
-            set_error_json(res, 422, "GROUND_STATION_LOS_UNAVAILABLE", "no ground station LOS for one or more burn times");
+        if (!upload_window_ok) {
+            set_error_json(res, 422, "UPLOAD_WINDOW_UNAVAILABLE", "no valid upload window with 10s latency for one or more burn times");
             return;
         }
 
@@ -1252,6 +1075,9 @@ int main()
                 tick_id
             );
 
+            std::uint64_t upload_missed_tick = 0;
+            validate_pending_upload_windows(g_store, g_clock.epoch_s(), upload_missed_tick);
+
             double slot_error_sum_tick = 0.0;
             double slot_error_max_tick = 0.0;
             std::uint64_t slot_error_samples_tick = 0;
@@ -1259,21 +1085,55 @@ int main()
                 if (g_store.type(i) != cascade::ObjectType::SATELLITE) continue;
 
                 const std::string sat_id = g_store.id(i);
-                auto it_slot = g_slot_elements_by_sat.find(sat_id);
-                if (it_slot == g_slot_elements_by_sat.end()) continue;
+                auto it_slot = g_slot_reference_by_sat.find(sat_id);
+                if (it_slot == g_slot_reference_by_sat.end()) continue;
 
                 cascade::OrbitalElements cur{};
-                if (!get_current_elements(g_store, i, cur)) continue;
+                if (!cascade::get_current_elements(g_store, i, cur)) continue;
 
-                const double err = slot_error_score(it_slot->second, cur);
+                const double err = cascade::slot_error_score(it_slot->second.elements, cur);
                 slot_error_sum_tick += err;
                 if (err > slot_error_max_tick) slot_error_max_tick = err;
                 ++slot_error_samples_tick;
             }
 
             const ManeuverExecStats exec_stats = execute_due_maneuvers(g_store, g_clock.epoch_s());
+            upload_missed_tick += exec_stats.upload_missed;
             stats.maneuvers_executed = exec_stats.executed;
             const RecoveryPlanStats rec_plan = plan_recovery_burns(g_store, g_clock.epoch_s(), tick_id);
+            const GraveyardPlanStats grave_plan = plan_graveyard_burns(g_store, g_clock.epoch_s(), tick_id);
+
+            double slot_radius_err_sum_tick = 0.0;
+            double slot_radius_err_max_tick = 0.0;
+            std::uint64_t slot_radius_err_samples_tick = 0;
+            std::uint64_t stationkeeping_outside_box_tick = 0;
+            double stationkeeping_uptime_penalty_sum_tick = 0.0;
+            std::uint64_t stationkeeping_uptime_penalty_samples_tick = 0;
+
+            for (std::size_t i = 0; i < g_store.size(); ++i) {
+                if (g_store.type(i) != cascade::ObjectType::SATELLITE) continue;
+                if (g_store.sat_status(i) == cascade::SatStatus::OFFLINE) continue;
+
+                double radius_err_km = 0.0;
+                if (!slot_radius_error_km_at_epoch(g_store, i, g_clock.epoch_s(), radius_err_km)) {
+                    continue;
+                }
+
+                slot_radius_err_sum_tick += radius_err_km;
+                if (radius_err_km > slot_radius_err_max_tick) {
+                    slot_radius_err_max_tick = radius_err_km;
+                }
+                ++slot_radius_err_samples_tick;
+
+                double penalty = 0.0;
+                if (radius_err_km > k_stationkeeping_box_radius_km) {
+                    ++stationkeeping_outside_box_tick;
+                    penalty = std::exp((radius_err_km - k_stationkeeping_box_radius_km)
+                                     / k_stationkeeping_box_radius_km) - 1.0;
+                }
+                stationkeeping_uptime_penalty_sum_tick += penalty;
+                ++stationkeeping_uptime_penalty_samples_tick;
+            }
 
             g_prop_stats.fast_last_tick = stats.used_fast;
             g_prop_stats.rk4_last_tick = stats.used_rk4;
@@ -1290,9 +1150,25 @@ int main()
             g_prop_stats.narrow_full_refine_budget_allocated_last_tick = stats.narrow_full_refine_budget_allocated;
             g_prop_stats.narrow_full_refine_budget_exhausted_last_tick = stats.narrow_full_refine_budget_exhausted;
             g_prop_stats.auto_planned_last_tick = auto_planned;
+            g_prop_stats.recovery_pending_marked_last_tick = exec_stats.recovery_pending_marked;
             g_prop_stats.recovery_planned_last_tick = rec_plan.planned;
             g_prop_stats.recovery_deferred_last_tick = rec_plan.deferred;
             g_prop_stats.recovery_completed_last_tick = exec_stats.recovery_completed;
+            g_prop_stats.graveyard_planned_last_tick = grave_plan.planned;
+            g_prop_stats.graveyard_deferred_last_tick = grave_plan.deferred;
+            g_prop_stats.graveyard_completed_last_tick = exec_stats.graveyard_completed;
+            g_prop_stats.upload_missed_last_tick = upload_missed_tick;
+            g_prop_stats.stationkeeping_outside_box_last_tick = stationkeeping_outside_box_tick;
+            g_prop_stats.stationkeeping_uptime_penalty_mean_last_tick =
+                (stationkeeping_uptime_penalty_samples_tick > 0)
+                ? (stationkeeping_uptime_penalty_sum_tick
+                    / static_cast<double>(stationkeeping_uptime_penalty_samples_tick))
+                : 0.0;
+            g_prop_stats.stationkeeping_slot_radius_error_mean_km_last_tick =
+                (slot_radius_err_samples_tick > 0)
+                ? (slot_radius_err_sum_tick / static_cast<double>(slot_radius_err_samples_tick))
+                : 0.0;
+            g_prop_stats.stationkeeping_slot_radius_error_max_km_last_tick = slot_radius_err_max_tick;
             g_prop_stats.recovery_slot_error_mean_last_tick =
                 (slot_error_samples_tick > 0)
                 ? (slot_error_sum_tick / static_cast<double>(slot_error_samples_tick))
@@ -1324,9 +1200,22 @@ int main()
             g_prop_stats.narrow_full_refine_budget_allocated_total += stats.narrow_full_refine_budget_allocated;
             g_prop_stats.narrow_full_refine_budget_exhausted_total += stats.narrow_full_refine_budget_exhausted;
             g_prop_stats.auto_planned_total += auto_planned;
+            g_prop_stats.recovery_pending_marked_total += exec_stats.recovery_pending_marked;
             g_prop_stats.recovery_planned_total += rec_plan.planned;
             g_prop_stats.recovery_deferred_total += rec_plan.deferred;
             g_prop_stats.recovery_completed_total += exec_stats.recovery_completed;
+            g_prop_stats.graveyard_planned_total += grave_plan.planned;
+            g_prop_stats.graveyard_deferred_total += grave_plan.deferred;
+            g_prop_stats.graveyard_completed_total += exec_stats.graveyard_completed;
+            g_prop_stats.upload_missed_total += upload_missed_tick;
+            g_prop_stats.stationkeeping_outside_box_total += stationkeeping_outside_box_tick;
+            g_prop_stats.stationkeeping_uptime_penalty_sum_total += stationkeeping_uptime_penalty_sum_tick;
+            g_prop_stats.stationkeeping_uptime_penalty_samples_total += stationkeeping_uptime_penalty_samples_tick;
+            g_prop_stats.stationkeeping_slot_radius_error_sum_total += slot_radius_err_sum_tick;
+            g_prop_stats.stationkeeping_slot_radius_error_samples_total += slot_radius_err_samples_tick;
+            if (slot_radius_err_max_tick > g_prop_stats.stationkeeping_slot_radius_error_max_total) {
+                g_prop_stats.stationkeeping_slot_radius_error_max_total = slot_radius_err_max_tick;
+            }
             g_prop_stats.recovery_slot_error_sum_total += slot_error_sum_tick;
             g_prop_stats.recovery_slot_error_samples_total += slot_error_samples_tick;
             if (slot_error_max_tick > g_prop_stats.recovery_slot_error_max_total) {
@@ -1390,6 +1279,7 @@ int main()
         std::size_t sat_count = 0;
         std::size_t deb_count = 0;
         std::size_t pending_burn_queue = 0;
+        std::size_t pending_graveyard_requests = 0;
         double uptime = 0.0;
         std::uint64_t failed_last_tick = 0;
         std::uint64_t failed_total = 0;
@@ -1401,6 +1291,9 @@ int main()
             sat_count = g_store.satellite_count();
             deb_count = g_store.debris_count();
             pending_burn_queue = g_burn_queue.size();
+            for (const auto& kv : g_graveyard_requested_by_sat) {
+                if (kv.second) ++pending_graveyard_requests;
+            }
             uptime = g_clock.uptime_s();
             failed_last_tick = g_store.failed_last_tick();
             failed_total = g_store.failed_propagation_total();
@@ -1426,6 +1319,8 @@ int main()
             out += std::to_string(pending_burn_queue);
             out += ",\"pending_recovery_requests\":";
             out += std::to_string(g_recovery_requests_by_sat.size());
+            out += ",\"pending_graveyard_requests\":";
+            out += std::to_string(pending_graveyard_requests);
             out += ",\"failed_objects_last_tick\":";
             out += std::to_string(failed_last_tick);
             out += ",\"failed_objects_total\":";
@@ -1445,8 +1340,24 @@ int main()
             out += std::to_string(prop.recovery_deferred_last_tick);
             out += ",\"recovery_completed\":";
             out += std::to_string(prop.recovery_completed_last_tick);
+            out += ",\"graveyard_planned\":";
+            out += std::to_string(prop.graveyard_planned_last_tick);
+            out += ",\"graveyard_deferred\":";
+            out += std::to_string(prop.graveyard_deferred_last_tick);
+            out += ",\"graveyard_completed\":";
+            out += std::to_string(prop.graveyard_completed_last_tick);
+            out += ",\"upload_window_missed\":";
+            out += std::to_string(prop.upload_missed_last_tick);
+            out += ",\"stationkeeping_outside_box\":";
+            out += std::to_string(prop.stationkeeping_outside_box_last_tick);
+            out += ",\"stationkeeping_uptime_penalty_mean\":";
+            out += cascade::fmt_double(prop.stationkeeping_uptime_penalty_mean_last_tick, 6);
+            out += ",\"stationkeeping_slot_radius_error_mean_km\":";
+            out += cascade::fmt_double(prop.stationkeeping_slot_radius_error_mean_km_last_tick, 6);
+            out += ",\"stationkeeping_slot_radius_error_max_km\":";
+            out += cascade::fmt_double(prop.stationkeeping_slot_radius_error_max_km_last_tick, 6);
             out += ",\"recovery_pending_marked\":";
-            out += std::to_string(prop.auto_planned_last_tick);
+            out += std::to_string(prop.recovery_pending_marked_last_tick);
             out += ",\"recovery_slot_error_mean\":";
             out += cascade::fmt_double(prop.recovery_slot_error_mean_last_tick, 6);
             out += ",\"recovery_slot_error_max\":";
@@ -1478,8 +1389,40 @@ int main()
             out += std::to_string(prop.recovery_deferred_total);
             out += ",\"recovery_completed\":";
             out += std::to_string(prop.recovery_completed_total);
+            out += ",\"graveyard_planned\":";
+            out += std::to_string(prop.graveyard_planned_total);
+            out += ",\"graveyard_deferred\":";
+            out += std::to_string(prop.graveyard_deferred_total);
+            out += ",\"graveyard_completed\":";
+            out += std::to_string(prop.graveyard_completed_total);
+            out += ",\"upload_window_missed\":";
+            out += std::to_string(prop.upload_missed_total);
+            out += ",\"stationkeeping_outside_box\":";
+            out += std::to_string(prop.stationkeeping_outside_box_total);
+            out += ",\"stationkeeping_uptime_penalty_mean\":";
+            if (prop.stationkeeping_uptime_penalty_samples_total > 0) {
+                out += cascade::fmt_double(
+                    prop.stationkeeping_uptime_penalty_sum_total
+                        / static_cast<double>(prop.stationkeeping_uptime_penalty_samples_total),
+                    6
+                );
+            } else {
+                out += "0.000000";
+            }
+            out += ",\"stationkeeping_slot_radius_error_mean_km\":";
+            if (prop.stationkeeping_slot_radius_error_samples_total > 0) {
+                out += cascade::fmt_double(
+                    prop.stationkeeping_slot_radius_error_sum_total
+                        / static_cast<double>(prop.stationkeeping_slot_radius_error_samples_total),
+                    6
+                );
+            } else {
+                out += "0.000000";
+            }
+            out += ",\"stationkeeping_slot_radius_error_max_km\":";
+            out += cascade::fmt_double(prop.stationkeeping_slot_radius_error_max_total, 6);
             out += ",\"recovery_pending_marked\":";
-            out += std::to_string(prop.auto_planned_total);
+            out += std::to_string(prop.recovery_pending_marked_total);
             out += ",\"recovery_slot_error_mean\":";
             if (prop.recovery_slot_error_samples_total > 0) {
                 out += cascade::fmt_double(

@@ -376,6 +376,8 @@ add_executable(ProjectBONK
     main.cpp
     src/broad_phase.cpp
     src/earth_frame.cpp
+    src/maneuver_common.cpp
+    src/maneuver_recovery_planner.cpp
     src/state_store.cpp
     src/telemetry.cpp
     src/sim_clock.cpp
@@ -457,6 +459,34 @@ target_compile_options(broad_phase_validation PRIVATE
 add_custom_target(broad_phase_sanity_gate
     COMMAND "$<TARGET_FILE:broad_phase_validation>" 3 50 10000 1
     DEPENDS broad_phase_validation
+    USES_TERMINAL
+)
+
+# ===================================================================
+# Narrow-phase false-negative regression gate harness
+# ===================================================================
+add_executable(narrow_phase_false_negative_gate
+    tools/narrow_phase_false_negative_gate.cpp
+    src/broad_phase.cpp
+    src/state_store.cpp
+    src/sim_clock.cpp
+    src/orbit_math.cpp
+    src/propagator.cpp
+    src/simulation_engine.cpp
+)
+
+target_include_directories(narrow_phase_false_negative_gate PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+target_compile_options(narrow_phase_false_negative_gate PRIVATE
+    -O3
+    -DNDEBUG
+)
+
+add_custom_target(narrow_phase_false_negative_regression_gate
+    COMMAND "$<TARGET_FILE:narrow_phase_false_negative_gate>" 6 6 80
+    DEPENDS narrow_phase_false_negative_gate
     USES_TERMINAL
 )
 
@@ -558,6 +588,32 @@ add_custom_target(recovery_planner_invariants_gate
     USES_TERMINAL
 )
 
+# ===================================================================
+# Maneuver ops invariants gate harness
+# ===================================================================
+add_executable(maneuver_ops_invariants_gate
+    tools/maneuver_ops_invariants_gate.cpp
+    src/state_store.cpp
+    src/orbit_math.cpp
+    src/earth_frame.cpp
+    src/maneuver_common.cpp
+)
+
+target_include_directories(maneuver_ops_invariants_gate PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+target_compile_options(maneuver_ops_invariants_gate PRIVATE
+    -O3
+    -DNDEBUG
+)
+
+add_custom_target(maneuver_ops_invariants_regression_gate
+    COMMAND "$<TARGET_FILE:maneuver_ops_invariants_gate>"
+    DEPENDS maneuver_ops_invariants_gate
+    USES_TERMINAL
+)
+
 if(BUILD_TESTING)
     add_test(
         NAME phase2_regression_gate_test
@@ -572,11 +628,19 @@ if(BUILD_TESTING)
         COMMAND "$<TARGET_FILE:broad_phase_validation>" 3 50 10000 1
     )
     add_test(
+        NAME narrow_phase_false_negative_gate_test
+        COMMAND "$<TARGET_FILE:narrow_phase_false_negative_gate>" 6 6 80
+    )
+    add_test(
         NAME recovery_slot_gate_test
         COMMAND "$<TARGET_FILE:recovery_slot_gate>"
     )
     add_test(
         NAME recovery_planner_invariants_gate_test
         COMMAND "$<TARGET_FILE:recovery_planner_invariants>"
+    )
+    add_test(
+        NAME maneuver_ops_invariants_gate_test
+        COMMAND "$<TARGET_FILE:maneuver_ops_invariants_gate>"
     )
 endif()

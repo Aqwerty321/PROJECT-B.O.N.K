@@ -255,10 +255,10 @@ bool run_simulation_step(StateStore& store,
 
     // If propagation failed for any object this tick, fall back to full
     // SATELLITE-vs-DEBRIS scan to avoid relying on broad-phase filtering.
-    const double refine_band_km = 0.05;
+    const double refine_band_km = 0.10;
     const double refine_band_sq = (screening_threshold_km + refine_band_km)
                                 * (screening_threshold_km + refine_band_km);
-    const double full_refine_band_km = 0.012;
+    const double full_refine_band_km = 0.20;
     const double full_refine_band_sq = (screening_threshold_km + full_refine_band_km)
                                      * (screening_threshold_km + full_refine_band_km);
 
@@ -267,37 +267,37 @@ bool run_simulation_step(StateStore& store,
         : static_cast<std::uint64_t>(store.satellite_count())
             * static_cast<std::uint64_t>(store.debris_count());
 
-    std::uint64_t full_refine_budget = 32;
+    std::uint64_t full_refine_budget = 64;
     if (pair_hint > 2000000ULL) {
-        full_refine_budget = 12;
-    } else if (pair_hint > 500000ULL) {
         full_refine_budget = 20;
+    } else if (pair_hint > 500000ULL) {
+        full_refine_budget = 32;
     } else if (pair_hint < 100000ULL) {
-        full_refine_budget = 64;
+        full_refine_budget = 96;
     } else if (pair_hint < 300000ULL) {
-        full_refine_budget = 48;
+        full_refine_budget = 80;
     }
 
     if (step_seconds > 120.0) {
         full_refine_budget = full_refine_budget / 2;
     } else if (step_seconds <= 5.0) {
-        full_refine_budget += 16;
+        full_refine_budget += 24;
     }
 
     if (out.failed_objects > 0) {
         full_refine_budget = full_refine_budget / 2;
     }
 
-    if (full_refine_budget < 4) full_refine_budget = 4;
-    if (full_refine_budget > 96) full_refine_budget = 96;
+    if (full_refine_budget < 8) full_refine_budget = 8;
+    if (full_refine_budget > 192) full_refine_budget = 192;
 
     out.narrow_full_refine_budget_allocated = full_refine_budget;
 
     const auto full_window_min_d2_rk4 = [&](std::size_t sat_idx,
                                             std::size_t obj_idx,
                                             bool& ok) noexcept {
-        constexpr int k_samples = 8;
-        constexpr double k_substep_s = 2.0;
+        constexpr int k_samples = 16;
+        constexpr double k_substep_s = 1.0;
 
         Vec3 rs{rx0[sat_idx], ry0[sat_idx], rz0[sat_idx]};
         Vec3 vs{vx0[sat_idx], vy0[sat_idx], vz0[sat_idx]};
@@ -359,6 +359,10 @@ bool run_simulation_step(StateStore& store,
         if (d2 > collision_threshold_sq && d2 <= full_refine_band_sq + 1e-9) {
             if (full_refine_budget == 0) {
                 ++out.narrow_full_refine_budget_exhausted;
+                // Fail-open policy: if a pair is near-threshold but budget is
+                // exhausted, classify as potential conjunction to avoid
+                // false negatives from under-refinement.
+                d2 = 0.0;
             } else {
                 --full_refine_budget;
                 bool full_ok = true;
