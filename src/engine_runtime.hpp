@@ -162,18 +162,31 @@ private:
     struct TelemetryCommand {
         TelemetryParseResult parsed;
         std::string source_id;
+        std::chrono::steady_clock::time_point enqueued_at{};
         std::promise<TelemetryCommandResult> completion;
     };
 
     struct ScheduleCommand {
         std::string satellite_id;
         std::vector<ScheduledBurn> burns;
+        std::chrono::steady_clock::time_point enqueued_at{};
         std::promise<ScheduleCommandResult> completion;
     };
 
     struct StepCommand {
         std::int64_t step_seconds = 0;
+        std::chrono::steady_clock::time_point enqueued_at{};
         std::promise<StepCommandResult> completion;
+    };
+
+    struct CommandLatencyAtomicStats {
+        std::atomic<std::uint64_t> count{0};
+        std::atomic<std::uint64_t> queue_wait_us_total{0};
+        std::atomic<std::uint64_t> queue_wait_us_max{0};
+        std::atomic<std::uint64_t> queue_wait_us_last{0};
+        std::atomic<std::uint64_t> execution_us_total{0};
+        std::atomic<std::uint64_t> execution_us_max{0};
+        std::atomic<std::uint64_t> execution_us_last{0};
     };
 
     using RuntimeCommand = std::variant<TelemetryCommand, ScheduleCommand, StepCommand>;
@@ -189,6 +202,11 @@ private:
     StepCommandResult execute_simulate_step(std::int64_t step_seconds);
 
     void observe_queue_depth(std::size_t depth) noexcept;
+    void observe_latency_max(std::atomic<std::uint64_t>& metric,
+                             std::uint64_t value) noexcept;
+    void record_command_latency(CommandLatencyAtomicStats& stats,
+                                std::uint64_t queue_wait_us,
+                                std::uint64_t execution_us) noexcept;
     void publish_read_views();
 
     std::uint64_t enforce_stationkeeping_recovery(double epoch_s,
@@ -222,6 +240,9 @@ private:
     std::atomic<std::uint64_t> queue_completed_total_{0};
     std::atomic<std::uint64_t> queue_rejected_total_{0};
     std::atomic<std::uint64_t> queue_timeout_total_{0};
+    CommandLatencyAtomicStats telemetry_latency_{};
+    CommandLatencyAtomicStats schedule_latency_{};
+    CommandLatencyAtomicStats step_latency_{};
     std::uint64_t max_queue_depth_ = 1024;
 
     std::shared_ptr<const PublishedReadViews> published_views_;

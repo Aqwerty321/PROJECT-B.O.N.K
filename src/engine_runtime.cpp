@@ -509,6 +509,7 @@ TelemetryCommandResult EngineRuntime::ingest_telemetry(const TelemetryParseResul
     TelemetryCommand cmd;
     cmd.parsed = parsed;
     cmd.source_id = std::string(source_id);
+    cmd.enqueued_at = std::chrono::steady_clock::now();
     std::future<TelemetryCommandResult> done = cmd.completion.get_future();
 
     {
@@ -566,6 +567,7 @@ ScheduleCommandResult EngineRuntime::schedule_maneuver(std::string_view satellit
     ScheduleCommand cmd;
     cmd.satellite_id = std::string(satellite_id);
     cmd.burns = std::move(burns);
+    cmd.enqueued_at = std::chrono::steady_clock::now();
     std::future<ScheduleCommandResult> done = cmd.completion.get_future();
 
     {
@@ -621,6 +623,7 @@ StepCommandResult EngineRuntime::simulate_step(std::int64_t step_seconds)
 {
     StepCommand cmd;
     cmd.step_seconds = step_seconds;
+    cmd.enqueued_at = std::chrono::steady_clock::now();
     std::future<StepCommandResult> done = cmd.completion.get_future();
 
     {
@@ -693,6 +696,15 @@ void EngineRuntime::worker_loop()
 
         std::visit([this](auto& typed_cmd) {
             using T = std::decay_t<decltype(typed_cmd)>;
+
+            const auto command_started_at = std::chrono::steady_clock::now();
+            const auto queue_wait_raw_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                command_started_at - typed_cmd.enqueued_at
+            ).count();
+            const std::uint64_t queue_wait_us = (queue_wait_raw_us > 0)
+                ? static_cast<std::uint64_t>(queue_wait_raw_us)
+                : 0;
+
             try {
                 if constexpr (std::is_same_v<T, TelemetryCommand>) {
                     typed_cmd.completion.set_value(
@@ -709,6 +721,22 @@ void EngineRuntime::worker_loop()
                 }
             } catch (...) {
                 typed_cmd.completion.set_exception(std::current_exception());
+            }
+
+            const auto command_finished_at = std::chrono::steady_clock::now();
+            const auto execution_raw_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                command_finished_at - command_started_at
+            ).count();
+            const std::uint64_t execution_us = (execution_raw_us > 0)
+                ? static_cast<std::uint64_t>(execution_raw_us)
+                : 0;
+
+            if constexpr (std::is_same_v<T, TelemetryCommand>) {
+                record_command_latency(telemetry_latency_, queue_wait_us, execution_us);
+            } else if constexpr (std::is_same_v<T, ScheduleCommand>) {
+                record_command_latency(schedule_latency_, queue_wait_us, execution_us);
+            } else if constexpr (std::is_same_v<T, StepCommand>) {
+                record_command_latency(step_latency_, queue_wait_us, execution_us);
             }
         }, command);
 
@@ -730,6 +758,34 @@ void EngineRuntime::observe_queue_depth(std::size_t depth) noexcept
                std::memory_order_relaxed,
                std::memory_order_relaxed)) {
     }
+}
+
+void EngineRuntime::observe_latency_max(std::atomic<std::uint64_t>& metric,
+                                        std::uint64_t value) noexcept
+{
+    std::uint64_t prev = metric.load(std::memory_order_relaxed);
+    while (value > prev
+           && !metric.compare_exchange_weak(
+               prev,
+               value,
+               std::memory_order_relaxed,
+               std::memory_order_relaxed)) {
+    }
+}
+
+void EngineRuntime::record_command_latency(CommandLatencyAtomicStats& stats,
+                                           std::uint64_t queue_wait_us,
+                                           std::uint64_t execution_us) noexcept
+{
+    stats.count.fetch_add(1, std::memory_order_relaxed);
+
+    stats.queue_wait_us_total.fetch_add(queue_wait_us, std::memory_order_relaxed);
+    stats.queue_wait_us_last.store(queue_wait_us, std::memory_order_relaxed);
+    observe_latency_max(stats.queue_wait_us_max, queue_wait_us);
+
+    stats.execution_us_total.fetch_add(execution_us, std::memory_order_relaxed);
+    stats.execution_us_last.store(execution_us, std::memory_order_relaxed);
+    observe_latency_max(stats.execution_us_max, execution_us);
 }
 
 void EngineRuntime::publish_read_views()
@@ -1360,6 +1416,66 @@ std::string EngineRuntime::snapshot_json() const
 
 std::string EngineRuntime::status_json(bool include_details) const
 {
+    struct LatencySnapshot {
+        std::uint64_t count = 0;
+        std::uint64_t queue_wait_us_total = 0;
+        std::uint64_t queue_wait_us_max = 0;
+        std::uint64_t queue_wait_us_last = 0;
+        std::uint64_t execution_us_total = 0;
+        std::uint64_t execution_us_max = 0;
+        std::uint64_t execution_us_last = 0;
+    };
+
+    const auto load_latency_snapshot = [](const CommandLatencyAtomicStats& stats) {
+        LatencySnapshot snap;
+        snap.count = stats.count.load(std::memory_order_relaxed);
+        snap.queue_wait_us_total = stats.queue_wait_us_total.load(std::memory_order_relaxed);
+        snap.queue_wait_us_max = stats.queue_wait_us_max.load(std::memory_order_relaxed);
+        snap.queue_wait_us_last = stats.queue_wait_us_last.load(std::memory_order_relaxed);
+        snap.execution_us_total = stats.execution_us_total.load(std::memory_order_relaxed);
+        snap.execution_us_max = stats.execution_us_max.load(std::memory_order_relaxed);
+        snap.execution_us_last = stats.execution_us_last.load(std::memory_order_relaxed);
+        return snap;
+    };
+
+    const auto append_latency_snapshot = [](std::string& out,
+                                            std::string_view name,
+                                            const LatencySnapshot& snap) {
+        out.push_back('"');
+        out += name;
+        out += R"(":{"count":)";
+        out += std::to_string(snap.count);
+        out += R"(,"queue_wait_us_total":)";
+        out += std::to_string(snap.queue_wait_us_total);
+        out += R"(,"queue_wait_us_max":)";
+        out += std::to_string(snap.queue_wait_us_max);
+        out += R"(,"queue_wait_us_last":)";
+        out += std::to_string(snap.queue_wait_us_last);
+        out += R"(,"queue_wait_us_mean":)";
+        if (snap.count > 0) {
+            out += std::to_string(snap.queue_wait_us_total / snap.count);
+        } else {
+            out += "0";
+        }
+        out += R"(,"execution_us_total":)";
+        out += std::to_string(snap.execution_us_total);
+        out += R"(,"execution_us_max":)";
+        out += std::to_string(snap.execution_us_max);
+        out += R"(,"execution_us_last":)";
+        out += std::to_string(snap.execution_us_last);
+        out += R"(,"execution_us_mean":)";
+        if (snap.count > 0) {
+            out += std::to_string(snap.execution_us_total / snap.count);
+        } else {
+            out += "0";
+        }
+        out += '}';
+    };
+
+    const LatencySnapshot telemetry_latency = load_latency_snapshot(telemetry_latency_);
+    const LatencySnapshot schedule_latency = load_latency_snapshot(schedule_latency_);
+    const LatencySnapshot step_latency = load_latency_snapshot(step_latency_);
+
     std::shared_lock lock(mutex_);
 
     std::size_t obj_count = store_.size();
@@ -1384,7 +1500,7 @@ std::string EngineRuntime::status_json(bool include_details) const
     const std::uint64_t tick_count = static_cast<std::uint64_t>(tick_count_.load());
 
     std::string out;
-    out.reserve(include_details ? 960 : 128);
+    out.reserve(include_details ? 1600 : 128);
     out += "{\"status\":\"NOMINAL\",\"uptime_s\":";
     out += fmt_double(uptime, 1);
     out += ",\"tick_count\":";
@@ -1422,6 +1538,13 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(queue_rejected_total);
         out += ",\"command_queue_timeout_total\":";
         out += std::to_string(queue_timeout_total);
+        out += ",\"command_latency_us\":{";
+        append_latency_snapshot(out, "telemetry", telemetry_latency);
+        out += ",";
+        append_latency_snapshot(out, "schedule", schedule_latency);
+        out += ",";
+        append_latency_snapshot(out, "step", step_latency);
+        out += "}";
         out += ",\"propagation_last_tick\":{";
         out += "\"narrow_pairs_checked\":";
         out += std::to_string(prop_stats_.narrow_pairs_last_tick);
