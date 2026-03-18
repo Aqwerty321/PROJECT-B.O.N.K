@@ -1,6 +1,6 @@
 # CASCADE Handoff Runbook
 
-Date: 2026-03-17
+Date: 2026-03-18
 
 ## Current status snapshot
 
@@ -183,19 +183,36 @@ Strict sweep interpretation:
 
 ## Known open items before full Phase 4 integration
 
-- recovery planner is slot-targeted but heuristic; gain calibration and slot-box objectives remain pending
+- recovery planner gains are now env-configurable for safety-first calibration
+  (`PROJECTBONK_RECOVERY_*`) while defaults preserve prior behavior
 - recovery planner logic is now isolated in `src/maneuver_recovery_planner.*` for focused tuning
 - shared maneuver/upload/graveyard operations are extracted in `src/maneuver_common.*`
-- D-criterion is intentionally conservative; tune only through offline path
+- broad-phase D-criterion remains runtime-disabled by default; shadow evidence is
+  now exposed via debug/status counters for calibration rollout
 - CI now enforces adaptive regression, broad-phase sanity, narrow-phase false-negative,
   recovery slot, recovery planner invariants, and maneuver ops invariants gates
 - CI keeps Julia runtime bridge disabled (`PROJECTBONK_ENABLE_JULIA_RUNTIME=OFF`) to keep hard gates deterministic and avoid jluna/Julia version drift
+
+## Phase 4 safety calibration kickoff (in progress)
+
+- Recovery planner calibration path:
+  - runtime now loads planner gains from env with guarded ranges
+  - debug propagation config now reports active recovery gain values
+- Narrow-phase fidelity hardening:
+  - narrow thresholds/budgets are now runtime-configurable (`PROJECTBONK_NARROW_*`)
+  - high-relative-speed near-threshold pairs are uncertainty-promoted into full-window refinement
+  - promoted-pair evidence is exposed in debug/status counters
+- Broad-phase D-criterion rollout:
+  - `enable_dcriterion` remains opt-in; `shadow_dcriterion` defaults on
+  - shadow rejections are counted and exposed without filtering candidates when disabled
 
 ## Latest acceptance outputs
 
 - `phase2_regression_gate`: PASS (both sweeps in strict adaptive mode)
 - `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`,
   `dcriterion_rejected_total=0`)
+- broad-phase shadow evidence is available (`dcriterion_shadow_rejected_total`)
+- `narrow_phase_false_negative_gate`: PASS (`false_negative_sats_total=0`)
 - `recovery_slot_gate`: PASS (`recovery_slot_gate_result=PASS`)
 - `recovery_planner_invariants_gate`: PASS
 - `maneuver_ops_invariants_gate`: PASS (`blackout_upload_execution=PASS`,

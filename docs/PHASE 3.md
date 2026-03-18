@@ -163,6 +163,47 @@ Current status note:
 - runtime gain promotion only proceeds in a separate commit once deterministic
   repeated sweeps select the same strict-passing candidate
 
+## Phase 4 safety calibration kickoff (2026-03-18)
+
+This branch starts safety-first calibration work while preserving PS contracts
+and mandatory gates.
+
+- recovery planner gains are now runtime-configurable via env:
+  - `PROJECTBONK_RECOVERY_SCALE_T`
+  - `PROJECTBONK_RECOVERY_SCALE_R`
+  - `PROJECTBONK_RECOVERY_RADIAL_SHARE`
+  - `PROJECTBONK_RECOVERY_SCALE_N`
+  - `PROJECTBONK_RECOVERY_FALLBACK_NORM_KM_S`
+- narrow-phase hardening adds configurable thresholds/budgets and uncertainty
+  promotion for high-relative-speed near-threshold pairs:
+  - `PROJECTBONK_NARROW_TCA_GUARD_KM`
+  - `PROJECTBONK_NARROW_REFINE_BAND_KM`
+  - `PROJECTBONK_NARROW_FULL_REFINE_BAND_KM`
+  - `PROJECTBONK_NARROW_HIGH_REL_SPEED_KM_S`
+  - `PROJECTBONK_NARROW_HIGH_REL_SPEED_EXTRA_BAND_KM`
+  - `PROJECTBONK_NARROW_FULL_REFINE_BUDGET_BASE`
+  - `PROJECTBONK_NARROW_FULL_REFINE_BUDGET_MIN`
+  - `PROJECTBONK_NARROW_FULL_REFINE_BUDGET_MAX`
+  - `PROJECTBONK_NARROW_FULL_REFINE_SAMPLES`
+  - `PROJECTBONK_NARROW_FULL_REFINE_SUBSTEP_S`
+  - `PROJECTBONK_NARROW_MICRO_REFINE_MAX_STEP_S`
+- broad-phase D-criterion rollout now supports shadow-only evidence mode in
+  runtime and tooling:
+  - `PROJECTBONK_BROAD_DCRITERION_ENABLE` (default `0`)
+  - `PROJECTBONK_BROAD_DCRITERION_SHADOW` (default `1`)
+  - debug/status counters include `broad_dcriterion_shadow_rejected`
+
+Safety-gate snapshot on this kickoff branch:
+
+- `phase2_regression_gate`: PASS
+- `broad_phase_sanity_gate`: PASS
+- `narrow_phase_false_negative_gate`: PASS
+- `maneuver_ops_invariants_gate`: PASS
+- `recovery_slot_gate`: PASS
+- `recovery_planner_invariants_gate`: PASS
+- `api_contract_gate`: PASS
+- `ctest --test-dir build --output-on-failure`: PASS (8/8)
+
 Latest tuner snapshot (`240 50 10000 3 2`):
 
 - strict-zero-risk: enabled
