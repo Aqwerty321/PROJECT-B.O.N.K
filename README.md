@@ -123,6 +123,9 @@ Simulation step currently includes a conservative auto-COLA hook: when
 collision detections are present, eligible satellites may receive a small
 prograde burn (subject to LOS/cooldown/fuel safety checks).
 
+Collision detection in `simulate/step` uses a conservative short-horizon
+TCA-window approximation (not endpoint-only distance).
+
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.
 

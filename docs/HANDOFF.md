@@ -113,7 +113,7 @@ ctest --test-dir build --output-on-failure
 | Endpoint | PS requires | Current status | Gap | Next task |
 |---|---|---|---|---|
 | `POST /api/telemetry` | strict ingest + ACK counters | implemented | no payload-level quality metrics in response | keep response PS-clean, expose extra diagnostics only in debug |
-| `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | collision detection is instantaneous-threshold at tick epoch (no TCA window yet) | upgrade to TCA-window narrow-phase with conservative no-FN fallback |
+| `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | TCA window is conservative linearized approximation, not high-fidelity RK4 window solve yet | add high-fidelity conjunction window refinement |
 | `POST /api/maneuver/schedule` | validation incl LOS/fuel/cooldown | partial | static LOS-at-burn-time check added (no latency/window planner yet) | integrate scheduler + station visibility window model |
 | `GET /api/visualization/snapshot` | geodetic satellite/debris visualization fields | implemented | no uncertainty/quality fields yet | add optional confidence metadata in debug path |
 | `GET /api/status` | health/tick/object counters | implemented | no queue/narrow-phase stats yet | add internal metrics expansion without schema drift |
@@ -138,7 +138,7 @@ ctest --test-dir build --output-on-failure
 - `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`,
   `dcriterion_rejected_total=0`)
 - `phase3_tick_benchmark 50 10000 30`:
-  mean `7.927 ms`, median `7.839 ms`, p95 `8.821 ms`
+  mean `12.533 ms`, median `12.677 ms`, p95 `13.236 ms`
 - `offline_multiobjective_tuner 240 50 10000 3 2`:
   strict-zero-risk enabled, disqualified `43`, safe population `197`, pareto
   set `3`
@@ -152,3 +152,6 @@ ctest --test-dir build --output-on-failure
 - API smoke (auto planning):
   collision on `simulate/step` auto-queues/executes conservative burn,
   debug shows `auto_planned_maneuvers=1`
+- Narrow-phase behavior note:
+  switched from endpoint-only distance check to conservative short-horizon
+  TCA-window approximation with guard margin

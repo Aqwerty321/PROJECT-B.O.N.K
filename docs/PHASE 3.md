@@ -110,14 +110,16 @@ Latest integration snapshot:
   burn time using provided PS station set and min-elevation limits
 - `simulate/step` now includes a conservative auto-COLA hook that can queue
   and execute a minimal prograde impulse for satellites flagged in collision
+- narrow-phase now evaluates a conservative short-horizon TCA window using
+  endpoint-relative linear approximations plus safety guard margin
 
 Current status note:
 
 - LOS validation is currently a conservative burn-time-in-future proxy;
 - station-geometry LOS windows are currently static point checks (no latency/
   upload-window planner yet)
-- collision detection remains instantaneous at tick epoch; TCA-window narrow-
-  phase integration remains pending
+- TCA-window narrow-phase is conservative and currently linearized; high-
+  fidelity RK4 conjunction window solver remains pending
 - auto-COLA currently uses fixed small impulse and does not perform recovery
   planning yet
 
