@@ -126,6 +126,9 @@ prograde burn (subject to LOS/cooldown/fuel safety checks).
 Collision detection in `simulate/step` uses a conservative short-horizon
 TCA-window approximation (not endpoint-only distance).
 
+Near-threshold conjunction pairs are further refined with a targeted RK4
+micro-window pass; refinement failures are treated fail-open for safety.
+
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.
 

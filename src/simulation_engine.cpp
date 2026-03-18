@@ -8,9 +8,98 @@
 #include "propagator.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace cascade {
+
+namespace {
+
+inline double norm2(double x, double y, double z) noexcept
+{
+    return x * x + y * y + z * z;
+}
+
+inline double min_d2_linear_segment(double rx,
+                                    double ry,
+                                    double rz,
+                                    double vx,
+                                    double vy,
+                                    double vz,
+                                    double t_lo,
+                                    double t_hi) noexcept
+{
+    const double vv = norm2(vx, vy, vz);
+    if (vv <= EPS_NUM) {
+        return norm2(rx, ry, rz);
+    }
+    double t = -(rx * vx + ry * vy + rz * vz) / vv;
+    if (t < t_lo) t = t_lo;
+    if (t > t_hi) t = t_hi;
+    const double px = rx + vx * t;
+    const double py = ry + vy * t;
+    const double pz = rz + vz * t;
+    return norm2(px, py, pz);
+}
+
+inline double refine_pair_min_d2_rk4(const Vec3& sat_r0,
+                                     const Vec3& sat_v0,
+                                     const Vec3& deb_r0,
+                                     const Vec3& deb_v0,
+                                     double step_seconds,
+                                     bool& ok) noexcept
+{
+    ok = true;
+    Vec3 rs = sat_r0;
+    Vec3 vs = sat_v0;
+    Vec3 rd = deb_r0;
+    Vec3 vd = deb_v0;
+
+    if (!propagate_rk4_j2_substep(rs, vs, step_seconds, 5.0)) {
+        ok = false;
+        return 0.0;
+    }
+    if (!propagate_rk4_j2_substep(rd, vd, step_seconds, 5.0)) {
+        ok = false;
+        return 0.0;
+    }
+
+    const double r0x = sat_r0.x - deb_r0.x;
+    const double r0y = sat_r0.y - deb_r0.y;
+    const double r0z = sat_r0.z - deb_r0.z;
+    const double r1x = rs.x - rd.x;
+    const double r1y = rs.y - rd.y;
+    const double r1z = rs.z - rd.z;
+
+    const double v0x = sat_v0.x - deb_v0.x;
+    const double v0y = sat_v0.y - deb_v0.y;
+    const double v0z = sat_v0.z - deb_v0.z;
+    const double v1x = vs.x - vd.x;
+    const double v1y = vs.y - vd.y;
+    const double v1z = vs.z - vd.z;
+
+    double min_d2 = std::min(norm2(r0x, r0y, r0z), norm2(r1x, r1y, r1z));
+    min_d2 = std::min(min_d2,
+                      min_d2_linear_segment(r0x, r0y, r0z,
+                                            v0x, v0y, v0z,
+                                            0.0, step_seconds));
+    min_d2 = std::min(min_d2,
+                      min_d2_linear_segment(r1x, r1y, r1z,
+                                            -v1x, -v1y, -v1z,
+                                            0.0, step_seconds));
+    if (step_seconds > EPS_NUM) {
+        const double vsecx = (r1x - r0x) / step_seconds;
+        const double vsecy = (r1y - r0y) / step_seconds;
+        const double vsecz = (r1z - r0z) / step_seconds;
+        min_d2 = std::min(min_d2,
+                          min_d2_linear_segment(r0x, r0y, r0z,
+                                                vsecx, vsecy, vsecz,
+                                                0.0, step_seconds));
+    }
+    return min_d2;
+}
+
+} // namespace
 
 bool run_simulation_step(StateStore& store,
                          SimClock& clock,
@@ -115,31 +204,6 @@ bool run_simulation_step(StateStore& store,
     const double collision_threshold_sq = (COLLISION_THRESHOLD_KM + tca_guard_km)
                                         * (COLLISION_THRESHOLD_KM + tca_guard_km);
 
-    const auto norm2 = [](double x, double y, double z) noexcept {
-        return x * x + y * y + z * z;
-    };
-
-    const auto line_min_d2 = [](double rx,
-                                double ry,
-                                double rz,
-                                double vx,
-                                double vy,
-                                double vz,
-                                double t_lo,
-                                double t_hi) noexcept {
-        const double vv = vx * vx + vy * vy + vz * vz;
-        if (vv <= EPS_NUM) {
-            return rx * rx + ry * ry + rz * rz;
-        }
-        double t = -(rx * vx + ry * vy + rz * vz) / vv;
-        if (t < t_lo) t = t_lo;
-        if (t > t_hi) t = t_hi;
-        const double px = rx + vx * t;
-        const double py = ry + vy * t;
-        const double pz = rz + vz * t;
-        return px * px + py * py + pz * pz;
-    };
-
     const auto tca_min_d2 = [&](std::size_t sat_idx, std::size_t obj_idx) noexcept {
         const double r0x = rx0[sat_idx] - rx0[obj_idx];
         const double r0y = ry0[sat_idx] - ry0[obj_idx];
@@ -158,31 +222,31 @@ bool run_simulation_step(StateStore& store,
         double min_d2 = std::min(norm2(r0x, r0y, r0z), norm2(r1x, r1y, r1z));
 
         min_d2 = std::min(min_d2,
-                          line_min_d2(r0x, r0y, r0z,
-                                      v0x, v0y, v0z,
-                                      0.0, step_seconds));
+                          min_d2_linear_segment(r0x, r0y, r0z,
+                                                v0x, v0y, v0z,
+                                                0.0, step_seconds));
 
         min_d2 = std::min(min_d2,
-                          line_min_d2(r1x, r1y, r1z,
-                                      -v1x, -v1y, -v1z,
-                                      0.0, step_seconds));
+                          min_d2_linear_segment(r1x, r1y, r1z,
+                                                -v1x, -v1y, -v1z,
+                                                0.0, step_seconds));
 
         const double vavgx = 0.5 * (v0x + v1x);
         const double vavgy = 0.5 * (v0y + v1y);
         const double vavgz = 0.5 * (v0z + v1z);
         min_d2 = std::min(min_d2,
-                          line_min_d2(r0x, r0y, r0z,
-                                      vavgx, vavgy, vavgz,
-                                      0.0, step_seconds));
+                          min_d2_linear_segment(r0x, r0y, r0z,
+                                                vavgx, vavgy, vavgz,
+                                                0.0, step_seconds));
 
         if (step_seconds > EPS_NUM) {
             const double vsecx = (r1x - r0x) / step_seconds;
             const double vsecy = (r1y - r0y) / step_seconds;
             const double vsecz = (r1z - r0z) / step_seconds;
             min_d2 = std::min(min_d2,
-                              line_min_d2(r0x, r0y, r0z,
-                                          vsecx, vsecy, vsecz,
-                                          0.0, step_seconds));
+                              min_d2_linear_segment(r0x, r0y, r0z,
+                                                    vsecx, vsecy, vsecz,
+                                                    0.0, step_seconds));
         }
 
         return min_d2;
@@ -190,6 +254,49 @@ bool run_simulation_step(StateStore& store,
 
     // If propagation failed for any object this tick, fall back to full
     // SATELLITE-vs-DEBRIS scan to avoid relying on broad-phase filtering.
+    const double refine_band_km = 0.05;
+    const double refine_band_sq = (COLLISION_THRESHOLD_KM + refine_band_km)
+                                * (COLLISION_THRESHOLD_KM + refine_band_km);
+
+    auto process_pair = [&](std::size_t sat_idx, std::size_t obj_idx) noexcept {
+        ++out.narrow_pairs_checked;
+
+        double d2 = tca_min_d2(sat_idx, obj_idx);
+
+        if (d2 >= collision_threshold_sq && d2 <= refine_band_sq) {
+            const Vec3 sat_r0{rx0[sat_idx], ry0[sat_idx], rz0[sat_idx]};
+            const Vec3 sat_v0{vx0[sat_idx], vy0[sat_idx], vz0[sat_idx]};
+            const Vec3 deb_r0{rx0[obj_idx], ry0[obj_idx], rz0[obj_idx]};
+            const Vec3 deb_v0{vx0[obj_idx], vy0[obj_idx], vz0[obj_idx]};
+
+            bool refine_ok = true;
+            const double d2_refined = refine_pair_min_d2_rk4(
+                sat_r0,
+                sat_v0,
+                deb_r0,
+                deb_v0,
+                step_seconds,
+                refine_ok
+            );
+
+            ++out.narrow_refined_pairs;
+            if (!refine_ok) {
+                ++out.narrow_refine_fail_open;
+                d2 = 0.0;
+            } else if (d2_refined >= collision_threshold_sq) {
+                ++out.narrow_refine_cleared;
+                d2 = d2_refined;
+            } else {
+                d2 = d2_refined;
+            }
+        }
+
+        if (d2 < collision_threshold_sq) {
+            ++out.collisions_detected;
+            sat_collision_mark[sat_idx] = 1;
+        }
+    };
+
     if (out.failed_objects == 0) {
         for (const BroadPhasePair& pair : broad.candidates) {
             const std::size_t sat_idx = static_cast<std::size_t>(pair.sat_idx);
@@ -198,13 +305,7 @@ bool run_simulation_step(StateStore& store,
             if (store.type(sat_idx) != ObjectType::SATELLITE) continue;
             if (store.type(obj_idx) != ObjectType::DEBRIS) continue;
 
-            ++out.narrow_pairs_checked;
-
-            const double d2 = tca_min_d2(sat_idx, obj_idx);
-            if (d2 < collision_threshold_sq) {
-                ++out.collisions_detected;
-                sat_collision_mark[sat_idx] = 1;
-            }
+            process_pair(sat_idx, obj_idx);
         }
     } else {
         for (std::size_t i = 0; i < store.size(); ++i) {
@@ -213,13 +314,7 @@ bool run_simulation_step(StateStore& store,
             for (std::size_t j = 0; j < store.size(); ++j) {
                 if (store.type(j) != ObjectType::DEBRIS) continue;
 
-                ++out.narrow_pairs_checked;
-
-                const double d2 = tca_min_d2(i, j);
-                if (d2 < collision_threshold_sq) {
-                    ++out.collisions_detected;
-                    sat_collision_mark[i] = 1;
-                }
+                process_pair(i, j);
             }
         }
     }

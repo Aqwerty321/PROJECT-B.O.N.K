@@ -23,6 +23,9 @@ struct StepRunStats {
     std::uint64_t narrow_pairs_checked = 0;
     std::uint64_t collisions_detected = 0;
     std::uint64_t maneuvers_executed = 0;
+    std::uint64_t narrow_refined_pairs = 0;
+    std::uint64_t narrow_refine_cleared = 0;
+    std::uint64_t narrow_refine_fail_open = 0;
     std::vector<std::uint32_t> collision_sat_indices;
 
     // Broad-phase (conservative shell overlap)

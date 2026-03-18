@@ -248,6 +248,9 @@ struct PropagationStats {
     std::uint64_t narrow_pairs_last_tick = 0;
     std::uint64_t collisions_last_tick = 0;
     std::uint64_t maneuvers_last_tick = 0;
+    std::uint64_t narrow_refined_pairs_last_tick = 0;
+    std::uint64_t narrow_refine_cleared_last_tick = 0;
+    std::uint64_t narrow_refine_fail_open_last_tick = 0;
     std::uint64_t auto_planned_last_tick = 0;
 
     std::uint64_t broad_pairs_last_tick = 0;
@@ -267,6 +270,9 @@ struct PropagationStats {
     std::uint64_t narrow_pairs_total = 0;
     std::uint64_t collisions_total = 0;
     std::uint64_t maneuvers_total = 0;
+    std::uint64_t narrow_refined_pairs_total = 0;
+    std::uint64_t narrow_refine_cleared_total = 0;
+    std::uint64_t narrow_refine_fail_open_total = 0;
     std::uint64_t auto_planned_total = 0;
 
     std::uint64_t broad_pairs_total = 0;
@@ -461,6 +467,12 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.collisions_last_tick);
     out += ",\"maneuvers_executed\":";
     out += std::to_string(stats.maneuvers_last_tick);
+    out += ",\"narrow_refined_pairs\":";
+    out += std::to_string(stats.narrow_refined_pairs_last_tick);
+    out += ",\"narrow_refine_cleared\":";
+    out += std::to_string(stats.narrow_refine_cleared_last_tick);
+    out += ",\"narrow_refine_fail_open\":";
+    out += std::to_string(stats.narrow_refine_fail_open_last_tick);
     out += ",\"auto_planned_maneuvers\":";
     out += std::to_string(stats.auto_planned_last_tick);
     out += ",\"failed_objects\":";
@@ -498,6 +510,12 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.collisions_total);
     out += ",\"maneuvers_executed\":";
     out += std::to_string(stats.maneuvers_total);
+    out += ",\"narrow_refined_pairs\":";
+    out += std::to_string(stats.narrow_refined_pairs_total);
+    out += ",\"narrow_refine_cleared\":";
+    out += std::to_string(stats.narrow_refine_cleared_total);
+    out += ",\"narrow_refine_fail_open\":";
+    out += std::to_string(stats.narrow_refine_fail_open_total);
     out += ",\"auto_planned_maneuvers\":";
     out += std::to_string(stats.auto_planned_total);
     out += ",\"failed_objects\":";
@@ -858,6 +876,9 @@ int main()
             g_prop_stats.narrow_pairs_last_tick = stats.narrow_pairs_checked;
             g_prop_stats.collisions_last_tick = stats.collisions_detected;
             g_prop_stats.maneuvers_last_tick = stats.maneuvers_executed;
+            g_prop_stats.narrow_refined_pairs_last_tick = stats.narrow_refined_pairs;
+            g_prop_stats.narrow_refine_cleared_last_tick = stats.narrow_refine_cleared;
+            g_prop_stats.narrow_refine_fail_open_last_tick = stats.narrow_refine_fail_open;
             g_prop_stats.auto_planned_last_tick = auto_planned;
             g_prop_stats.broad_pairs_last_tick = stats.broad_pairs_considered;
             g_prop_stats.broad_candidates_last_tick = stats.broad_candidates;
@@ -876,6 +897,9 @@ int main()
             g_prop_stats.narrow_pairs_total += stats.narrow_pairs_checked;
             g_prop_stats.collisions_total += stats.collisions_detected;
             g_prop_stats.maneuvers_total += stats.maneuvers_executed;
+            g_prop_stats.narrow_refined_pairs_total += stats.narrow_refined_pairs;
+            g_prop_stats.narrow_refine_cleared_total += stats.narrow_refine_cleared;
+            g_prop_stats.narrow_refine_fail_open_total += stats.narrow_refine_fail_open;
             g_prop_stats.auto_planned_total += auto_planned;
             g_prop_stats.broad_pairs_total += stats.broad_pairs_considered;
             g_prop_stats.broad_candidates_total += stats.broad_candidates;
