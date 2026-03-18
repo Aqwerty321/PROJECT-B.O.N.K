@@ -48,6 +48,10 @@ Date: 2026-03-17
   - synthetic tick latency benchmark
 - `tuner/offline_multiobjective_tuner.cpp`
   - offline broad-phase parameter exploration (separate from runtime)
+- `tools/maneuver_ops_invariants_gate.cpp`
+  - focused maneuver/upload/graveyard invariant checks
+- `scripts/maneuver_ops_invariants_gate.sh`
+  - hard-fail maneuver ops invariant gate wrapper
 
 ### Dev debug toolchain (installed on PATH)
 
@@ -66,6 +70,7 @@ cmake --build build --target phase2_regression_gate
 cmake --build build --target broad_phase_sanity_gate
 cmake --build build --target recovery_slot_acceptance_gate
 cmake --build build --target recovery_planner_invariants_gate
+cmake --build build --target maneuver_ops_invariants_regression_gate
 cmake --build build --target phase3_tick_benchmark
 cmake --build build --target offline_multiobjective_tuner
 ```
@@ -106,6 +111,14 @@ cmake --build build --target recovery_planner_invariants_gate
 ./scripts/recovery_planner_invariants_gate.sh
 ```
 
+### Mandatory maneuver ops invariants gate
+
+```bash
+cmake --build build --target maneuver_ops_invariants_regression_gate
+# or
+./scripts/maneuver_ops_invariants_gate.sh
+```
+
 ### CTest gate suite
 
 ```bash
@@ -129,10 +142,17 @@ ctest --test-dir build --output-on-failure
 ### Optional recovery sweep helper
 
 ```bash
-# args: [build_dir] [scenarios] [margin] [fuel_ratio_cap] [json_out]
-# strict profile defaults -> scenarios=24, margin=0.08, fuel_ratio_cap=1.10
+# strict profile (default)
 ./scripts/recovery_slot_sweep.sh ./build 24 0.08
+
+# strict-expanded profile (deeper deterministic candidate set)
+./scripts/recovery_slot_sweep.sh ./build 24 0.08 1.10 strict-expanded
 ```
+
+Default sweep artifacts by profile:
+
+- `strict`: `build/recovery_slot_sweep_strict.json`
+- `strict-expanded`: `build/recovery_slot_sweep_strict_expanded.json`
 
 Strict sweep interpretation:
 
@@ -140,6 +160,8 @@ Strict sweep interpretation:
   mean fuel use, then lexical candidate name
 - this output is advisory for offline tuning; runtime gains remain unchanged in
   this milestone
+- runtime gain promotion requires a separate commit and deterministic repeated
+  runs selecting the same strict-passing candidate
 
 ## PS completeness matrix
 
@@ -147,7 +169,7 @@ Strict sweep interpretation:
 |---|---|---|---|---|
 | `POST /api/telemetry` | strict ingest + ACK counters | implemented | no payload-level quality metrics in response | keep response PS-clean, expose extra diagnostics only in debug |
 | `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | slot-targeted recovery planner exists; gain tuning and mission-box objective shaping remain | calibrate recovery gains against station-keeping scenarios |
-| `POST /api/maneuver/schedule` | validation incl LOS/fuel/cooldown | partial | static LOS-at-burn-time check added (no latency/window planner yet) | integrate scheduler + station visibility window model |
+| `POST /api/maneuver/schedule` | validation incl LOS/fuel/cooldown | implemented | upload station/epoch metadata not returned in PS response body | keep PS response shape; expose upload metadata only via debug endpoints if required |
 | `GET /api/visualization/snapshot` | geodetic satellite/debris visualization fields | implemented | no uncertainty/quality fields yet | add optional confidence metadata in debug path |
 | `GET /api/status` | health/tick/object counters | implemented | default schema remains PS-clean; details mode is non-PS extension | tune/expand optional details mode as needed |
 
@@ -162,8 +184,11 @@ Strict sweep interpretation:
 ## Known open items before full Phase 4 integration
 
 - recovery planner is slot-targeted but heuristic; gain calibration and slot-box objectives remain pending
+- recovery planner logic is now isolated in `src/maneuver_recovery_planner.*` for focused tuning
+- shared maneuver/upload/graveyard operations are extracted in `src/maneuver_common.*`
 - D-criterion is intentionally conservative; tune only through offline path
-- CI now enforces adaptive regression, broad-phase sanity, recovery slot, and recovery planner invariants gates
+- CI now enforces adaptive regression, broad-phase sanity, narrow-phase false-negative,
+  recovery slot, recovery planner invariants, and maneuver ops invariants gates
 - CI keeps Julia runtime bridge disabled (`PROJECTBONK_ENABLE_JULIA_RUNTIME=OFF`) to keep hard gates deterministic and avoid jluna/Julia version drift
 
 ## Latest acceptance outputs
@@ -173,6 +198,8 @@ Strict sweep interpretation:
   `dcriterion_rejected_total=0`)
 - `recovery_slot_gate`: PASS (`recovery_slot_gate_result=PASS`)
 - `recovery_planner_invariants_gate`: PASS
+- `maneuver_ops_invariants_gate`: PASS (`blackout_upload_execution=PASS`,
+  `upload_prune=PASS`, `graveyard_offline_transition=PASS`)
 - strict recovery sweep (`./scripts/recovery_slot_sweep.sh ./build 24 0.08`):
   writes `build/recovery_slot_sweep_strict.json`; latest strict run reports
   `selection.status=FAIL` with reason
@@ -187,7 +214,7 @@ Strict sweep interpretation:
   `collisions_detected=1`, `maneuvers_executed=1`
 - API smoke (schedule validation):
   `COOLDOWN_VIOLATION` for <600s spacing,
-  `GROUND_STATION_LOS_UNAVAILABLE` for no-LOS burn windows
+  `UPLOAD_WINDOW_UNAVAILABLE` for no valid pre-burn upload windows
 - API smoke (geodetic snapshot):
   populated `lat/lon/alt` fields from ECI->ECEF->WGS84 conversion
 - API smoke (auto planning):
@@ -211,6 +238,12 @@ Strict sweep interpretation:
 - Recovery planner note:
   auto-COLA burns create recovery requests; planner computes slot-targeted
   correction burns under cooldown/LOS/fuel guards and reports counters
+- Communication/blackout note:
+  command upload is validated against pre-burn windows with 10 s latency;
+  burns can execute through blackout if uplink occurred before the latency cut
+- Graveyard note:
+  satellites at/under EOL fuel are reserved for graveyard transfer; successful
+  graveyard execution transitions satellite status to `OFFLINE`
 - Recovery smoke note:
   recovery plans are deferred while pending burns/collision pressure persist,
   and complete once a safe scheduling window is available

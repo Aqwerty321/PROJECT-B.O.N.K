@@ -8,7 +8,8 @@
 //   recovery_slot_gate [--scenarios N] [--margin M]
 //
 // Sweep mode (offline tuning helper):
-//   recovery_slot_gate --sweep [--scenarios N] [--margin M]
+//   recovery_slot_gate --sweep [--profile strict|strict-expanded]
+//                      [--scenarios N] [--margin M]
 //                      [--fuel-ratio-cap R] [--json-out PATH]
 // ---------------------------------------------------------------------------
 
@@ -48,6 +49,8 @@ constexpr double kAcceptanceDefaultMargin = 0.1;
 constexpr int kSweepDefaultScenarios = 24;
 constexpr double kSweepDefaultMargin = 0.08;
 constexpr double kSweepDefaultFuelRatioCap = 1.10;
+constexpr std::string_view kSweepProfileStrict = "strict";
+constexpr std::string_view kSweepProfileStrictExpanded = "strict-expanded";
 
 struct Burn {
     std::string sat_id;
@@ -89,6 +92,7 @@ struct RunOutcome {
 
 struct GateOptions {
     bool sweep = false;
+    std::string profile = std::string(kSweepProfileStrict);
 
     bool scenarios_set = false;
     int scenarios = kAcceptanceDefaultScenarios;
@@ -196,6 +200,7 @@ void print_usage(const char* argv0)
 {
     std::cout << "usage: " << argv0
               << " [--scenarios N] [--margin M] [--sweep]"
+              << " [--profile strict|strict-expanded]"
               << " [--fuel-ratio-cap R] [--json-out PATH]\n";
 }
 
@@ -209,6 +214,15 @@ bool parse_args(int argc, char** argv, GateOptions& opts)
         }
         if (arg == "--sweep") {
             opts.sweep = true;
+            continue;
+        }
+        if (arg == "--profile") {
+            if (i + 1 >= argc) return false;
+            const std::string value = argv[++i];
+            if (value != kSweepProfileStrict && value != kSweepProfileStrictExpanded) {
+                return false;
+            }
+            opts.profile = value;
             continue;
         }
         if (arg == "--scenarios") {
@@ -668,6 +682,59 @@ std::vector<NamedGains> build_sweep_candidates()
     return out;
 }
 
+std::vector<NamedGains> build_sweep_candidates_for_profile(std::string_view profile)
+{
+    std::vector<NamedGains> out = build_sweep_candidates();
+    if (profile == kSweepProfileStrict) {
+        return out;
+    }
+    if (profile != kSweepProfileStrictExpanded) {
+        return out;
+    }
+
+    const RecoveryGains base{};
+
+    const std::array<double, 3> scales{0.6, 0.8, 1.0};
+    const std::array<double, 4> radial_shares{0.35, 0.45, 0.55, 0.65};
+
+    for (double st : scales) {
+        for (double sr : scales) {
+            for (double sn : scales) {
+                for (double rs : radial_shares) {
+                    RecoveryGains g = base;
+                    g.scale_t *= st;
+                    g.scale_r *= sr;
+                    g.scale_n *= sn;
+                    g.radial_share = rs;
+                    g.fallback_norm_km_s = 1e-4;
+
+                    std::ostringstream name;
+                    name << std::fixed << std::setprecision(2)
+                         << "expanded_grid_t" << st
+                         << "_r" << sr
+                         << "_n" << sn
+                         << "_rad" << rs
+                         << "_fb1e-4";
+                    out.push_back(NamedGains{name.str(), g});
+                }
+            }
+        }
+    }
+
+    const std::array<double, 4> fallback_values{0.8e-4, 1.0e-4, 1.2e-4, 1.4e-4};
+    for (double fallback : fallback_values) {
+        RecoveryGains g = base;
+        g.fallback_norm_km_s = fallback;
+
+        std::ostringstream name;
+        name << std::scientific << std::setprecision(1)
+             << "expanded_base_fallback_" << fallback;
+        out.push_back(NamedGains{name.str(), g});
+    }
+
+    return out;
+}
+
 std::string format_double(double x)
 {
     std::ostringstream ss;
@@ -676,6 +743,7 @@ std::string format_double(double x)
 }
 
 void write_sweep_json(const std::string& path,
+                      std::string_view profile,
                       int scenarios,
                       double margin,
                       double fuel_ratio_cap,
@@ -693,6 +761,7 @@ void write_sweep_json(const std::string& path,
     out << "{\n";
     out << "  \"tool\":\"recovery_slot_sweep\",\n";
     out << "  \"profile\":{\n";
+    out << "    \"name\":\"" << escape_json(profile) << "\",\n";
     out << "    \"scenarios\":" << scenarios << ",\n";
     out << "    \"margin\":" << format_double(margin) << ",\n";
     out << "    \"fuel_ratio_cap\":" << format_double(fuel_ratio_cap) << "\n";
@@ -819,14 +888,16 @@ int run_sweep_mode(const GateOptions& opts)
     const int scenarios = opts.scenarios_set ? opts.scenarios : kSweepDefaultScenarios;
     const double margin = opts.margin_set ? opts.margin : kSweepDefaultMargin;
     const double fuel_ratio_cap = opts.fuel_ratio_cap_set ? opts.fuel_ratio_cap : kSweepDefaultFuelRatioCap;
+    const std::string_view profile = opts.profile;
 
     std::cout << "recovery_slot_sweep\n";
     std::cout << "mode=sweep\n";
+    std::cout << "profile=" << profile << "\n";
     std::cout << "scenarios=" << scenarios << "\n";
     std::cout << "margin=" << margin << "\n";
     std::cout << "fuel_ratio_cap=" << fuel_ratio_cap << "\n";
 
-    const std::vector<NamedGains> candidate_defs = build_sweep_candidates();
+    const std::vector<NamedGains> candidate_defs = build_sweep_candidates_for_profile(profile);
     std::vector<CandidateEval> candidates;
     candidates.reserve(candidate_defs.size());
 
@@ -861,7 +932,7 @@ int run_sweep_mode(const GateOptions& opts)
         std::cout << "sweep_result=FAIL\n";
         std::cout << "reason=default_candidate_missing\n";
         if (opts.json_out_set) {
-            write_sweep_json(opts.json_out, scenarios, margin, fuel_ratio_cap, 0.0,
+            write_sweep_json(opts.json_out, profile, scenarios, margin, fuel_ratio_cap, 0.0,
                              candidates, nullptr, "default candidate missing", false);
             std::cout << "json_out=" << opts.json_out << "\n";
         }
@@ -931,7 +1002,7 @@ int run_sweep_mode(const GateOptions& opts)
     std::cout << "fuel_limit_mean_fuel_used_kg=" << fuel_limit << "\n";
 
     if (opts.json_out_set) {
-        write_sweep_json(opts.json_out, scenarios, margin, fuel_ratio_cap, default_mean_fuel,
+        write_sweep_json(opts.json_out, profile, scenarios, margin, fuel_ratio_cap, default_mean_fuel,
                          candidates, selected, selection_reason, success);
         std::cout << "json_out=" << opts.json_out << "\n";
     }

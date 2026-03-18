@@ -202,10 +202,22 @@ cmake --build build --target offline_multiobjective_tuner -j"$(nproc)"
 Optional: run recovery gain sweep helper (offline tuning, not runtime path).
 
 ```bash
-# args: [build_dir] [scenarios] [margin] [fuel_ratio_cap] [json_out]
-# strict profile defaults -> scenarios=24, margin=0.08, fuel_ratio_cap=1.10
+# strict profile (default)
 ./scripts/recovery_slot_sweep.sh ./build 24 0.08
+
+# strict-expanded profile (deeper deterministic candidate set)
+./scripts/recovery_slot_sweep.sh ./build 24 0.08 1.10 strict-expanded
+
+# optional explicit artifact path with profile
+./scripts/recovery_slot_sweep.sh ./build 24 0.08 1.10 \
+  ./build/recovery_slot_sweep_custom.json strict-expanded
 ```
+
+`recovery_slot_gate --sweep` supports profiles:
+
+- `strict` (default): baseline reproducibility candidate set
+- `strict-expanded`: `strict` candidates plus deterministic low-fallback grid
+  and fallback-sensitivity variants
 
 Strict sweep criteria:
 
@@ -218,6 +230,8 @@ Promotion policy for this milestone:
 
 - sweep only produces evidence and recommended candidate
 - runtime recovery gains stay unchanged until a separate promotion decision
+- promote runtime gains only in a separate commit after deterministic repeated
+  sweep runs confirm the same strict-passing candidate
 
 CMake will automatically:
 

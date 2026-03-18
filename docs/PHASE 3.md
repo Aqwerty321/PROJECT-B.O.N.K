@@ -101,9 +101,11 @@ Latest gate snapshot:
   acceptance scenario)
 - recovery planner invariants gate: PASS (no recovery scheduling under
   persistent collision pressure or fuel-floor violation)
-- recovery sweep helper now supports strict profile defaults
-  (`scenarios=24`, `margin=0.08`, `fuel_ratio_cap=1.10`) and emits a
-  machine-readable artifact at `build/recovery_slot_sweep_strict.json`
+- recovery sweep helper supports `strict` (default) and `strict-expanded`
+  profiles; strict defaults remain (`scenarios=24`, `margin=0.08`,
+  `fuel_ratio_cap=1.10`) and artifacts are emitted at
+  `build/recovery_slot_sweep_strict.json` or
+  `build/recovery_slot_sweep_strict_expanded.json` by profile
 - latest strict sweep snapshot: deterministic `selection.status=FAIL` with
   explicit reason `no candidate met strict scenario + fuel-ratio criteria`
 
@@ -141,7 +143,8 @@ Latest integration snapshot:
   orbital element deltas (a/e/i/RAAN) with conservative per-burn capping
 - `tools/recovery_slot_gate.cpp` now supports parameterized multi-scenario
   acceptance checks and deterministic sweep mode for offline gain tuning,
-  including candidate ranking evidence and JSON artifact output
+  including profile-based candidate sets (`strict`, `strict-expanded`),
+  candidate ranking evidence, and JSON artifact output
 
 Current status note:
 
@@ -157,6 +160,8 @@ Current status note:
   mission-box objective shaping remain pending
 - strict sweep results are evidence-only in this milestone; runtime gain
   promotion remains deferred
+- runtime gain promotion only proceeds in a separate commit once deterministic
+  repeated sweeps select the same strict-passing candidate
 
 Latest tuner snapshot (`240 50 10000 3 2`):
 

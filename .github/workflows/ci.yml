@@ -42,8 +42,10 @@ jobs:
         run: |
           cmake --build build --target phase2_regression_gate
           cmake --build build --target broad_phase_sanity_gate
+          cmake --build build --target narrow_phase_false_negative_regression_gate
           cmake --build build --target recovery_slot_acceptance_gate
           cmake --build build --target recovery_planner_invariants_gate
+          cmake --build build --target maneuver_ops_invariants_regression_gate
 
       - name: Run strict adaptive regression gate script
         run: ./scripts/phase2_regression_gate.sh
@@ -51,11 +53,17 @@ jobs:
       - name: Run broad-phase sanity gate script
         run: ./scripts/broad_phase_sanity_gate.sh
 
+      - name: Run narrow-phase false-negative gate script
+        run: ./scripts/narrow_phase_false_negative_gate.sh
+
       - name: Run recovery slot gate script
         run: ./scripts/recovery_slot_gate.sh
 
       - name: Run recovery planner invariants gate script
         run: ./scripts/recovery_planner_invariants_gate.sh
+
+      - name: Run maneuver ops invariants gate script
+        run: ./scripts/maneuver_ops_invariants_gate.sh
 
       - name: Run CTest safety suite
         run: ctest --test-dir build --output-on-failure
