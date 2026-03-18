@@ -15,6 +15,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Julia (jluna-compatible)
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.10.0'
+
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -29,7 +34,12 @@ jobs:
         env:
           CC: /usr/bin/gcc-12
           CXX: /usr/bin/g++-12
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: |
+          JULIA_BINDIR="$(julia -e 'print(Sys.BINDIR)')"
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DJULIA_BINDIR="${JULIA_BINDIR}"
 
       - name: Build project
         run: cmake --build build --target ProjectBONK -j"$(nproc)"
@@ -38,12 +48,16 @@ jobs:
         run: |
           cmake --build build --target phase2_regression_gate
           cmake --build build --target broad_phase_sanity_gate
+          cmake --build build --target recovery_slot_acceptance_gate
 
       - name: Run strict adaptive regression gate script
         run: ./scripts/phase2_regression_gate.sh
 
       - name: Run broad-phase sanity gate script
         run: ./scripts/broad_phase_sanity_gate.sh
+
+      - name: Run recovery slot gate script
+        run: ./scripts/recovery_slot_gate.sh
 
       - name: Run CTest safety suite
         run: ctest --test-dir build --output-on-failure

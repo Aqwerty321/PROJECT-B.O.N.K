@@ -42,6 +42,8 @@ option(PROJECTBONK_AUTO_INSTALL_JULIA
 
 set(PROJECTBONK_JULIA_VERSION "1.10.0" CACHE STRING
     "Julia version for automatic download")
+set(PROJECTBONK_JULIA_REQUIRED_SERIES "1.10" CACHE STRING
+    "Compatible Julia major.minor series for jluna v1.0.1")
 set(PROJECTBONK_JULIA_INSTALL_ROOT "${CMAKE_BINARY_DIR}/_deps/julia" CACHE PATH
     "Directory used for automatic Julia download")
 
@@ -139,27 +141,82 @@ target_include_directories(httplib INTERFACE "${HTTPLIB_DIR}")
 # ---------------------------------------------------------------------------
 # 4. Julia resolution (auto-download on Linux when not on PATH)
 # ---------------------------------------------------------------------------
+string(REGEX MATCH "^[0-9]+\\.[0-9]+"
+    PROJECTBONK_JULIA_DOWNLOAD_SERIES
+    "${PROJECTBONK_JULIA_VERSION}")
+
+if(NOT PROJECTBONK_JULIA_DOWNLOAD_SERIES)
+    message(FATAL_ERROR
+        "PROJECTBONK_JULIA_VERSION='${PROJECTBONK_JULIA_VERSION}' "
+        "must begin with '<major>.<minor>'")
+endif()
+
 if(NOT DEFINED JULIA_BINDIR)
     find_program(PROJECTBONK_JULIA_EXECUTABLE julia)
 
     if(PROJECTBONK_JULIA_EXECUTABLE)
         execute_process(
-            COMMAND "${PROJECTBONK_JULIA_EXECUTABLE}" -e "print(Sys.BINDIR)"
-            OUTPUT_VARIABLE PROJECTBONK_DETECTED_JULIA_BINDIR
+            COMMAND "${PROJECTBONK_JULIA_EXECUTABLE}" -e
+                    "print(string(VERSION.major,'.',VERSION.minor,'.',VERSION.patch))"
+            OUTPUT_VARIABLE PROJECTBONK_DETECTED_JULIA_VERSION
             OUTPUT_STRIP_TRAILING_WHITESPACE
-            RESULT_VARIABLE PROJECTBONK_DETECT_JULIA_RC
+            RESULT_VARIABLE PROJECTBONK_DETECT_JULIA_VERSION_RC
         )
-        if(PROJECTBONK_DETECT_JULIA_RC EQUAL 0
-           AND PROJECTBONK_DETECTED_JULIA_BINDIR)
-            set(JULIA_BINDIR "${PROJECTBONK_DETECTED_JULIA_BINDIR}"
-                CACHE PATH "Path to Julia bin directory" FORCE)
-            message(STATUS "Using Julia from PATH at ${JULIA_BINDIR}")
+        execute_process(
+            COMMAND "${PROJECTBONK_JULIA_EXECUTABLE}" -e
+                    "print(string(VERSION.major,'.',VERSION.minor))"
+            OUTPUT_VARIABLE PROJECTBONK_DETECTED_JULIA_SERIES
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE PROJECTBONK_DETECT_JULIA_SERIES_RC
+        )
+
+        set(PROJECTBONK_JULIA_PATH_COMPATIBLE OFF)
+        if(PROJECTBONK_DETECT_JULIA_SERIES_RC EQUAL 0
+           AND PROJECTBONK_DETECTED_JULIA_SERIES
+           STREQUAL "${PROJECTBONK_JULIA_REQUIRED_SERIES}")
+            set(PROJECTBONK_JULIA_PATH_COMPATIBLE ON)
         endif()
-    elseif(PROJECTBONK_AUTO_INSTALL_JULIA AND UNIX AND NOT APPLE)
+
+        if(NOT PROJECTBONK_JULIA_PATH_COMPATIBLE)
+            if(PROJECTBONK_DETECT_JULIA_VERSION_RC EQUAL 0
+               AND PROJECTBONK_DETECTED_JULIA_VERSION)
+                message(WARNING
+                    "Detected Julia ${PROJECTBONK_DETECTED_JULIA_VERSION} on PATH, "
+                    "but jluna v1.0.1 is pinned to Julia "
+                    "${PROJECTBONK_JULIA_REQUIRED_SERIES}.x. "
+                    "Ignoring PATH Julia and continuing with auto-install "
+                    "${PROJECTBONK_JULIA_VERSION}.")
+            else()
+                message(WARNING
+                    "Detected Julia executable on PATH, but failed to query version. "
+                    "Ignoring PATH Julia and continuing with auto-install "
+                    "${PROJECTBONK_JULIA_VERSION}.")
+            endif()
+        endif()
+
+        if(PROJECTBONK_JULIA_PATH_COMPATIBLE)
+            execute_process(
+                COMMAND "${PROJECTBONK_JULIA_EXECUTABLE}" -e "print(Sys.BINDIR)"
+                OUTPUT_VARIABLE PROJECTBONK_DETECTED_JULIA_BINDIR
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                RESULT_VARIABLE PROJECTBONK_DETECT_JULIA_RC
+            )
+            if(PROJECTBONK_DETECT_JULIA_RC EQUAL 0
+               AND PROJECTBONK_DETECTED_JULIA_BINDIR)
+                set(JULIA_BINDIR "${PROJECTBONK_DETECTED_JULIA_BINDIR}"
+                    CACHE PATH "Path to Julia bin directory" FORCE)
+                message(STATUS "Using Julia from PATH at ${JULIA_BINDIR}")
+            endif()
+        endif()
+    endif()
+
+    if(NOT DEFINED JULIA_BINDIR
+       AND PROJECTBONK_AUTO_INSTALL_JULIA
+       AND UNIX AND NOT APPLE)
         set(PROJECTBONK_JULIA_ARCHIVE
             "julia-${PROJECTBONK_JULIA_VERSION}-linux-x86_64.tar.gz")
         set(PROJECTBONK_JULIA_URL
-            "https://julialang-s3.julialang.org/bin/linux/x64/1.10/${PROJECTBONK_JULIA_ARCHIVE}")
+            "https://julialang-s3.julialang.org/bin/linux/x64/${PROJECTBONK_JULIA_DOWNLOAD_SERIES}/${PROJECTBONK_JULIA_ARCHIVE}")
         set(PROJECTBONK_JULIA_ARCHIVE_PATH
             "${PROJECTBONK_JULIA_INSTALL_ROOT}/${PROJECTBONK_JULIA_ARCHIVE}")
         set(PROJECTBONK_JULIA_HOME
@@ -435,6 +492,34 @@ target_compile_options(offline_multiobjective_tuner PRIVATE
     -DNDEBUG
 )
 
+# ===================================================================
+# Recovery slot gate harness
+# ===================================================================
+add_executable(recovery_slot_gate
+    tools/recovery_slot_gate.cpp
+    src/broad_phase.cpp
+    src/state_store.cpp
+    src/sim_clock.cpp
+    src/orbit_math.cpp
+    src/propagator.cpp
+    src/simulation_engine.cpp
+)
+
+target_include_directories(recovery_slot_gate PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+target_compile_options(recovery_slot_gate PRIVATE
+    -O3
+    -DNDEBUG
+)
+
+add_custom_target(recovery_slot_acceptance_gate
+    COMMAND "$<TARGET_FILE:recovery_slot_gate>"
+    DEPENDS recovery_slot_gate
+    USES_TERMINAL
+)
+
 if(BUILD_TESTING)
     add_test(
         NAME phase2_regression_gate_test
@@ -447,5 +532,9 @@ if(BUILD_TESTING)
     add_test(
         NAME broad_phase_sanity_gate_test
         COMMAND "$<TARGET_FILE:broad_phase_validation>" 3 50 10000 1
+    )
+    add_test(
+        NAME recovery_slot_gate_test
+        COMMAND "$<TARGET_FILE:recovery_slot_gate>"
     )
 endif()

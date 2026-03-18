@@ -143,6 +143,18 @@ static cascade::OrbitalElements derive_slot_elements_if_needed(const cascade::St
     return cur;
 }
 
+static double slot_error_score(const cascade::OrbitalElements& slot,
+                               const cascade::OrbitalElements& cur) noexcept
+{
+    const double da = std::abs(slot.a_km - cur.a_km);
+    const double de = std::abs(slot.e - cur.e);
+    const double di = std::abs(slot.i_rad - cur.i_rad);
+    const double d_raan = std::abs(cascade::wrap_0_2pi(slot.raan_rad - cur.raan_rad + cascade::PI) - cascade::PI);
+
+    // Heuristic station-keeping error score (dimensionless weighted sum).
+    return (da / 10.0) + (de / 1e-3) + (di / 1e-3) + (d_raan / 1e-3);
+}
+
 static double dv_norm_km_s(const cascade::Vec3& dv) noexcept
 {
     return std::sqrt(dv.x * dv.x + dv.y * dv.y + dv.z * dv.z);
@@ -552,6 +564,8 @@ struct PropagationStats {
     std::uint64_t recovery_planned_last_tick = 0;
     std::uint64_t recovery_deferred_last_tick = 0;
     std::uint64_t recovery_completed_last_tick = 0;
+    double recovery_slot_error_mean_last_tick = 0.0;
+    double recovery_slot_error_max_last_tick = 0.0;
 
     std::uint64_t broad_pairs_last_tick = 0;
     std::uint64_t broad_candidates_last_tick = 0;
@@ -582,6 +596,9 @@ struct PropagationStats {
     std::uint64_t recovery_planned_total = 0;
     std::uint64_t recovery_deferred_total = 0;
     std::uint64_t recovery_completed_total = 0;
+    double recovery_slot_error_sum_total = 0.0;
+    std::uint64_t recovery_slot_error_samples_total = 0;
+    double recovery_slot_error_max_total = 0.0;
 
     std::uint64_t broad_pairs_total = 0;
     std::uint64_t broad_candidates_total = 0;
@@ -799,6 +816,10 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.recovery_deferred_last_tick);
     out += ",\"recovery_completed\":";
     out += std::to_string(stats.recovery_completed_last_tick);
+    out += ",\"recovery_slot_error_mean\":";
+    out += cascade::fmt_double(stats.recovery_slot_error_mean_last_tick, 6);
+    out += ",\"recovery_slot_error_max\":";
+    out += cascade::fmt_double(stats.recovery_slot_error_max_last_tick, 6);
     out += ",\"failed_objects\":";
     out += std::to_string(store.failed_last_tick());
     out += ",\"broad_pairs_considered\":";
@@ -858,6 +879,18 @@ static std::string build_propagation_json(const cascade::StateStore& store,
     out += std::to_string(stats.recovery_deferred_total);
     out += ",\"recovery_completed\":";
     out += std::to_string(stats.recovery_completed_total);
+    out += ",\"recovery_slot_error_mean\":";
+    if (stats.recovery_slot_error_samples_total > 0) {
+        out += cascade::fmt_double(
+            stats.recovery_slot_error_sum_total
+                / static_cast<double>(stats.recovery_slot_error_samples_total),
+            6
+        );
+    } else {
+        out += "0.000000";
+    }
+    out += ",\"recovery_slot_error_max\":";
+    out += cascade::fmt_double(stats.recovery_slot_error_max_total, 6);
     out += ",\"failed_objects\":";
     out += std::to_string(store.failed_propagation_total());
     out += ",\"broad_pairs_considered\":";
@@ -1214,6 +1247,26 @@ int main()
                 g_clock.epoch_s(),
                 tick_id
             );
+
+            double slot_error_sum_tick = 0.0;
+            double slot_error_max_tick = 0.0;
+            std::uint64_t slot_error_samples_tick = 0;
+            for (std::size_t i = 0; i < g_store.size(); ++i) {
+                if (g_store.type(i) != cascade::ObjectType::SATELLITE) continue;
+
+                const std::string sat_id = g_store.id(i);
+                auto it_slot = g_slot_elements_by_sat.find(sat_id);
+                if (it_slot == g_slot_elements_by_sat.end()) continue;
+
+                cascade::OrbitalElements cur{};
+                if (!get_current_elements(g_store, i, cur)) continue;
+
+                const double err = slot_error_score(it_slot->second, cur);
+                slot_error_sum_tick += err;
+                if (err > slot_error_max_tick) slot_error_max_tick = err;
+                ++slot_error_samples_tick;
+            }
+
             const ManeuverExecStats exec_stats = execute_due_maneuvers(g_store, g_clock.epoch_s());
             stats.maneuvers_executed = exec_stats.executed;
             const RecoveryPlanStats rec_plan = plan_recovery_burns(g_store, g_clock.epoch_s(), tick_id);
@@ -1236,6 +1289,11 @@ int main()
             g_prop_stats.recovery_planned_last_tick = rec_plan.planned;
             g_prop_stats.recovery_deferred_last_tick = rec_plan.deferred;
             g_prop_stats.recovery_completed_last_tick = exec_stats.recovery_completed;
+            g_prop_stats.recovery_slot_error_mean_last_tick =
+                (slot_error_samples_tick > 0)
+                ? (slot_error_sum_tick / static_cast<double>(slot_error_samples_tick))
+                : 0.0;
+            g_prop_stats.recovery_slot_error_max_last_tick = slot_error_max_tick;
             g_prop_stats.broad_pairs_last_tick = stats.broad_pairs_considered;
             g_prop_stats.broad_candidates_last_tick = stats.broad_candidates;
             g_prop_stats.broad_overlap_pass_last_tick = stats.broad_shell_overlap_pass;
@@ -1265,6 +1323,11 @@ int main()
             g_prop_stats.recovery_planned_total += rec_plan.planned;
             g_prop_stats.recovery_deferred_total += rec_plan.deferred;
             g_prop_stats.recovery_completed_total += exec_stats.recovery_completed;
+            g_prop_stats.recovery_slot_error_sum_total += slot_error_sum_tick;
+            g_prop_stats.recovery_slot_error_samples_total += slot_error_samples_tick;
+            if (slot_error_max_tick > g_prop_stats.recovery_slot_error_max_total) {
+                g_prop_stats.recovery_slot_error_max_total = slot_error_max_tick;
+            }
             g_prop_stats.broad_pairs_total += stats.broad_pairs_considered;
             g_prop_stats.broad_candidates_total += stats.broad_candidates;
             g_prop_stats.broad_overlap_pass_total += stats.broad_shell_overlap_pass;
@@ -1380,6 +1443,10 @@ int main()
             out += std::to_string(prop.recovery_completed_last_tick);
             out += ",\"recovery_pending_marked\":";
             out += std::to_string(prop.auto_planned_last_tick);
+            out += ",\"recovery_slot_error_mean\":";
+            out += cascade::fmt_double(prop.recovery_slot_error_mean_last_tick, 6);
+            out += ",\"recovery_slot_error_max\":";
+            out += cascade::fmt_double(prop.recovery_slot_error_max_last_tick, 6);
             out += ",\"narrow_refined_pairs\":";
             out += std::to_string(prop.narrow_refined_pairs_last_tick);
             out += ",\"narrow_full_refined_pairs\":";
@@ -1409,6 +1476,18 @@ int main()
             out += std::to_string(prop.recovery_completed_total);
             out += ",\"recovery_pending_marked\":";
             out += std::to_string(prop.auto_planned_total);
+            out += ",\"recovery_slot_error_mean\":";
+            if (prop.recovery_slot_error_samples_total > 0) {
+                out += cascade::fmt_double(
+                    prop.recovery_slot_error_sum_total
+                        / static_cast<double>(prop.recovery_slot_error_samples_total),
+                    6
+                );
+            } else {
+                out += "0.000000";
+            }
+            out += ",\"recovery_slot_error_max\":";
+            out += cascade::fmt_double(prop.recovery_slot_error_max_total, 6);
             out += ",\"narrow_refined_pairs\":";
             out += std::to_string(prop.narrow_refined_pairs_total);
             out += ",\"narrow_full_refined_pairs\":";

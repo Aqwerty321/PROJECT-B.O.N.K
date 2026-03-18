@@ -69,7 +69,8 @@ Response schemas follow `PS.md`.
 ## Local Build (Ubuntu 22.04)
 
 Docker is the recommended path.  Local builds work on Linux and will
-auto-download Julia 1.10.0 if it is not already on `PATH`.
+auto-download Julia 1.10.0 when a compatible Julia 1.10.x is not already
+available on `PATH`.
 
 ### 1. Install toolchain and base libraries
 
@@ -107,6 +108,14 @@ Hard-fail broad-phase sanity gate:
 cmake --build build --target broad_phase_sanity_gate
 # or
 ./scripts/broad_phase_sanity_gate.sh
+```
+
+Hard-fail recovery slot acceptance gate:
+
+```bash
+cmake --build build --target recovery_slot_acceptance_gate
+# or
+./scripts/recovery_slot_gate.sh
 ```
 
 Maneuver schedule endpoint currently enforces:

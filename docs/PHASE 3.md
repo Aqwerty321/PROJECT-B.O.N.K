@@ -84,7 +84,10 @@ Observed:
 
 - `phase2_regression_gate` (strict adaptive propagation)
 - `broad_phase_sanity_gate` (indexed broad-phase vs shell baseline)
-- CI workflow runs both gates on push/PR
+- `recovery_slot_gate` (slot-targeted recovery acceptance)
+- CI workflow runs all three gates on push/PR
+- CI pins Julia `1.10.0` to avoid `jluna` ABI/API incompatibility on newer
+  runner images
 - runtime broad-phase keeps D-criterion disabled by default until Phase 4
   narrow-phase integration proves no-FN behavior end-to-end
 
@@ -92,6 +95,8 @@ Latest gate snapshot:
 
 - adaptive gate: PASS on both configured sweeps
 - broad-phase sanity gate: PASS (`missing_vs_shell_baseline_total = 0`)
+- recovery slot gate: PASS (recovery path not worse than baseline in synthetic
+  acceptance scenario)
 
 Latest integration snapshot:
 
@@ -131,12 +136,12 @@ Current status note:
 - station-geometry LOS windows are currently static point checks (no latency/
   upload-window planner yet)
 - TCA-window narrow-phase is conservative and currently linearized; high-
-- fidelity RK4 conjunction window solver remains pending (current full-window
+  fidelity RK4 conjunction window solver remains pending (current full-window
   pass is budgeted and only applies to ultra-near-threshold pairs)
 - adaptive budget telemetry is exposed via debug counters to monitor safety/
   performance tradeoff over time
-- recovery planner currently uses inverse-of-executed auto-COLA impulse and
-- may defer when conjunction pressure persists; slot-targeted gain tuning and
+- recovery planner may defer when conjunction pressure persists; slot-targeted
+  gain tuning and
   mission-box objective shaping remain pending
 
 Latest tuner snapshot (`240 50 10000 3 2`):

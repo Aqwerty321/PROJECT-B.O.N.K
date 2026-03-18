@@ -64,6 +64,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target ProjectBONK
 cmake --build build --target phase2_regression_gate
 cmake --build build --target broad_phase_sanity_gate
+cmake --build build --target recovery_slot_acceptance_gate
 cmake --build build --target phase3_tick_benchmark
 cmake --build build --target offline_multiobjective_tuner
 ```
@@ -86,6 +87,14 @@ cmake --build build --target phase2_regression_gate
 cmake --build build --target broad_phase_sanity_gate
 # or
 ./scripts/broad_phase_sanity_gate.sh
+```
+
+### Mandatory recovery slot gate
+
+```bash
+cmake --build build --target recovery_slot_acceptance_gate
+# or
+./scripts/recovery_slot_gate.sh
 ```
 
 ### CTest gate suite
@@ -130,15 +139,17 @@ ctest --test-dir build --output-on-failure
 
 - recovery planner is slot-targeted but heuristic; gain calibration and slot-box objectives remain pending
 - D-criterion is intentionally conservative; tune only through offline path
-- CI now enforces both adaptive regression gate and broad-phase sanity gate
+- CI now enforces adaptive regression, broad-phase sanity, and recovery slot gates
+- CI pins Julia `1.10.0` to stay compatible with `jluna v1.0.1`
 
 ## Latest acceptance outputs
 
 - `phase2_regression_gate`: PASS (both sweeps in strict adaptive mode)
 - `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`,
   `dcriterion_rejected_total=0`)
+- `recovery_slot_gate`: PASS (`recovery_slot_gate_result=PASS`)
 - `phase3_tick_benchmark 50 10000 30`:
-  mean `12.803 ms`, median `13.119 ms`, p95 `13.937 ms`
+  mean `13.291 ms`, median `13.271 ms`, p95 `13.538 ms`
 - `offline_multiobjective_tuner 240 50 10000 3 2`:
   strict-zero-risk enabled, disqualified `43`, safe population `197`, pareto
   set `3`
