@@ -9,6 +9,7 @@
 // ---------------------------------------------------------------------------
 
 #include "maneuver_common.hpp"
+#include "maneuver_recovery_planner.hpp"
 #include "orbit_math.hpp"
 #include "state_store.hpp"
 #include "types.hpp"
@@ -342,6 +343,111 @@ ScenarioOutcome test_graveyard_execution_transitions_offline()
     return out;
 }
 
+ScenarioOutcome test_stationkeeping_breach_triggers_recovery_plan()
+{
+    ScenarioOutcome out;
+
+    StateStore store;
+    const std::string sat_id = "SAT-STATIONKEEP";
+    const double epoch_s = 1773302400.0;
+    std::size_t sat_idx = 0;
+    if (!seed_satellite(store, sat_id, epoch_s, sat_idx)) {
+        out.reason = "failed to seed satellite";
+        return out;
+    }
+
+    // Seed slot reference before forcing a large position deviation.
+    std::unordered_map<std::string, cascade::SlotReference> slot_reference_by_sat;
+    const cascade::OrbitalElements slot_ref = cascade::derive_slot_elements_if_needed(
+        store,
+        sat_idx,
+        slot_reference_by_sat
+    );
+    (void)slot_ref;
+
+    // Force >10 km box violation while keeping the orbit state valid enough for
+    // planner math; this emulates immediate post-evasion drift.
+    store.rx_mut(sat_idx) += 20.0;
+    store.set_elements(sat_idx, cascade::OrbitalElements{}, false);
+
+    double radius_err_km = 0.0;
+    if (!cascade::slot_radius_error_km_at_epoch(
+            store,
+            sat_idx,
+            epoch_s,
+            slot_reference_by_sat,
+            radius_err_km)) {
+        out.reason = "failed to evaluate slot radius error";
+        return out;
+    }
+    if (!(radius_err_km > cascade::STATIONKEEPING_BOX_RADIUS_KM)) {
+        out.reason = "stationkeeping breach not established for test satellite";
+        return out;
+    }
+
+    std::vector<ScheduledBurn> burn_queue;
+    std::unordered_map<std::string, double> last_burn_epoch_by_sat;
+    std::unordered_map<std::string, cascade::RecoveryRequest> recovery_requests_by_sat;
+    std::unordered_map<std::string, bool> graveyard_requested_by_sat;
+
+    // Build a recovery request from current state drift and ask planner to
+    // schedule corrective burn under upload/cooldown/fuel constraints.
+    recovery_requests_by_sat[sat_id] = cascade::RecoveryRequest{};
+    const cascade::Vec3 dv = cascade::compute_slot_target_recovery_dv(
+        store,
+        sat_idx,
+        recovery_requests_by_sat[sat_id],
+        slot_reference_by_sat
+    );
+    if (cascade::dv_norm_km_s(dv) <= cascade::EPS_NUM) {
+        out.reason = "computed stationkeeping recovery dv is zero";
+        return out;
+    }
+    recovery_requests_by_sat[sat_id].remaining_delta_v_km_s = dv;
+    recovery_requests_by_sat[sat_id].earliest_epoch_s = epoch_s;
+
+    // Find a deterministic epoch where upload path exists in horizon and plan.
+    bool planned_any = false;
+    for (double dt = 0.0; dt <= 3600.0; dt += 60.0) {
+        const double now_epoch_s = epoch_s + dt;
+        const cascade::RecoveryPlanStats rec = cascade::plan_recovery_burns(
+            store,
+            now_epoch_s,
+            9,
+            burn_queue,
+            last_burn_epoch_by_sat,
+            recovery_requests_by_sat,
+            graveyard_requested_by_sat,
+            slot_reference_by_sat,
+            cascade::AUTO_UPLOAD_HORIZON_S
+        );
+        if (rec.planned > 0) {
+            planned_any = true;
+            break;
+        }
+    }
+
+    if (!planned_any) {
+        out.reason = "stationkeeping recovery burn was not planned";
+        return out;
+    }
+    if (burn_queue.empty()) {
+        out.reason = "planner reported planned recovery but queue is empty";
+        return out;
+    }
+    if (!burn_queue.front().recovery_burn) {
+        out.reason = "planned stationkeeping burn is not marked as recovery";
+        return out;
+    }
+    if (burn_queue.front().upload_epoch_s <= 0.0) {
+        out.reason = "planned stationkeeping recovery burn missing upload epoch";
+        return out;
+    }
+
+    out.pass = true;
+    return out;
+}
+
 } // namespace
 
 int main()
@@ -349,6 +455,7 @@ int main()
     const ScenarioOutcome blackout = test_blackout_burn_executes_when_uploaded_prior();
     const ScenarioOutcome upload_prune = test_invalid_upload_epoch_is_pruned();
     const ScenarioOutcome graveyard = test_graveyard_execution_transitions_offline();
+    const ScenarioOutcome stationkeeping = test_stationkeeping_breach_triggers_recovery_plan();
 
     std::cout << std::fixed << std::setprecision(6);
     std::cout << "maneuver_ops_invariants_gate\n";
@@ -368,7 +475,12 @@ int main()
         std::cout << "graveyard_offline_transition_reason=" << graveyard.reason << "\n";
     }
 
-    const bool pass_all = blackout.pass && upload_prune.pass && graveyard.pass;
+    std::cout << "stationkeeping_recovery_plan_result=" << (stationkeeping.pass ? "PASS" : "FAIL") << "\n";
+    if (!stationkeeping.pass) {
+        std::cout << "stationkeeping_recovery_plan_reason=" << stationkeeping.reason << "\n";
+    }
+
+    const bool pass_all = blackout.pass && upload_prune.pass && graveyard.pass && stationkeeping.pass;
     std::cout << "maneuver_ops_invariants_gate_result=" << (pass_all ? "PASS" : "FAIL") << "\n";
     return pass_all ? 0 : 1;
 }

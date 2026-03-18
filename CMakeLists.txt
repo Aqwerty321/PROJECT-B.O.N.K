@@ -375,6 +375,7 @@ endif()
 add_executable(ProjectBONK
     main.cpp
     src/broad_phase.cpp
+    src/engine_runtime.cpp
     src/earth_frame.cpp
     src/maneuver_common.cpp
     src/maneuver_recovery_planner.cpp
@@ -597,6 +598,7 @@ add_executable(maneuver_ops_invariants_gate
     src/orbit_math.cpp
     src/earth_frame.cpp
     src/maneuver_common.cpp
+    src/maneuver_recovery_planner.cpp
 )
 
 target_include_directories(maneuver_ops_invariants_gate PRIVATE
