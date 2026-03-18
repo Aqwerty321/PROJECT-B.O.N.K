@@ -15,11 +15,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Julia (jluna-compatible)
-        uses: julia-actions/setup-julia@v2
-        with:
-          version: '1.10.0'
-
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -35,11 +30,10 @@ jobs:
           CC: /usr/bin/gcc-12
           CXX: /usr/bin/g++-12
         run: |
-          JULIA_BINDIR="$(julia -e 'print(Sys.BINDIR)')"
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=ON \
-            -DJULIA_BINDIR="${JULIA_BINDIR}"
+            -DPROJECTBONK_ENABLE_JULIA_RUNTIME=OFF
 
       - name: Build project
         run: cmake --build build --target ProjectBONK -j"$(nproc)"

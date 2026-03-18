@@ -39,6 +39,8 @@ option(PROJECTBONK_PREFETCH_ONLY
        "Only fetch external dependencies; skip building the executable" OFF)
 option(PROJECTBONK_AUTO_INSTALL_JULIA
        "Automatically download Julia on Linux when not found" ON)
+option(PROJECTBONK_ENABLE_JULIA_RUNTIME
+       "Enable Julia/jluna runtime initialization in ProjectBONK" OFF)
 
 set(PROJECTBONK_JULIA_VERSION "1.10.0" CACHE STRING
     "Julia version for automatic download")
@@ -138,220 +140,222 @@ endif()
 add_library(httplib INTERFACE)
 target_include_directories(httplib INTERFACE "${HTTPLIB_DIR}")
 
-# ---------------------------------------------------------------------------
-# 4. Julia resolution (auto-download on Linux when not on PATH)
-# ---------------------------------------------------------------------------
-string(REGEX MATCH "^[0-9]+\\.[0-9]+"
-    PROJECTBONK_JULIA_DOWNLOAD_SERIES
-    "${PROJECTBONK_JULIA_VERSION}")
+if(PROJECTBONK_ENABLE_JULIA_RUNTIME)
+    # -----------------------------------------------------------------------
+    # 4. Julia resolution (auto-download on Linux when not on PATH)
+    # -----------------------------------------------------------------------
+    string(REGEX MATCH "^[0-9]+\\.[0-9]+"
+        PROJECTBONK_JULIA_DOWNLOAD_SERIES
+        "${PROJECTBONK_JULIA_VERSION}")
 
-if(NOT PROJECTBONK_JULIA_DOWNLOAD_SERIES)
-    message(FATAL_ERROR
-        "PROJECTBONK_JULIA_VERSION='${PROJECTBONK_JULIA_VERSION}' "
-        "must begin with '<major>.<minor>'")
-endif()
-
-if(NOT DEFINED JULIA_BINDIR)
-    find_program(PROJECTBONK_JULIA_EXECUTABLE julia)
-
-    if(PROJECTBONK_JULIA_EXECUTABLE)
-        execute_process(
-            COMMAND "${PROJECTBONK_JULIA_EXECUTABLE}" -e
-                    "print(string(VERSION.major,'.',VERSION.minor,'.',VERSION.patch))"
-            OUTPUT_VARIABLE PROJECTBONK_DETECTED_JULIA_VERSION
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            RESULT_VARIABLE PROJECTBONK_DETECT_JULIA_VERSION_RC
-        )
-        execute_process(
-            COMMAND "${PROJECTBONK_JULIA_EXECUTABLE}" -e
-                    "print(string(VERSION.major,'.',VERSION.minor))"
-            OUTPUT_VARIABLE PROJECTBONK_DETECTED_JULIA_SERIES
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            RESULT_VARIABLE PROJECTBONK_DETECT_JULIA_SERIES_RC
-        )
-
-        set(PROJECTBONK_JULIA_PATH_COMPATIBLE OFF)
-        if(PROJECTBONK_DETECT_JULIA_SERIES_RC EQUAL 0
-           AND PROJECTBONK_DETECTED_JULIA_SERIES
-           STREQUAL "${PROJECTBONK_JULIA_REQUIRED_SERIES}")
-            set(PROJECTBONK_JULIA_PATH_COMPATIBLE ON)
-        endif()
-
-        if(NOT PROJECTBONK_JULIA_PATH_COMPATIBLE)
-            if(PROJECTBONK_DETECT_JULIA_VERSION_RC EQUAL 0
-               AND PROJECTBONK_DETECTED_JULIA_VERSION)
-                message(WARNING
-                    "Detected Julia ${PROJECTBONK_DETECTED_JULIA_VERSION} on PATH, "
-                    "but jluna v1.0.1 is pinned to Julia "
-                    "${PROJECTBONK_JULIA_REQUIRED_SERIES}.x. "
-                    "Ignoring PATH Julia and continuing with auto-install "
-                    "${PROJECTBONK_JULIA_VERSION}.")
-            else()
-                message(WARNING
-                    "Detected Julia executable on PATH, but failed to query version. "
-                    "Ignoring PATH Julia and continuing with auto-install "
-                    "${PROJECTBONK_JULIA_VERSION}.")
-            endif()
-        endif()
-
-        if(PROJECTBONK_JULIA_PATH_COMPATIBLE)
-            execute_process(
-                COMMAND "${PROJECTBONK_JULIA_EXECUTABLE}" -e "print(Sys.BINDIR)"
-                OUTPUT_VARIABLE PROJECTBONK_DETECTED_JULIA_BINDIR
-                OUTPUT_STRIP_TRAILING_WHITESPACE
-                RESULT_VARIABLE PROJECTBONK_DETECT_JULIA_RC
-            )
-            if(PROJECTBONK_DETECT_JULIA_RC EQUAL 0
-               AND PROJECTBONK_DETECTED_JULIA_BINDIR)
-                set(JULIA_BINDIR "${PROJECTBONK_DETECTED_JULIA_BINDIR}"
-                    CACHE PATH "Path to Julia bin directory" FORCE)
-                message(STATUS "Using Julia from PATH at ${JULIA_BINDIR}")
-            endif()
-        endif()
-    endif()
-
-    if(NOT DEFINED JULIA_BINDIR
-       AND PROJECTBONK_AUTO_INSTALL_JULIA
-       AND UNIX AND NOT APPLE)
-        set(PROJECTBONK_JULIA_ARCHIVE
-            "julia-${PROJECTBONK_JULIA_VERSION}-linux-x86_64.tar.gz")
-        set(PROJECTBONK_JULIA_URL
-            "https://julialang-s3.julialang.org/bin/linux/x64/${PROJECTBONK_JULIA_DOWNLOAD_SERIES}/${PROJECTBONK_JULIA_ARCHIVE}")
-        set(PROJECTBONK_JULIA_ARCHIVE_PATH
-            "${PROJECTBONK_JULIA_INSTALL_ROOT}/${PROJECTBONK_JULIA_ARCHIVE}")
-        set(PROJECTBONK_JULIA_HOME
-            "${PROJECTBONK_JULIA_INSTALL_ROOT}/julia-${PROJECTBONK_JULIA_VERSION}")
-
-        file(MAKE_DIRECTORY "${PROJECTBONK_JULIA_INSTALL_ROOT}")
-
-        if(NOT EXISTS "${PROJECTBONK_JULIA_ARCHIVE_PATH}")
-            message(STATUS
-                "Julia not found on PATH; downloading ${PROJECTBONK_JULIA_ARCHIVE}")
-            file(
-                DOWNLOAD
-                    "${PROJECTBONK_JULIA_URL}"
-                    "${PROJECTBONK_JULIA_ARCHIVE_PATH}"
-                STATUS  PROJECTBONK_JULIA_DOWNLOAD_STATUS
-                SHOW_PROGRESS
-                TLS_VERIFY ON
-            )
-            list(GET PROJECTBONK_JULIA_DOWNLOAD_STATUS 0
-                 PROJECTBONK_JULIA_DOWNLOAD_RC)
-            if(NOT PROJECTBONK_JULIA_DOWNLOAD_RC EQUAL 0)
-                list(GET PROJECTBONK_JULIA_DOWNLOAD_STATUS 1
-                     PROJECTBONK_JULIA_DOWNLOAD_MSG)
-                message(FATAL_ERROR
-                    "Failed to download Julia from ${PROJECTBONK_JULIA_URL}: "
-                    "${PROJECTBONK_JULIA_DOWNLOAD_MSG}")
-            endif()
-        endif()
-
-        if(NOT EXISTS "${PROJECTBONK_JULIA_HOME}/bin/julia")
-            message(STATUS
-                "Extracting Julia to ${PROJECTBONK_JULIA_INSTALL_ROOT}")
-            execute_process(
-                COMMAND "${CMAKE_COMMAND}" -E tar xzf
-                        "${PROJECTBONK_JULIA_ARCHIVE_PATH}"
-                WORKING_DIRECTORY "${PROJECTBONK_JULIA_INSTALL_ROOT}"
-                RESULT_VARIABLE PROJECTBONK_JULIA_EXTRACT_RC
-            )
-            if(NOT PROJECTBONK_JULIA_EXTRACT_RC EQUAL 0)
-                message(FATAL_ERROR
-                    "Failed to extract Julia archive "
-                    "${PROJECTBONK_JULIA_ARCHIVE_PATH}")
-            endif()
-        endif()
-
-        set(JULIA_BINDIR "${PROJECTBONK_JULIA_HOME}/bin"
-            CACHE PATH "Path to Julia bin directory" FORCE)
-        message(STATUS "Using auto-installed Julia at ${JULIA_BINDIR}")
-    endif()
-endif()
-
-if(DEFINED JULIA_BINDIR)
-    set(ENV{JULIA_BINDIR} "${JULIA_BINDIR}")
-endif()
-
-# Create an imported Julia::Julia target if Julia is resolved
-if(DEFINED JULIA_BINDIR AND NOT TARGET Julia::Julia)
-    get_filename_component(PROJECTBONK_JULIA_PREFIX
-        "${JULIA_BINDIR}" DIRECTORY)
-    find_library(PROJECTBONK_JULIA_LIBRARY julia
-        HINTS "${PROJECTBONK_JULIA_PREFIX}/lib")
-    find_path(PROJECTBONK_JULIA_INCLUDE_DIR julia.h
-        HINTS
-            "${PROJECTBONK_JULIA_PREFIX}/include"
-            "${PROJECTBONK_JULIA_PREFIX}/include/julia"
-    )
-
-    if(PROJECTBONK_JULIA_LIBRARY AND PROJECTBONK_JULIA_INCLUDE_DIR)
-        add_library(Julia::Julia UNKNOWN IMPORTED)
-        set_target_properties(Julia::Julia PROPERTIES
-            IMPORTED_LOCATION "${PROJECTBONK_JULIA_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${PROJECTBONK_JULIA_INCLUDE_DIR}"
-            IMPORTED_LINK_INTERFACE_LANGUAGES C
-        )
-    endif()
-endif()
-
-# ---------------------------------------------------------------------------
-# 5. jluna — use local checkout or fetch from source
-# ---------------------------------------------------------------------------
-set(JLUNA_DIR "" CACHE PATH "Path to a local jluna source directory")
-
-find_package(jluna CONFIG QUIET)
-if(NOT jluna_FOUND)
-    if(NOT DEFINED JULIA_BINDIR)
+    if(NOT PROJECTBONK_JULIA_DOWNLOAD_SERIES)
         message(FATAL_ERROR
-            "jluna was not found as an installed package and Julia could not "
-            "be resolved. Re-run CMake with -DJULIA_BINDIR=/path/to/julia/bin "
-            "or enable PROJECTBONK_AUTO_INSTALL_JULIA on Linux.")
+            "PROJECTBONK_JULIA_VERSION='${PROJECTBONK_JULIA_VERSION}' "
+            "must begin with '<major>.<minor>'")
     endif()
 
-    if(JLUNA_DIR)
-        if(NOT EXISTS "${JLUNA_DIR}/CMakeLists.txt")
-            message(WARNING
-                "JLUNA_DIR='${JLUNA_DIR}' does not contain a CMake project. "
-                "Falling back to automatic jluna fetch.")
-            set(JLUNA_DIR "" CACHE PATH
-                "Path to a local jluna source directory" FORCE)
+    if(NOT DEFINED JULIA_BINDIR)
+        find_program(PROJECTBONK_JULIA_EXECUTABLE julia)
+
+        if(PROJECTBONK_JULIA_EXECUTABLE)
+            execute_process(
+                COMMAND "${PROJECTBONK_JULIA_EXECUTABLE}" -e
+                        "print(string(VERSION.major,'.',VERSION.minor,'.',VERSION.patch))"
+                OUTPUT_VARIABLE PROJECTBONK_DETECTED_JULIA_VERSION
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                RESULT_VARIABLE PROJECTBONK_DETECT_JULIA_VERSION_RC
+            )
+            execute_process(
+                COMMAND "${PROJECTBONK_JULIA_EXECUTABLE}" -e
+                        "print(string(VERSION.major,'.',VERSION.minor))"
+                OUTPUT_VARIABLE PROJECTBONK_DETECTED_JULIA_SERIES
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                RESULT_VARIABLE PROJECTBONK_DETECT_JULIA_SERIES_RC
+            )
+
+            set(PROJECTBONK_JULIA_PATH_COMPATIBLE OFF)
+            if(PROJECTBONK_DETECT_JULIA_SERIES_RC EQUAL 0
+               AND PROJECTBONK_DETECTED_JULIA_SERIES
+               STREQUAL "${PROJECTBONK_JULIA_REQUIRED_SERIES}")
+                set(PROJECTBONK_JULIA_PATH_COMPATIBLE ON)
+            endif()
+
+            if(NOT PROJECTBONK_JULIA_PATH_COMPATIBLE)
+                if(PROJECTBONK_DETECT_JULIA_VERSION_RC EQUAL 0
+                   AND PROJECTBONK_DETECTED_JULIA_VERSION)
+                    message(WARNING
+                        "Detected Julia ${PROJECTBONK_DETECTED_JULIA_VERSION} on PATH, "
+                        "but jluna v1.0.1 is pinned to Julia "
+                        "${PROJECTBONK_JULIA_REQUIRED_SERIES}.x. "
+                        "Ignoring PATH Julia and continuing with auto-install "
+                        "${PROJECTBONK_JULIA_VERSION}.")
+                else()
+                    message(WARNING
+                        "Detected Julia executable on PATH, but failed to query version. "
+                        "Ignoring PATH Julia and continuing with auto-install "
+                        "${PROJECTBONK_JULIA_VERSION}.")
+                endif()
+            endif()
+
+            if(PROJECTBONK_JULIA_PATH_COMPATIBLE)
+                execute_process(
+                    COMMAND "${PROJECTBONK_JULIA_EXECUTABLE}" -e "print(Sys.BINDIR)"
+                    OUTPUT_VARIABLE PROJECTBONK_DETECTED_JULIA_BINDIR
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    RESULT_VARIABLE PROJECTBONK_DETECT_JULIA_RC
+                )
+                if(PROJECTBONK_DETECT_JULIA_RC EQUAL 0
+                   AND PROJECTBONK_DETECTED_JULIA_BINDIR)
+                    set(JULIA_BINDIR "${PROJECTBONK_DETECTED_JULIA_BINDIR}"
+                        CACHE PATH "Path to Julia bin directory" FORCE)
+                    message(STATUS "Using Julia from PATH at ${JULIA_BINDIR}")
+                endif()
+            endif()
+        endif()
+
+        if(NOT DEFINED JULIA_BINDIR
+           AND PROJECTBONK_AUTO_INSTALL_JULIA
+           AND UNIX AND NOT APPLE)
+            set(PROJECTBONK_JULIA_ARCHIVE
+                "julia-${PROJECTBONK_JULIA_VERSION}-linux-x86_64.tar.gz")
+            set(PROJECTBONK_JULIA_URL
+                "https://julialang-s3.julialang.org/bin/linux/x64/${PROJECTBONK_JULIA_DOWNLOAD_SERIES}/${PROJECTBONK_JULIA_ARCHIVE}")
+            set(PROJECTBONK_JULIA_ARCHIVE_PATH
+                "${PROJECTBONK_JULIA_INSTALL_ROOT}/${PROJECTBONK_JULIA_ARCHIVE}")
+            set(PROJECTBONK_JULIA_HOME
+                "${PROJECTBONK_JULIA_INSTALL_ROOT}/julia-${PROJECTBONK_JULIA_VERSION}")
+
+            file(MAKE_DIRECTORY "${PROJECTBONK_JULIA_INSTALL_ROOT}")
+
+            if(NOT EXISTS "${PROJECTBONK_JULIA_ARCHIVE_PATH}")
+                message(STATUS
+                    "Julia not found on PATH; downloading ${PROJECTBONK_JULIA_ARCHIVE}")
+                file(
+                    DOWNLOAD
+                        "${PROJECTBONK_JULIA_URL}"
+                        "${PROJECTBONK_JULIA_ARCHIVE_PATH}"
+                    STATUS  PROJECTBONK_JULIA_DOWNLOAD_STATUS
+                    SHOW_PROGRESS
+                    TLS_VERIFY ON
+                )
+                list(GET PROJECTBONK_JULIA_DOWNLOAD_STATUS 0
+                     PROJECTBONK_JULIA_DOWNLOAD_RC)
+                if(NOT PROJECTBONK_JULIA_DOWNLOAD_RC EQUAL 0)
+                    list(GET PROJECTBONK_JULIA_DOWNLOAD_STATUS 1
+                         PROJECTBONK_JULIA_DOWNLOAD_MSG)
+                    message(FATAL_ERROR
+                        "Failed to download Julia from ${PROJECTBONK_JULIA_URL}: "
+                        "${PROJECTBONK_JULIA_DOWNLOAD_MSG}")
+                endif()
+            endif()
+
+            if(NOT EXISTS "${PROJECTBONK_JULIA_HOME}/bin/julia")
+                message(STATUS
+                    "Extracting Julia to ${PROJECTBONK_JULIA_INSTALL_ROOT}")
+                execute_process(
+                    COMMAND "${CMAKE_COMMAND}" -E tar xzf
+                            "${PROJECTBONK_JULIA_ARCHIVE_PATH}"
+                    WORKING_DIRECTORY "${PROJECTBONK_JULIA_INSTALL_ROOT}"
+                    RESULT_VARIABLE PROJECTBONK_JULIA_EXTRACT_RC
+                )
+                if(NOT PROJECTBONK_JULIA_EXTRACT_RC EQUAL 0)
+                    message(FATAL_ERROR
+                        "Failed to extract Julia archive "
+                        "${PROJECTBONK_JULIA_ARCHIVE_PATH}")
+                endif()
+            endif()
+
+            set(JULIA_BINDIR "${PROJECTBONK_JULIA_HOME}/bin"
+                CACHE PATH "Path to Julia bin directory" FORCE)
+            message(STATUS "Using auto-installed Julia at ${JULIA_BINDIR}")
         endif()
     endif()
 
-    # Disable third-party tests while configuring jluna, then restore
-    # top-level BUILD_TESTING for ProjectBONK tests.
-    set(BUILD_TESTING OFF CACHE BOOL "Disable third-party tests" FORCE)
+    if(DEFINED JULIA_BINDIR)
+        set(ENV{JULIA_BINDIR} "${JULIA_BINDIR}")
+    endif()
 
-    if(JLUNA_DIR)
-        message(STATUS
-            "jluna not found via find_package(); using source directory "
-            "${JLUNA_DIR}")
-        projectbonk_prepare_jluna_shim("${JLUNA_DIR}")
-        add_subdirectory(${JLUNA_DIR} jluna_build)
-    else()
-        message(STATUS
-            "jluna not found via find_package(); fetching from source")
-        set(jluna_DEVELOPER_MODE OFF CACHE BOOL
-            "Disable jluna developer mode" FORCE)
-        FetchContent_Declare(
-            jluna
-            GIT_REPOSITORY https://github.com/Clemapfel/jluna.git
-            GIT_TAG        v1.0.1
+    # Create an imported Julia::Julia target if Julia is resolved
+    if(DEFINED JULIA_BINDIR AND NOT TARGET Julia::Julia)
+        get_filename_component(PROJECTBONK_JULIA_PREFIX
+            "${JULIA_BINDIR}" DIRECTORY)
+        find_library(PROJECTBONK_JULIA_LIBRARY julia
+            HINTS "${PROJECTBONK_JULIA_PREFIX}/lib")
+        find_path(PROJECTBONK_JULIA_INCLUDE_DIR julia.h
+            HINTS
+                "${PROJECTBONK_JULIA_PREFIX}/include"
+                "${PROJECTBONK_JULIA_PREFIX}/include/julia"
         )
-        FetchContent_GetProperties(jluna)
-        if(NOT jluna_POPULATED)
-            FetchContent_Populate(jluna)
-        endif()
 
-        projectbonk_prepare_jluna_shim("${jluna_SOURCE_DIR}")
-        add_subdirectory("${jluna_SOURCE_DIR}" "${jluna_BINARY_DIR}")
+        if(PROJECTBONK_JULIA_LIBRARY AND PROJECTBONK_JULIA_INCLUDE_DIR)
+            add_library(Julia::Julia UNKNOWN IMPORTED)
+            set_target_properties(Julia::Julia PROPERTIES
+                IMPORTED_LOCATION "${PROJECTBONK_JULIA_LIBRARY}"
+                INTERFACE_INCLUDE_DIRECTORIES "${PROJECTBONK_JULIA_INCLUDE_DIR}"
+                IMPORTED_LINK_INTERFACE_LANGUAGES C
+            )
+        endif()
     endif()
 
-    set(BUILD_TESTING "${PROJECTBONK_TOPLEVEL_BUILD_TESTING}" CACHE BOOL
-        "Enable project tests" FORCE)
+    # -----------------------------------------------------------------------
+    # 5. jluna — use local checkout or fetch from source
+    # -----------------------------------------------------------------------
+    set(JLUNA_DIR "" CACHE PATH "Path to a local jluna source directory")
 
-    if(TARGET jluna AND NOT TARGET jluna::jluna)
-        add_library(jluna::jluna ALIAS jluna)
+    find_package(jluna CONFIG QUIET)
+    if(NOT jluna_FOUND)
+        if(NOT DEFINED JULIA_BINDIR)
+            message(FATAL_ERROR
+                "jluna was not found as an installed package and Julia could not "
+                "be resolved. Re-run CMake with -DJULIA_BINDIR=/path/to/julia/bin "
+                "or enable PROJECTBONK_AUTO_INSTALL_JULIA on Linux.")
+        endif()
+
+        if(JLUNA_DIR)
+            if(NOT EXISTS "${JLUNA_DIR}/CMakeLists.txt")
+                message(WARNING
+                    "JLUNA_DIR='${JLUNA_DIR}' does not contain a CMake project. "
+                    "Falling back to automatic jluna fetch.")
+                set(JLUNA_DIR "" CACHE PATH
+                    "Path to a local jluna source directory" FORCE)
+            endif()
+        endif()
+
+        # Disable third-party tests while configuring jluna, then restore
+        # top-level BUILD_TESTING for ProjectBONK tests.
+        set(BUILD_TESTING OFF CACHE BOOL "Disable third-party tests" FORCE)
+
+        if(JLUNA_DIR)
+            message(STATUS
+                "jluna not found via find_package(); using source directory "
+                "${JLUNA_DIR}")
+            projectbonk_prepare_jluna_shim("${JLUNA_DIR}")
+            add_subdirectory(${JLUNA_DIR} jluna_build)
+        else()
+            message(STATUS
+                "jluna not found via find_package(); fetching from source")
+            set(jluna_DEVELOPER_MODE OFF CACHE BOOL
+                "Disable jluna developer mode" FORCE)
+            FetchContent_Declare(
+                jluna
+                GIT_REPOSITORY https://github.com/Clemapfel/jluna.git
+                GIT_TAG        v1.0.1
+            )
+            FetchContent_GetProperties(jluna)
+            if(NOT jluna_POPULATED)
+                FetchContent_Populate(jluna)
+            endif()
+
+            projectbonk_prepare_jluna_shim("${jluna_SOURCE_DIR}")
+            add_subdirectory("${jluna_SOURCE_DIR}" "${jluna_BINARY_DIR}")
+        endif()
+
+        set(BUILD_TESTING "${PROJECTBONK_TOPLEVEL_BUILD_TESTING}" CACHE BOOL
+            "Enable project tests" FORCE)
+
+        if(TARGET jluna AND NOT TARGET jluna::jluna)
+            add_library(jluna::jluna ALIAS jluna)
+        endif()
     endif()
 endif()
 
@@ -398,9 +402,15 @@ target_compile_options(ProjectBONK PRIVATE
 target_link_libraries(ProjectBONK PRIVATE
     simdjson::simdjson
     Boost::headers
-    jluna::jluna
     httplib
 )
+
+if(PROJECTBONK_ENABLE_JULIA_RUNTIME)
+    target_compile_definitions(ProjectBONK PRIVATE PROJECTBONK_ENABLE_JULIA_RUNTIME=1)
+    target_link_libraries(ProjectBONK PRIVATE jluna::jluna)
+else()
+    target_compile_definitions(ProjectBONK PRIVATE PROJECTBONK_ENABLE_JULIA_RUNTIME=0)
+endif()
 
 # ===================================================================
 # Phase 2 regression harness (fast propagator vs RK4 reference)

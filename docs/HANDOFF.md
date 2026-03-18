@@ -60,7 +60,7 @@ Date: 2026-03-17
 ### Build core targets
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPROJECTBONK_ENABLE_JULIA_RUNTIME=OFF
 cmake --build build --target ProjectBONK
 cmake --build build --target phase2_regression_gate
 cmake --build build --target broad_phase_sanity_gate
@@ -129,9 +129,17 @@ ctest --test-dir build --output-on-failure
 ### Optional recovery sweep helper
 
 ```bash
-# args: [build_dir] [scenarios] [margin]
-./scripts/recovery_slot_sweep.sh ./build 6 0.1
+# args: [build_dir] [scenarios] [margin] [fuel_ratio_cap] [json_out]
+# strict profile defaults -> scenarios=24, margin=0.08, fuel_ratio_cap=1.10
+./scripts/recovery_slot_sweep.sh ./build 24 0.08
 ```
+
+Strict sweep interpretation:
+
+- selected candidate is ranked by: lowest mean delta slot error, then lowest
+  mean fuel use, then lexical candidate name
+- this output is advisory for offline tuning; runtime gains remain unchanged in
+  this milestone
 
 ## PS completeness matrix
 
@@ -156,7 +164,7 @@ ctest --test-dir build --output-on-failure
 - recovery planner is slot-targeted but heuristic; gain calibration and slot-box objectives remain pending
 - D-criterion is intentionally conservative; tune only through offline path
 - CI now enforces adaptive regression, broad-phase sanity, recovery slot, and recovery planner invariants gates
-- CI pins Julia `1.10.0` to stay compatible with `jluna v1.0.1`
+- CI keeps Julia runtime bridge disabled (`PROJECTBONK_ENABLE_JULIA_RUNTIME=OFF`) to keep hard gates deterministic and avoid jluna/Julia version drift
 
 ## Latest acceptance outputs
 
@@ -165,9 +173,11 @@ ctest --test-dir build --output-on-failure
   `dcriterion_rejected_total=0`)
 - `recovery_slot_gate`: PASS (`recovery_slot_gate_result=PASS`)
 - `recovery_planner_invariants_gate`: PASS
-- `recovery_slot_sweep` (`./scripts/recovery_slot_sweep.sh ./build 6 0.1`):
-  default pass `6/6`, best passing candidate `fallback_strict`
-  (`mean_delta=-0.0236271`)
+- strict recovery sweep (`./scripts/recovery_slot_sweep.sh ./build 24 0.08`):
+  writes `build/recovery_slot_sweep_strict.json`; latest strict run reports
+  `selection.status=FAIL` with reason
+  `no candidate met strict scenario + fuel-ratio criteria` (deterministic
+  across repeated runs)
 - `phase3_tick_benchmark 50 10000 30`:
   mean `13.291 ms`, median `13.271 ms`, p95 `13.538 ms`
 - `offline_multiobjective_tuner 240 50 10000 3 2`:

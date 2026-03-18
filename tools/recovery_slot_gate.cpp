@@ -9,6 +9,7 @@
 //
 // Sweep mode (offline tuning helper):
 //   recovery_slot_gate --sweep [--scenarios N] [--margin M]
+//                      [--fuel-ratio-cap R] [--json-out PATH]
 // ---------------------------------------------------------------------------
 
 #include "state_store.hpp"
@@ -18,11 +19,15 @@
 #include "orbit_math.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -37,6 +42,12 @@ using cascade::StateStore;
 using cascade::StepRunConfig;
 using cascade::StepRunStats;
 using cascade::Vec3;
+
+constexpr int kAcceptanceDefaultScenarios = 1;
+constexpr double kAcceptanceDefaultMargin = 0.1;
+constexpr int kSweepDefaultScenarios = 24;
+constexpr double kSweepDefaultMargin = 0.08;
+constexpr double kSweepDefaultFuelRatioCap = 1.10;
 
 struct Burn {
     std::string sat_id;
@@ -78,17 +89,64 @@ struct RunOutcome {
 
 struct GateOptions {
     bool sweep = false;
-    int scenarios = 1;
-    double margin = 0.1;
+
+    bool scenarios_set = false;
+    int scenarios = kAcceptanceDefaultScenarios;
+
+    bool margin_set = false;
+    double margin = kAcceptanceDefaultMargin;
+
+    bool fuel_ratio_cap_set = false;
+    double fuel_ratio_cap = kSweepDefaultFuelRatioCap;
+
+    bool json_out_set = false;
+    std::string json_out;
 };
 
 struct ScenarioEval {
+    int id = 0;
     bool pass = false;
     std::string reason;
     RunOutcome baseline{};
     RunOutcome recovered{};
     double delta_err = 0.0;
 };
+
+struct CandidateEval {
+    std::string name;
+    RecoveryGains gains{};
+
+    std::vector<ScenarioEval> scenarios;
+
+    int scenario_pass_count = 0;
+    bool pass_all_scenarios = false;
+    bool pass_fuel_ratio = false;
+    bool pass = false;
+
+    double mean_delta_slot_error = 0.0;
+    double worst_delta_slot_error = 0.0;
+    double mean_fuel_used_kg = 0.0;
+    double fuel_ratio_to_default = 0.0;
+
+    std::string fail_reason;
+};
+
+std::string escape_json(std::string_view in)
+{
+    std::string out;
+    out.reserve(in.size() + 8);
+    for (char c : in) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default: out.push_back(c); break;
+        }
+    }
+    return out;
+}
 
 std::uint64_t mix64(std::uint64_t x)
 {
@@ -136,7 +194,9 @@ bool parse_double(std::string_view text, double& out)
 
 void print_usage(const char* argv0)
 {
-    std::cout << "usage: " << argv0 << " [--scenarios N] [--margin M] [--sweep]\n";
+    std::cout << "usage: " << argv0
+              << " [--scenarios N] [--margin M] [--sweep]"
+              << " [--fuel-ratio-cap R] [--json-out PATH]\n";
 }
 
 bool parse_args(int argc, char** argv, GateOptions& opts)
@@ -155,6 +215,7 @@ bool parse_args(int argc, char** argv, GateOptions& opts)
             if (i + 1 >= argc) return false;
             int value = 0;
             if (!parse_int(argv[++i], value) || value <= 0) return false;
+            opts.scenarios_set = true;
             opts.scenarios = value;
             continue;
         }
@@ -162,7 +223,23 @@ bool parse_args(int argc, char** argv, GateOptions& opts)
             if (i + 1 >= argc) return false;
             double value = 0.0;
             if (!parse_double(argv[++i], value) || value < 0.0) return false;
+            opts.margin_set = true;
             opts.margin = value;
+            continue;
+        }
+        if (arg == "--fuel-ratio-cap") {
+            if (i + 1 >= argc) return false;
+            double value = 0.0;
+            if (!parse_double(argv[++i], value) || value <= 0.0) return false;
+            opts.fuel_ratio_cap_set = true;
+            opts.fuel_ratio_cap = value;
+            continue;
+        }
+        if (arg == "--json-out") {
+            if (i + 1 >= argc) return false;
+            opts.json_out_set = true;
+            opts.json_out = argv[++i];
+            if (opts.json_out.empty()) return false;
             continue;
         }
         return false;
@@ -500,6 +577,7 @@ ScenarioEval evaluate_scenario(int scenario_id,
                                double margin)
 {
     ScenarioEval eval{};
+    eval.id = scenario_id;
     eval.baseline = run_scenario(false, gains, scenario_id);
     eval.recovered = run_scenario(true, gains, scenario_id);
 
@@ -526,25 +604,174 @@ ScenarioEval evaluate_scenario(int scenario_id,
 std::vector<NamedGains> build_sweep_candidates()
 {
     const RecoveryGains base{};
-    return {
-        {"default", base},
-        {"balanced_low", RecoveryGains{base.scale_t * 0.85, base.scale_r * 0.85, base.radial_share, base.scale_n * 0.85, base.fallback_norm_km_s}},
-        {"balanced_high", RecoveryGains{base.scale_t * 1.15, base.scale_r * 1.15, base.radial_share, base.scale_n * 1.15, base.fallback_norm_km_s}},
-        {"t_low", RecoveryGains{base.scale_t * 0.75, base.scale_r, base.radial_share, base.scale_n, base.fallback_norm_km_s}},
-        {"t_high", RecoveryGains{base.scale_t * 1.25, base.scale_r, base.radial_share, base.scale_n, base.fallback_norm_km_s}},
-        {"n_low", RecoveryGains{base.scale_t, base.scale_r, base.radial_share, base.scale_n * 0.75, base.fallback_norm_km_s}},
-        {"n_high", RecoveryGains{base.scale_t, base.scale_r, base.radial_share, base.scale_n * 1.25, base.fallback_norm_km_s}},
-        {"fallback_strict", RecoveryGains{base.scale_t, base.scale_r, base.radial_share, base.scale_n, 1.0e-4}},
-        {"fallback_loose", RecoveryGains{base.scale_t, base.scale_r, base.radial_share, base.scale_n, 3.0e-4}},
-    };
+    const std::array<double, 3> mults{0.8, 1.0, 1.2};
+
+    std::vector<NamedGains> out;
+    out.reserve(33);
+
+    for (double mt : mults) {
+        for (double mr : mults) {
+            for (double mn : mults) {
+                RecoveryGains g = base;
+                g.scale_t *= mt;
+                g.scale_r *= mr;
+                g.scale_n *= mn;
+                g.radial_share = 0.5;
+                g.fallback_norm_km_s = 2e-4;
+
+                std::ostringstream name;
+                if (mt == 1.0 && mr == 1.0 && mn == 1.0) {
+                    name << "default";
+                } else {
+                    name << std::fixed << std::setprecision(1)
+                         << "grid_t" << mt
+                         << "_r" << mr
+                         << "_n" << mn;
+                }
+                out.push_back(NamedGains{name.str(), g});
+            }
+        }
+    }
+
+    {
+        RecoveryGains g = base;
+        g.fallback_norm_km_s = 1e-4;
+        out.push_back(NamedGains{"fallback_1e-4", g});
+    }
+    {
+        RecoveryGains g = base;
+        g.fallback_norm_km_s = 2e-4;
+        out.push_back(NamedGains{"fallback_2e-4", g});
+    }
+    {
+        RecoveryGains g = base;
+        g.fallback_norm_km_s = 3e-4;
+        out.push_back(NamedGains{"fallback_3e-4", g});
+    }
+
+    {
+        RecoveryGains g = base;
+        g.radial_share = 0.35;
+        out.push_back(NamedGains{"radial_0.35", g});
+    }
+    {
+        RecoveryGains g = base;
+        g.radial_share = 0.50;
+        out.push_back(NamedGains{"radial_0.50", g});
+    }
+    {
+        RecoveryGains g = base;
+        g.radial_share = 0.65;
+        out.push_back(NamedGains{"radial_0.65", g});
+    }
+
+    return out;
+}
+
+std::string format_double(double x)
+{
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(12) << x;
+    return ss.str();
+}
+
+void write_sweep_json(const std::string& path,
+                      int scenarios,
+                      double margin,
+                      double fuel_ratio_cap,
+                      double default_mean_fuel,
+                      const std::vector<CandidateEval>& candidates,
+                      const CandidateEval* selected,
+                      const std::string& selection_reason,
+                      bool success)
+{
+    std::ofstream out(path, std::ios::out | std::ios::trunc);
+    if (!out.is_open()) {
+        return;
+    }
+
+    out << "{\n";
+    out << "  \"tool\":\"recovery_slot_sweep\",\n";
+    out << "  \"profile\":{\n";
+    out << "    \"scenarios\":" << scenarios << ",\n";
+    out << "    \"margin\":" << format_double(margin) << ",\n";
+    out << "    \"fuel_ratio_cap\":" << format_double(fuel_ratio_cap) << "\n";
+    out << "  },\n";
+    out << "  \"candidate_count\":" << candidates.size() << ",\n";
+    out << "  \"default_candidate\":{\n";
+    out << "    \"name\":\"default\",\n";
+    out << "    \"mean_fuel_used_kg\":" << format_double(default_mean_fuel) << "\n";
+    out << "  },\n";
+    out << "  \"selection\":{\n";
+    out << "    \"status\":\"" << (success ? "PASS" : "FAIL") << "\",\n";
+    out << "    \"reason\":\"" << escape_json(selection_reason) << "\",\n";
+    if (selected != nullptr) {
+        out << "    \"selected_candidate\":\"" << escape_json(selected->name) << "\",\n";
+        out << "    \"selected_mean_delta_slot_error\":" << format_double(selected->mean_delta_slot_error) << ",\n";
+        out << "    \"selected_mean_fuel_used_kg\":" << format_double(selected->mean_fuel_used_kg) << ",\n";
+        out << "    \"selected_fuel_ratio_to_default\":" << format_double(selected->fuel_ratio_to_default) << ",\n";
+    } else {
+        out << "    \"selected_candidate\":null,\n";
+    }
+    out << "    \"ranking_rule\":\"min(mean_delta_slot_error), then min(mean_fuel_used_kg), then lexical name\"\n";
+    out << "  },\n";
+    out << "  \"candidates\":[\n";
+
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+        const CandidateEval& c = candidates[i];
+        out << "    {\n";
+        out << "      \"name\":\"" << escape_json(c.name) << "\",\n";
+        out << "      \"gains\":{\n";
+        out << "        \"scale_t\":" << format_double(c.gains.scale_t) << ",\n";
+        out << "        \"scale_r\":" << format_double(c.gains.scale_r) << ",\n";
+        out << "        \"scale_n\":" << format_double(c.gains.scale_n) << ",\n";
+        out << "        \"radial_share\":" << format_double(c.gains.radial_share) << ",\n";
+        out << "        \"fallback_norm_km_s\":" << format_double(c.gains.fallback_norm_km_s) << "\n";
+        out << "      },\n";
+        out << "      \"pass\":" << (c.pass ? "true" : "false") << ",\n";
+        out << "      \"pass_all_scenarios\":" << (c.pass_all_scenarios ? "true" : "false") << ",\n";
+        out << "      \"pass_fuel_ratio\":" << (c.pass_fuel_ratio ? "true" : "false") << ",\n";
+        out << "      \"scenario_pass_count\":" << c.scenario_pass_count << ",\n";
+        out << "      \"scenario_count\":" << c.scenarios.size() << ",\n";
+        out << "      \"mean_delta_slot_error\":" << format_double(c.mean_delta_slot_error) << ",\n";
+        out << "      \"worst_delta_slot_error\":" << format_double(c.worst_delta_slot_error) << ",\n";
+        out << "      \"mean_fuel_used_kg\":" << format_double(c.mean_fuel_used_kg) << ",\n";
+        out << "      \"fuel_ratio_to_default\":" << format_double(c.fuel_ratio_to_default) << ",\n";
+        out << "      \"fail_reason\":\"" << escape_json(c.fail_reason) << "\",\n";
+        out << "      \"scenarios\":[\n";
+
+        for (std::size_t j = 0; j < c.scenarios.size(); ++j) {
+            const ScenarioEval& s = c.scenarios[j];
+            out << "        {\n";
+            out << "          \"id\":" << s.id << ",\n";
+            out << "          \"pass\":" << (s.pass ? "true" : "false") << ",\n";
+            out << "          \"reason\":\"" << escape_json(s.reason) << "\",\n";
+            out << "          \"delta_slot_error\":" << format_double(s.delta_err) << ",\n";
+            out << "          \"baseline_end_slot_error\":" << format_double(s.baseline.end_err) << ",\n";
+            out << "          \"recovery_end_slot_error\":" << format_double(s.recovered.end_err) << ",\n";
+            out << "          \"recovery_planned\":" << s.recovered.recovery_planned << ",\n";
+            out << "          \"recovery_completed\":" << s.recovered.recovery_completed << ",\n";
+            out << "          \"fuel_used_kg\":" << format_double(s.recovered.fuel_used_kg) << "\n";
+            out << "        }" << (j + 1 < c.scenarios.size() ? "," : "") << "\n";
+        }
+
+        out << "      ]\n";
+        out << "    }" << (i + 1 < candidates.size() ? "," : "") << "\n";
+    }
+
+    out << "  ]\n";
+    out << "}\n";
 }
 
 int run_default_gate(const GateOptions& opts)
 {
+    const int scenarios = opts.scenarios_set ? opts.scenarios : kAcceptanceDefaultScenarios;
+    const double margin = opts.margin_set ? opts.margin : kAcceptanceDefaultMargin;
+
     std::cout << "recovery_slot_gate\n";
     std::cout << "mode=acceptance\n";
-    std::cout << "scenarios=" << opts.scenarios << "\n";
-    std::cout << "margin=" << opts.margin << "\n";
+    std::cout << "scenarios=" << scenarios << "\n";
+    std::cout << "margin=" << margin << "\n";
 
     const RecoveryGains gains{};
 
@@ -554,8 +781,8 @@ int run_default_gate(const GateOptions& opts)
     double worst_delta = -1.0e30;
     double mean_delta = 0.0;
 
-    for (int s = 0; s < opts.scenarios; ++s) {
-        const ScenarioEval eval = evaluate_scenario(s, gains, opts.margin);
+    for (int s = 0; s < scenarios; ++s) {
+        const ScenarioEval eval = evaluate_scenario(s, gains, margin);
         planned_total += eval.recovered.recovery_planned;
         completed_total += eval.recovered.recovery_completed;
         worst_delta = std::max(worst_delta, eval.delta_err);
@@ -571,7 +798,7 @@ int run_default_gate(const GateOptions& opts)
         }
     }
 
-    mean_delta /= static_cast<double>(opts.scenarios);
+    mean_delta /= static_cast<double>(scenarios);
 
     std::cout << "recovery_planned_total=" << planned_total << "\n";
     std::cout << "recovery_completed_total=" << completed_total << "\n";
@@ -589,67 +816,133 @@ int run_default_gate(const GateOptions& opts)
 
 int run_sweep_mode(const GateOptions& opts)
 {
+    const int scenarios = opts.scenarios_set ? opts.scenarios : kSweepDefaultScenarios;
+    const double margin = opts.margin_set ? opts.margin : kSweepDefaultMargin;
+    const double fuel_ratio_cap = opts.fuel_ratio_cap_set ? opts.fuel_ratio_cap : kSweepDefaultFuelRatioCap;
+
     std::cout << "recovery_slot_sweep\n";
     std::cout << "mode=sweep\n";
-    std::cout << "scenarios=" << opts.scenarios << "\n";
-    std::cout << "margin=" << opts.margin << "\n";
+    std::cout << "scenarios=" << scenarios << "\n";
+    std::cout << "margin=" << margin << "\n";
+    std::cout << "fuel_ratio_cap=" << fuel_ratio_cap << "\n";
 
-    const std::vector<NamedGains> candidates = build_sweep_candidates();
+    const std::vector<NamedGains> candidate_defs = build_sweep_candidates();
+    std::vector<CandidateEval> candidates;
+    candidates.reserve(candidate_defs.size());
 
-    bool default_pass = false;
-    std::string best_name;
-    double best_mean_delta = std::numeric_limits<double>::infinity();
+    for (const NamedGains& def : candidate_defs) {
+        CandidateEval eval;
+        eval.name = def.name;
+        eval.gains = def.gains;
+        eval.worst_delta_slot_error = -1.0e30;
+        eval.scenarios.reserve(static_cast<std::size_t>(scenarios));
 
-    for (const NamedGains& candidate : candidates) {
-        int pass_count = 0;
-        double worst_delta = -1.0e30;
-        double mean_delta = 0.0;
-        double mean_fuel_used = 0.0;
-
-        for (int s = 0; s < opts.scenarios; ++s) {
-            const ScenarioEval eval = evaluate_scenario(s, candidate.gains, opts.margin);
-            if (eval.pass) {
-                ++pass_count;
+        for (int s = 0; s < scenarios; ++s) {
+            ScenarioEval scenario = evaluate_scenario(s, def.gains, margin);
+            if (scenario.pass) {
+                ++eval.scenario_pass_count;
             }
-            worst_delta = std::max(worst_delta, eval.delta_err);
-            mean_delta += eval.delta_err;
-            mean_fuel_used += eval.recovered.fuel_used_kg;
+            eval.mean_delta_slot_error += scenario.delta_err;
+            eval.worst_delta_slot_error = std::max(eval.worst_delta_slot_error, scenario.delta_err);
+            eval.mean_fuel_used_kg += scenario.recovered.fuel_used_kg;
+            eval.scenarios.push_back(std::move(scenario));
         }
 
-        mean_delta /= static_cast<double>(opts.scenarios);
-        mean_fuel_used /= static_cast<double>(opts.scenarios);
+        eval.mean_delta_slot_error /= static_cast<double>(scenarios);
+        eval.mean_fuel_used_kg /= static_cast<double>(scenarios);
+        eval.pass_all_scenarios = (eval.scenario_pass_count == scenarios);
 
-        std::cout << "candidate=" << candidate.name
-                  << " pass_count=" << pass_count << "/" << opts.scenarios
-                  << " worst_delta=" << worst_delta
-                  << " mean_delta=" << mean_delta
-                  << " mean_fuel_used_kg=" << mean_fuel_used
-                  << "\n";
-
-        const bool candidate_pass = (pass_count == opts.scenarios);
-        if (candidate.name == "default") {
-            default_pass = candidate_pass;
-        }
-
-        if (candidate_pass && mean_delta < best_mean_delta) {
-            best_mean_delta = mean_delta;
-            best_name = candidate.name;
-        }
+        candidates.push_back(std::move(eval));
     }
 
-    if (!best_name.empty()) {
-        std::cout << "best_passing_candidate=" << best_name << "\n";
-        std::cout << "best_passing_mean_delta=" << best_mean_delta << "\n";
-    } else {
-        std::cout << "best_passing_candidate=NONE\n";
-    }
-
-    if (!default_pass) {
-        std::cout << "recovery_slot_sweep_default_result=FAIL\n";
+    auto default_it = std::find_if(candidates.begin(), candidates.end(),
+                                   [](const CandidateEval& c) { return c.name == "default"; });
+    if (default_it == candidates.end()) {
+        std::cout << "sweep_result=FAIL\n";
+        std::cout << "reason=default_candidate_missing\n";
+        if (opts.json_out_set) {
+            write_sweep_json(opts.json_out, scenarios, margin, fuel_ratio_cap, 0.0,
+                             candidates, nullptr, "default candidate missing", false);
+            std::cout << "json_out=" << opts.json_out << "\n";
+        }
         return 1;
     }
 
-    std::cout << "recovery_slot_sweep_default_result=PASS\n";
+    const double default_mean_fuel = default_it->mean_fuel_used_kg;
+    const double fuel_limit = default_mean_fuel * fuel_ratio_cap;
+
+    for (CandidateEval& c : candidates) {
+        c.fuel_ratio_to_default = (default_mean_fuel > cascade::EPS_NUM)
+            ? (c.mean_fuel_used_kg / default_mean_fuel)
+            : 0.0;
+
+        c.pass_fuel_ratio = (c.mean_fuel_used_kg <= fuel_limit + 1e-12);
+        c.pass = c.pass_all_scenarios && c.pass_fuel_ratio;
+
+        if (!c.pass_all_scenarios) {
+            c.fail_reason = "scenario criteria not met";
+        } else if (!c.pass_fuel_ratio) {
+            c.fail_reason = "fuel ratio cap exceeded";
+        }
+
+        std::cout << "candidate=" << c.name
+                  << " pass=" << (c.pass ? "true" : "false")
+                  << " scenario_pass_count=" << c.scenario_pass_count << "/" << scenarios
+                  << " mean_delta_slot_error=" << c.mean_delta_slot_error
+                  << " mean_fuel_used_kg=" << c.mean_fuel_used_kg
+                  << " fuel_ratio_to_default=" << c.fuel_ratio_to_default
+                  << "\n";
+    }
+
+    std::vector<const CandidateEval*> passing;
+    passing.reserve(candidates.size());
+    for (const CandidateEval& c : candidates) {
+        if (c.pass) {
+            passing.push_back(&c);
+        }
+    }
+
+    std::sort(passing.begin(), passing.end(), [](const CandidateEval* a, const CandidateEval* b) {
+        if (a->mean_delta_slot_error != b->mean_delta_slot_error) {
+            return a->mean_delta_slot_error < b->mean_delta_slot_error;
+        }
+        if (a->mean_fuel_used_kg != b->mean_fuel_used_kg) {
+            return a->mean_fuel_used_kg < b->mean_fuel_used_kg;
+        }
+        return a->name < b->name;
+    });
+
+    const CandidateEval* selected = passing.empty() ? nullptr : passing.front();
+
+    bool success = (selected != nullptr);
+    std::string selection_reason;
+    if (success) {
+        selection_reason = "selected by ranking rule over passing candidates";
+        std::cout << "selected_candidate=" << selected->name << "\n";
+        std::cout << "selected_mean_delta_slot_error=" << selected->mean_delta_slot_error << "\n";
+        std::cout << "selected_mean_fuel_used_kg=" << selected->mean_fuel_used_kg << "\n";
+        std::cout << "selected_fuel_ratio_to_default=" << selected->fuel_ratio_to_default << "\n";
+    } else {
+        selection_reason = "no candidate met strict scenario + fuel-ratio criteria";
+        std::cout << "selected_candidate=NONE\n";
+    }
+
+    std::cout << "default_candidate_mean_fuel_used_kg=" << default_mean_fuel << "\n";
+    std::cout << "fuel_limit_mean_fuel_used_kg=" << fuel_limit << "\n";
+
+    if (opts.json_out_set) {
+        write_sweep_json(opts.json_out, scenarios, margin, fuel_ratio_cap, default_mean_fuel,
+                         candidates, selected, selection_reason, success);
+        std::cout << "json_out=" << opts.json_out << "\n";
+    }
+
+    if (!success) {
+        std::cout << "recovery_slot_sweep_result=FAIL\n";
+        std::cout << "reason=" << selection_reason << "\n";
+        return 1;
+    }
+
+    std::cout << "recovery_slot_sweep_result=PASS\n";
     return 0;
 }
 

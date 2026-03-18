@@ -87,8 +87,9 @@ Observed:
 - `recovery_slot_gate` (slot-targeted recovery acceptance)
 - `recovery_planner_invariants_gate` (collision-pressure/fuel-floor planner invariants)
 - CI workflow runs all four gates on push/PR
-- CI pins Julia `1.10.0` to avoid `jluna` ABI/API incompatibility on newer
-  runner images
+- CI config keeps Julia runtime bridge disabled
+  (`PROJECTBONK_ENABLE_JULIA_RUNTIME=OFF`) so hard safety gates are not coupled
+  to external jluna/Julia compatibility drift
 - runtime broad-phase keeps D-criterion disabled by default until Phase 4
   narrow-phase integration proves no-FN behavior end-to-end
 
@@ -100,8 +101,11 @@ Latest gate snapshot:
   acceptance scenario)
 - recovery planner invariants gate: PASS (no recovery scheduling under
   persistent collision pressure or fuel-floor violation)
-- recovery sweep helper: default gains pass `6/6` deterministic scenarios at
-  margin `0.1` (`./scripts/recovery_slot_sweep.sh ./build 6 0.1`)
+- recovery sweep helper now supports strict profile defaults
+  (`scenarios=24`, `margin=0.08`, `fuel_ratio_cap=1.10`) and emits a
+  machine-readable artifact at `build/recovery_slot_sweep_strict.json`
+- latest strict sweep snapshot: deterministic `selection.status=FAIL` with
+  explicit reason `no candidate met strict scenario + fuel-ratio criteria`
 
 Latest integration snapshot:
 
@@ -136,7 +140,8 @@ Latest integration snapshot:
 - recovery planner now computes slot-targeted correction impulses from current
   orbital element deltas (a/e/i/RAAN) with conservative per-burn capping
 - `tools/recovery_slot_gate.cpp` now supports parameterized multi-scenario
-  acceptance checks and a deterministic sweep mode for offline gain tuning
+  acceptance checks and deterministic sweep mode for offline gain tuning,
+  including candidate ranking evidence and JSON artifact output
 
 Current status note:
 
@@ -150,6 +155,8 @@ Current status note:
 - recovery planner may defer when conjunction pressure persists; slot-targeted
   gain tuning and
   mission-box objective shaping remain pending
+- strict sweep results are evidence-only in this milestone; runtime gain
+  promotion remains deferred
 
 Latest tuner snapshot (`240 50 10000 3 2`):
 

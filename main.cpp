@@ -14,7 +14,9 @@
 #include <algorithm>
 #include <cmath>
 
+#if PROJECTBONK_ENABLE_JULIA_RUNTIME
 #include <jluna.hpp>
+#endif
 #include <httplib.h>
 #include <simdjson.h>
 #include <boost/version.hpp>
@@ -940,7 +942,9 @@ static std::string build_propagation_json(const cascade::StateStore& store,
 
 int main()
 {
+#if PROJECTBONK_ENABLE_JULIA_RUNTIME
     jluna::initialize();
+#endif
 
     std::cout << "CASCADE (Project BONK) SYSTEM ONLINE\n";
     std::cout << "Boost version : " << BOOST_LIB_VERSION << "\n";

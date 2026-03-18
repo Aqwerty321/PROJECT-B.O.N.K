@@ -2,14 +2,15 @@
 
 ## Collision Avoidance System for Constellation Analysis and Debris Elimination
 
-High-performance C++20/Julia hybrid engine for autonomous orbital debris
-avoidance.  Built for the **National Space Hackathon 2026** (IIT Delhi).
+High-performance C++20 backend with an optional Julia/jluna runtime bridge for
+autonomous orbital debris avoidance.  Built for the
+**National Space Hackathon 2026** (IIT Delhi).
 
 ### Stack
 
 | Layer | Technology |
 |---|---|
-| Language | C++20 (engine), Julia 1.10.0 (numerics via `jluna`) |
+| Language | C++20 (engine), optional Julia 1.10.x bridge via `jluna` |
 | HTTP | `cpp-httplib` (header-only) |
 | JSON parse | `simdjson` v3.9.4 (FetchContent) |
 | Linear algebra | Boost headers, Eigen (planned) |
@@ -68,9 +69,8 @@ Response schemas follow `PS.md`.
 
 ## Local Build (Ubuntu 22.04)
 
-Docker is the recommended path.  Local builds work on Linux and will
-auto-download Julia 1.10.0 when a compatible Julia 1.10.x is not already
-available on `PATH`.
+Docker is the recommended path. Local builds work on Linux with Julia runtime
+disabled by default (`-DPROJECTBONK_ENABLE_JULIA_RUNTIME=OFF`).
 
 ### 1. Install toolchain and base libraries
 
@@ -83,8 +83,17 @@ sudo apt-get install -y build-essential cmake gcc-12 g++-12 git curl wget libboo
 
 ```bash
 rm -rf build
-CC=/usr/bin/gcc-12 CXX=/usr/bin/g++-12 cmake -S . -B build
+CC=/usr/bin/gcc-12 CXX=/usr/bin/g++-12 cmake -S . -B build \
+  -DPROJECTBONK_ENABLE_JULIA_RUNTIME=OFF
 cmake --build build -j"$(nproc)"
+```
+
+Optional: enable Julia runtime bridge for `ProjectBONK`.
+
+```bash
+CC=/usr/bin/gcc-12 CXX=/usr/bin/g++-12 cmake -S . -B build \
+  -DPROJECTBONK_ENABLE_JULIA_RUNTIME=ON
+cmake --build build --target ProjectBONK -j"$(nproc)"
 ```
 
 Optional: build Phase 2 regression harness.
@@ -193,21 +202,38 @@ cmake --build build --target offline_multiobjective_tuner -j"$(nproc)"
 Optional: run recovery gain sweep helper (offline tuning, not runtime path).
 
 ```bash
-# args: [build_dir] [scenarios] [margin]
-./scripts/recovery_slot_sweep.sh ./build 6 0.1
+# args: [build_dir] [scenarios] [margin] [fuel_ratio_cap] [json_out]
+# strict profile defaults -> scenarios=24, margin=0.08, fuel_ratio_cap=1.10
+./scripts/recovery_slot_sweep.sh ./build 24 0.08
 ```
+
+Strict sweep criteria:
+
+- every scenario must satisfy `delta_slot_error <= 0.08`
+- every scenario must execute at least one recovery burn
+- candidate mean fuel must satisfy
+  `mean_fuel_used_kg <= default_candidate_mean_fuel_used_kg * 1.10`
+
+Promotion policy for this milestone:
+
+- sweep only produces evidence and recommended candidate
+- runtime recovery gains stay unchanged until a separate promotion decision
 
 CMake will automatically:
 
 - Fetch `simdjson` v3.9.4 and `cpp-httplib` v0.15.3 via FetchContent.
-- Download Julia 1.10.0 into `build/_deps/julia` when `julia` is not on
-  `PATH` (Linux only).
-- Fetch and build `jluna` v1.0.1 if no installed package is found.
+- When `PROJECTBONK_ENABLE_JULIA_RUNTIME=ON`:
+  - download Julia 1.10.0 into `build/_deps/julia` when `julia` is not on
+    `PATH` (Linux only).
+  - fetch and build `jluna` v1.0.1 if no installed package is found.
 
 Override paths if you have local installations:
 
 ```bash
-cmake -S . -B build -DJULIA_BINDIR=/path/to/julia/bin -DJLUNA_DIR=/path/to/jluna
+cmake -S . -B build \
+  -DPROJECTBONK_ENABLE_JULIA_RUNTIME=ON \
+  -DJULIA_BINDIR=/path/to/julia/bin \
+  -DJLUNA_DIR=/path/to/jluna
 ```
 
 ### 3. Run
