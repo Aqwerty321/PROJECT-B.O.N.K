@@ -377,6 +377,9 @@ add_executable(ProjectBONK
     src/broad_phase.cpp
     src/engine_runtime.cpp
     src/earth_frame.cpp
+    src/http/api_server.cpp
+    src/http/request_parsers.cpp
+    src/http/response_builders.cpp
     src/maneuver_common.cpp
     src/maneuver_recovery_planner.cpp
     src/state_store.cpp
@@ -616,6 +619,32 @@ add_custom_target(maneuver_ops_invariants_regression_gate
     USES_TERMINAL
 )
 
+# ===================================================================
+# API contract regression gate harness
+# ===================================================================
+add_executable(api_contract_gate
+    tools/api_contract_gate.cpp
+)
+
+target_include_directories(api_contract_gate PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+target_compile_options(api_contract_gate PRIVATE
+    -O3
+    -DNDEBUG
+)
+
+target_link_libraries(api_contract_gate PRIVATE
+    httplib
+)
+
+add_custom_target(api_contract_regression_gate
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/api_contract_gate.sh" "${CMAKE_BINARY_DIR}"
+    DEPENDS ProjectBONK api_contract_gate
+    USES_TERMINAL
+)
+
 if(BUILD_TESTING)
     add_test(
         NAME phase2_regression_gate_test
@@ -644,5 +673,9 @@ if(BUILD_TESTING)
     add_test(
         NAME maneuver_ops_invariants_gate_test
         COMMAND "$<TARGET_FILE:maneuver_ops_invariants_gate>"
+    )
+    add_test(
+        NAME api_contract_gate_test
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/api_contract_gate.sh" "${CMAKE_BINARY_DIR}"
     )
 endif()

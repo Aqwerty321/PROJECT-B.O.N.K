@@ -69,6 +69,7 @@ Run on each networking PR:
 - `./scripts/maneuver_ops_invariants_gate.sh`
 - `./scripts/recovery_slot_gate.sh`
 - `./scripts/recovery_planner_invariants_gate.sh`
+- `./scripts/api_contract_gate.sh`
 - `ctest --test-dir build --output-on-failure`
 
 ## Open risks to monitor
