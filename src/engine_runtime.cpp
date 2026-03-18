@@ -23,6 +23,7 @@ namespace {
 constexpr double k_signal_latency_s = SIGNAL_LATENCY_S;
 constexpr double k_stationkeeping_box_radius_km = STATIONKEEPING_BOX_RADIUS_KM;
 constexpr double k_auto_upload_horizon_s = AUTO_UPLOAD_HORIZON_S;
+constexpr std::chrono::seconds k_command_timeout{15};
 
 std::uint64_t plan_collision_avoidance_burns(
     StateStore& store,
@@ -474,6 +475,8 @@ EngineRuntime::EngineRuntime()
     step_cfg_.broad_phase.high_e_fail_open = 0.2;
     step_cfg_.broad_phase.dcriterion_threshold = 2.0;
 
+    publish_read_views();
+
     worker_ = std::thread([this]() { worker_loop(); });
 }
 
@@ -501,6 +504,7 @@ TelemetryCommandResult EngineRuntime::ingest_telemetry(const TelemetryParseResul
     {
         std::lock_guard<std::mutex> lock(command_queue_mutex_);
         if (stop_worker_) {
+            queue_rejected_total_.fetch_add(1, std::memory_order_relaxed);
             TelemetryCommandResult result;
             result.ok = false;
             result.http_status = 500;
@@ -509,11 +513,23 @@ TelemetryCommandResult EngineRuntime::ingest_telemetry(const TelemetryParseResul
             return result;
         }
         command_queue_.emplace_back(std::move(cmd));
+        const std::size_t depth = command_queue_.size();
+        observe_queue_depth(depth);
+        queue_enqueued_total_.fetch_add(1, std::memory_order_relaxed);
     }
 
     command_queue_cv_.notify_one();
 
     try {
+        if (done.wait_for(k_command_timeout) != std::future_status::ready) {
+            queue_timeout_total_.fetch_add(1, std::memory_order_relaxed);
+            TelemetryCommandResult result;
+            result.ok = false;
+            result.http_status = 503;
+            result.error_code = "RUNTIME_BUSY";
+            result.error_message = "runtime command timed out in queue";
+            return result;
+        }
         return done.get();
     } catch (...) {
         TelemetryCommandResult result;
@@ -536,6 +552,7 @@ ScheduleCommandResult EngineRuntime::schedule_maneuver(std::string_view satellit
     {
         std::lock_guard<std::mutex> lock(command_queue_mutex_);
         if (stop_worker_) {
+            queue_rejected_total_.fetch_add(1, std::memory_order_relaxed);
             ScheduleCommandResult result;
             result.ok = false;
             result.http_status = 500;
@@ -544,11 +561,23 @@ ScheduleCommandResult EngineRuntime::schedule_maneuver(std::string_view satellit
             return result;
         }
         command_queue_.emplace_back(std::move(cmd));
+        const std::size_t depth = command_queue_.size();
+        observe_queue_depth(depth);
+        queue_enqueued_total_.fetch_add(1, std::memory_order_relaxed);
     }
 
     command_queue_cv_.notify_one();
 
     try {
+        if (done.wait_for(k_command_timeout) != std::future_status::ready) {
+            queue_timeout_total_.fetch_add(1, std::memory_order_relaxed);
+            ScheduleCommandResult result;
+            result.ok = false;
+            result.http_status = 503;
+            result.error_code = "RUNTIME_BUSY";
+            result.error_message = "runtime command timed out in queue";
+            return result;
+        }
         return done.get();
     } catch (...) {
         ScheduleCommandResult result;
@@ -569,6 +598,7 @@ StepCommandResult EngineRuntime::simulate_step(std::int64_t step_seconds)
     {
         std::lock_guard<std::mutex> lock(command_queue_mutex_);
         if (stop_worker_) {
+            queue_rejected_total_.fetch_add(1, std::memory_order_relaxed);
             StepCommandResult result;
             result.ok = false;
             result.http_status = 500;
@@ -577,11 +607,23 @@ StepCommandResult EngineRuntime::simulate_step(std::int64_t step_seconds)
             return result;
         }
         command_queue_.emplace_back(std::move(cmd));
+        const std::size_t depth = command_queue_.size();
+        observe_queue_depth(depth);
+        queue_enqueued_total_.fetch_add(1, std::memory_order_relaxed);
     }
 
     command_queue_cv_.notify_one();
 
     try {
+        if (done.wait_for(k_command_timeout) != std::future_status::ready) {
+            queue_timeout_total_.fetch_add(1, std::memory_order_relaxed);
+            StepCommandResult result;
+            result.ok = false;
+            result.http_status = 503;
+            result.error_code = "RUNTIME_BUSY";
+            result.error_message = "runtime command timed out in queue";
+            return result;
+        }
         return done.get();
     } catch (...) {
         StepCommandResult result;
@@ -609,6 +651,7 @@ void EngineRuntime::worker_loop()
 
             command = std::move(command_queue_.front());
             command_queue_.pop_front();
+            observe_queue_depth(command_queue_.size());
         }
 
         std::visit([this](auto& typed_cmd) {
@@ -631,7 +674,39 @@ void EngineRuntime::worker_loop()
                 typed_cmd.completion.set_exception(std::current_exception());
             }
         }, command);
+
+        publish_read_views();
+        queue_completed_total_.fetch_add(1, std::memory_order_relaxed);
     }
+}
+
+void EngineRuntime::observe_queue_depth(std::size_t depth) noexcept
+{
+    const std::uint64_t d = static_cast<std::uint64_t>(depth);
+    queue_depth_current_.store(d, std::memory_order_relaxed);
+
+    std::uint64_t prev = queue_depth_max_.load(std::memory_order_relaxed);
+    while (d > prev
+           && !queue_depth_max_.compare_exchange_weak(
+               prev,
+               d,
+               std::memory_order_relaxed,
+               std::memory_order_relaxed)) {
+    }
+}
+
+void EngineRuntime::publish_read_views()
+{
+    std::shared_ptr<PublishedReadViews> next = std::make_shared<PublishedReadViews>();
+
+    {
+        std::shared_lock lock(mutex_);
+        next->snapshot_json = build_snapshot(store_, clock_);
+        next->conflicts_json = build_conflicts_json(store_);
+        next->propagation_json = build_propagation_json(store_, prop_stats_, step_cfg_);
+    }
+
+    std::atomic_store_explicit(&published_views_, std::const_pointer_cast<const PublishedReadViews>(next), std::memory_order_release);
 }
 
 TelemetryCommandResult EngineRuntime::execute_ingest_telemetry(const TelemetryParseResult& parsed,
@@ -1236,6 +1311,12 @@ std::uint64_t EngineRuntime::enforce_stationkeeping_recovery(double epoch_s,
 
 std::string EngineRuntime::snapshot_json() const
 {
+    const std::shared_ptr<const PublishedReadViews> view =
+        std::atomic_load_explicit(&published_views_, std::memory_order_acquire);
+    if (view) {
+        return view->snapshot_json;
+    }
+
     std::shared_lock lock(mutex_);
     return build_snapshot(store_, clock_);
 }
@@ -1252,6 +1333,13 @@ std::string EngineRuntime::status_json(bool include_details) const
     for (const auto& kv : graveyard_requested_by_sat_) {
         if (kv.second) ++pending_graveyard_requests;
     }
+
+    const std::uint64_t queue_depth_current = queue_depth_current_.load(std::memory_order_relaxed);
+    const std::uint64_t queue_depth_max = queue_depth_max_.load(std::memory_order_relaxed);
+    const std::uint64_t queue_enqueued_total = queue_enqueued_total_.load(std::memory_order_relaxed);
+    const std::uint64_t queue_completed_total = queue_completed_total_.load(std::memory_order_relaxed);
+    const std::uint64_t queue_rejected_total = queue_rejected_total_.load(std::memory_order_relaxed);
+    const std::uint64_t queue_timeout_total = queue_timeout_total_.load(std::memory_order_relaxed);
 
     const double uptime = clock_.uptime_s();
     const std::uint64_t failed_last_tick = store_.failed_last_tick();
@@ -1279,10 +1367,22 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(recovery_requests_by_sat_.size());
         out += ",\"pending_graveyard_requests\":";
         out += std::to_string(pending_graveyard_requests);
+        out += ",\"command_queue_depth\":";
+        out += std::to_string(queue_depth_current);
+        out += ",\"command_queue_depth_max\":";
+        out += std::to_string(queue_depth_max);
         out += ",\"failed_objects_last_tick\":";
         out += std::to_string(failed_last_tick);
         out += ",\"failed_objects_total\":";
         out += std::to_string(failed_total);
+        out += ",\"command_queue_enqueued_total\":";
+        out += std::to_string(queue_enqueued_total);
+        out += ",\"command_queue_completed_total\":";
+        out += std::to_string(queue_completed_total);
+        out += ",\"command_queue_rejected_total\":";
+        out += std::to_string(queue_rejected_total);
+        out += ",\"command_queue_timeout_total\":";
+        out += std::to_string(queue_timeout_total);
         out += ",\"propagation_last_tick\":{";
         out += "\"narrow_pairs_checked\":";
         out += std::to_string(prop_stats_.narrow_pairs_last_tick);
@@ -1414,12 +1514,24 @@ std::string EngineRuntime::status_json(bool include_details) const
 
 std::string EngineRuntime::conflicts_json() const
 {
+    const std::shared_ptr<const PublishedReadViews> view =
+        std::atomic_load_explicit(&published_views_, std::memory_order_acquire);
+    if (view) {
+        return view->conflicts_json;
+    }
+
     std::shared_lock lock(mutex_);
     return build_conflicts_json(store_);
 }
 
 std::string EngineRuntime::propagation_json() const
 {
+    const std::shared_ptr<const PublishedReadViews> view =
+        std::atomic_load_explicit(&published_views_, std::memory_order_acquire);
+    if (view) {
+        return view->propagation_json;
+    }
+
     std::shared_lock lock(mutex_);
     return build_propagation_json(store_, prop_stats_, step_cfg_);
 }

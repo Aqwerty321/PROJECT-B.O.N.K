@@ -10,10 +10,12 @@
 #include "telemetry.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
@@ -186,6 +188,9 @@ private:
 
     StepCommandResult execute_simulate_step(std::int64_t step_seconds);
 
+    void observe_queue_depth(std::size_t depth) noexcept;
+    void publish_read_views();
+
     std::uint64_t enforce_stationkeeping_recovery(double epoch_s,
                                                   std::uint64_t tick_id,
                                                   double& slot_error_sum_tick,
@@ -198,12 +203,27 @@ private:
                                                   double& stationkeeping_uptime_penalty_sum_tick,
                                                   std::uint64_t& stationkeeping_uptime_penalty_samples_tick);
 
+    struct PublishedReadViews {
+        std::string snapshot_json;
+        std::string conflicts_json;
+        std::string propagation_json;
+    };
+
     mutable std::shared_mutex mutex_;
     std::mutex command_queue_mutex_;
     std::condition_variable command_queue_cv_;
     std::deque<RuntimeCommand> command_queue_;
     bool stop_worker_ = false;
     std::thread worker_;
+
+    std::atomic<std::uint64_t> queue_depth_current_{0};
+    std::atomic<std::uint64_t> queue_depth_max_{0};
+    std::atomic<std::uint64_t> queue_enqueued_total_{0};
+    std::atomic<std::uint64_t> queue_completed_total_{0};
+    std::atomic<std::uint64_t> queue_rejected_total_{0};
+    std::atomic<std::uint64_t> queue_timeout_total_{0};
+
+    std::shared_ptr<const PublishedReadViews> published_views_;
 
     StateStore store_;
     SimClock clock_;
