@@ -222,6 +222,7 @@ private:
     std::atomic<std::uint64_t> queue_completed_total_{0};
     std::atomic<std::uint64_t> queue_rejected_total_{0};
     std::atomic<std::uint64_t> queue_timeout_total_{0};
+    std::uint64_t max_queue_depth_ = 1024;
 
     std::shared_ptr<const PublishedReadViews> published_views_;
 

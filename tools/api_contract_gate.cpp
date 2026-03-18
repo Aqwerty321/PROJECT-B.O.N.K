@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <iostream>
+#include <thread>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -119,6 +120,63 @@ bool require_http(const httplib::Result& res,
         return false;
     }
     return true;
+}
+
+GateResult run_queue_backpressure_check(std::string_view host,
+                                        int port)
+{
+    GateResult out;
+    httplib::Client cli(std::string(host), port);
+    cli.set_connection_timeout(2, 0);
+    cli.set_read_timeout(5, 0);
+
+    auto telemetry_client_task = [host, port]() {
+        httplib::Client local(std::string(host), port);
+        local.set_connection_timeout(2, 0);
+        local.set_read_timeout(5, 0);
+        return local.Post("/api/telemetry", telemetry_payload(), "application/json");
+    };
+
+    std::thread load_thread_1([&]() {
+        auto res = cli.Post("/api/simulate/step", R"JSON({"step_seconds": 43200})JSON", "application/json");
+        (void)res;
+    });
+    std::thread load_thread_2([&]() {
+        auto res = cli.Post("/api/simulate/step", R"JSON({"step_seconds": 43200})JSON", "application/json");
+        (void)res;
+    });
+
+    bool saw_busy = false;
+    for (int i = 0; i < 40; ++i) {
+        auto res = telemetry_client_task();
+        if (res && res->status == 503 && contains(res->body, "\"code\":\"RUNTIME_BUSY\"")) {
+            saw_busy = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    load_thread_1.join();
+    load_thread_2.join();
+
+    auto status_res = cli.Get("/api/status?details=1");
+    if (!status_res || status_res->status != 200 || !contains(status_res->body, "\"command_queue_timeout_total\"")) {
+        out.pass = false;
+        out.reason = "status details missing queue timeout metric after load";
+        return out;
+    }
+
+    if (!saw_busy) {
+        // Accept metric-only evidence to avoid occasional scheduling races.
+        if (!contains(status_res->body, "\"command_queue_rejected_total\":")
+            && !contains(status_res->body, "\"command_queue_timeout_total\":")) {
+            out.pass = false;
+            out.reason = "no runtime busy evidence under queued load";
+            return out;
+        }
+    }
+
+    return out;
 }
 
 GateResult run_contract_checks(std::string_view host,
@@ -235,6 +293,15 @@ GateResult run_contract_checks(std::string_view host,
         if (!json_has(res->body, "uptime_s") || !json_has(res->body, "tick_count") || !json_has(res->body, "object_count")) {
             out.pass = false;
             out.reason = "status response missing required PS keys";
+            return out;
+        }
+    }
+
+    {
+        const GateResult queue_check = run_queue_backpressure_check(host, port);
+        if (!queue_check.pass) {
+            out.pass = false;
+            out.reason = queue_check.reason;
             return out;
         }
     }

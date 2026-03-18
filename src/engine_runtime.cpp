@@ -10,6 +10,7 @@
 #include "orbit_math.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <exception>
 #include <mutex>
@@ -475,6 +476,15 @@ EngineRuntime::EngineRuntime()
     step_cfg_.broad_phase.high_e_fail_open = 0.2;
     step_cfg_.broad_phase.dcriterion_threshold = 2.0;
 
+    const char* queue_depth_env = std::getenv("PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH");
+    if (queue_depth_env != nullptr) {
+        char* end = nullptr;
+        const unsigned long parsed = std::strtoul(queue_depth_env, &end, 10);
+        if (end != nullptr && *end == '\0' && parsed > 0UL) {
+            max_queue_depth_ = static_cast<std::uint64_t>(parsed);
+        }
+    }
+
     publish_read_views();
 
     worker_ = std::thread([this]() { worker_loop(); });
@@ -510,6 +520,15 @@ TelemetryCommandResult EngineRuntime::ingest_telemetry(const TelemetryParseResul
             result.http_status = 500;
             result.error_code = "RUNTIME_STOPPED";
             result.error_message = "runtime worker is stopped";
+            return result;
+        }
+        if (command_queue_.size() >= max_queue_depth_) {
+            queue_rejected_total_.fetch_add(1, std::memory_order_relaxed);
+            TelemetryCommandResult result;
+            result.ok = false;
+            result.http_status = 503;
+            result.error_code = "RUNTIME_BUSY";
+            result.error_message = "runtime command queue is full";
             return result;
         }
         command_queue_.emplace_back(std::move(cmd));
@@ -560,6 +579,15 @@ ScheduleCommandResult EngineRuntime::schedule_maneuver(std::string_view satellit
             result.error_message = "runtime worker is stopped";
             return result;
         }
+        if (command_queue_.size() >= max_queue_depth_) {
+            queue_rejected_total_.fetch_add(1, std::memory_order_relaxed);
+            ScheduleCommandResult result;
+            result.ok = false;
+            result.http_status = 503;
+            result.error_code = "RUNTIME_BUSY";
+            result.error_message = "runtime command queue is full";
+            return result;
+        }
         command_queue_.emplace_back(std::move(cmd));
         const std::size_t depth = command_queue_.size();
         observe_queue_depth(depth);
@@ -604,6 +632,15 @@ StepCommandResult EngineRuntime::simulate_step(std::int64_t step_seconds)
             result.http_status = 500;
             result.error_code = "RUNTIME_STOPPED";
             result.error_message = "runtime worker is stopped";
+            return result;
+        }
+        if (command_queue_.size() >= max_queue_depth_) {
+            queue_rejected_total_.fetch_add(1, std::memory_order_relaxed);
+            StepCommandResult result;
+            result.ok = false;
+            result.http_status = 503;
+            result.error_code = "RUNTIME_BUSY";
+            result.error_message = "runtime command queue is full";
             return result;
         }
         command_queue_.emplace_back(std::move(cmd));
@@ -1371,6 +1408,8 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(queue_depth_current);
         out += ",\"command_queue_depth_max\":";
         out += std::to_string(queue_depth_max);
+        out += ",\"command_queue_depth_limit\":";
+        out += std::to_string(max_queue_depth_);
         out += ",\"failed_objects_last_tick\":";
         out += std::to_string(failed_last_tick);
         out += ",\"failed_objects_total\":";

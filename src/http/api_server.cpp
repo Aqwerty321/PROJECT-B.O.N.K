@@ -33,8 +33,17 @@ void register_routes(httplib::Server& server,
                      EngineRuntime& runtime)
 {
     server.Post("/api/telemetry", [&](const httplib::Request& req, httplib::Response& res) {
-        const TelemetryParseResult parsed = parse_telemetry_payload(req.body);
-        const TelemetryCommandResult ingest = runtime.ingest_telemetry(parsed, get_source_id(req));
+        TelemetryRequest telemetry_req;
+        ParseError parse_err;
+        if (!parse_telemetry_request(req.body, telemetry_req, parse_err)) {
+            set_error_json(res, parse_err.http_status, parse_err.code, parse_err.message);
+            return;
+        }
+
+        const TelemetryCommandResult ingest = runtime.ingest_telemetry(
+            telemetry_req.parsed,
+            get_source_id(req)
+        );
 
         if (!ingest.ok) {
             set_error_json(res, ingest.http_status, ingest.error_code, ingest.error_message);

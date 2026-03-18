@@ -150,6 +150,20 @@ bool parse_schedule_request(std::string_view body,
     return true;
 }
 
+bool parse_telemetry_request(std::string_view body,
+                             TelemetryRequest& out,
+                             ParseError& err)
+{
+    out.parsed = parse_telemetry_payload(std::string(body));
+    if (!out.parsed.parse_ok) {
+        err.http_status = 400;
+        err.code = out.parsed.error_code;
+        err.message = out.parsed.error_message;
+        return false;
+    }
+    return true;
+}
+
 bool parse_step_request(std::string_view body,
                         StepRequest& out,
                         ParseError& err)

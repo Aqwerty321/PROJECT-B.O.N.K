@@ -4,6 +4,7 @@
 #pragma once
 
 #include "maneuver_common.hpp"
+#include "telemetry.hpp"
 #include "types.hpp"
 
 #include <cstdint>
@@ -19,6 +20,10 @@ struct ParseError {
     std::string message;
 };
 
+struct TelemetryRequest {
+    TelemetryParseResult parsed;
+};
+
 struct ScheduleRequest {
     std::string satellite_id;
     std::vector<ScheduledBurn> burns;
@@ -31,6 +36,10 @@ struct StepRequest {
 bool parse_schedule_request(std::string_view body,
                             ScheduleRequest& out,
                             ParseError& err);
+
+bool parse_telemetry_request(std::string_view body,
+                             TelemetryRequest& out,
+                             ParseError& err);
 
 bool parse_step_request(std::string_view body,
                         StepRequest& out,

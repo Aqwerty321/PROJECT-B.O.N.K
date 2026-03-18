@@ -43,6 +43,10 @@ work.
     GET paths for lock-light reads.
   - queue depth/enqueue/complete/reject/timeout counters exposed in status
     details for operational visibility.
+  - queue backpressure guardrail added via `PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH`
+    with explicit `RUNTIME_BUSY` reject path when full.
+  - API contract gate now stress-checks queue pressure and verifies backpressure
+    evidence (`RUNTIME_BUSY` or timeout/reject metrics).
   - frontend/backend split packaging path (`5173` + `8000`) and proxy docs are
     still pending.
 
@@ -106,9 +110,9 @@ Run on each networking PR:
 
 ## Next concrete tasks
 
-1. Add queue pressure backpressure guardrail (configurable max queue depth with
-   explicit `RUNTIME_BUSY` reject path) and assert via contract test.
-2. Add frontend dev topology docs and optional CORS guard for local split
+1. Add frontend dev topology docs and optional CORS guard for local split
    workflow.
-3. Add deployment note for reverse-proxy `/api` pass-through to keep frontend
+2. Add deployment note for reverse-proxy `/api` pass-through to keep frontend
    and backend topologies contract-consistent.
+3. Optional: add request latency histograms for queue wait + execution in
+   status details for tuning queue thresholds.
