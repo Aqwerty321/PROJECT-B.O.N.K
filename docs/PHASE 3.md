@@ -174,6 +174,7 @@ and mandatory gates.
   - `PROJECTBONK_RECOVERY_RADIAL_SHARE`
   - `PROJECTBONK_RECOVERY_SCALE_N`
   - `PROJECTBONK_RECOVERY_FALLBACK_NORM_KM_S`
+  - `PROJECTBONK_RECOVERY_MAX_REQUEST_RATIO`
 - narrow-phase hardening adds configurable thresholds/budgets and uncertainty
   promotion for high-relative-speed near-threshold pairs:
   - `PROJECTBONK_NARROW_TCA_GUARD_KM`
@@ -203,6 +204,16 @@ Safety-gate snapshot on this kickoff branch:
 - `recovery_planner_invariants_gate`: PASS
 - `api_contract_gate`: PASS
 - `ctest --test-dir build --output-on-failure`: PASS (8/8)
+
+Recovery calibration evidence update:
+
+- strict sweep (`./scripts/recovery_slot_sweep.sh ./build 24 0.08`) still reports
+  `selection.status=FAIL` under `fuel_ratio_cap=1.10`
+- in current synthetic sweep, `fallback_1e-4` is scenario-safe but exceeds fuel
+  cap (mean fuel ratio `~1.361x` vs default)
+- additional request-ratio candidates (`request_ratio_*`,
+  `fallback_1e-4_ratio_*`) are now evaluated in sweep output; none satisfy both
+  strict scenario and fuel-ratio criteria yet
 
 Latest tuner snapshot (`240 50 10000 3 2`):
 

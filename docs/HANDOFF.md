@@ -197,6 +197,7 @@ Strict sweep interpretation:
 
 - Recovery planner calibration path:
   - runtime now loads planner gains from env with guarded ranges
+  - runtime now supports recovery request-ratio cap (`PROJECTBONK_RECOVERY_MAX_REQUEST_RATIO`)
   - debug propagation config now reports active recovery gain values
 - Narrow-phase fidelity hardening:
   - narrow thresholds/budgets are now runtime-configurable (`PROJECTBONK_NARROW_*`)
@@ -222,6 +223,9 @@ Strict sweep interpretation:
   `selection.status=FAIL` with reason
   `no candidate met strict scenario + fuel-ratio criteria` (deterministic
   across repeated runs)
+- recovery sweep candidate evidence now includes additional request-ratio
+  variants (`request_ratio_*`, `fallback_1e-4_ratio_*`); current strict profile
+  still has no candidate passing both slot-error and fuel-ratio constraints
 - `phase3_tick_benchmark 50 10000 30`:
   mean `13.291 ms`, median `13.271 ms`, p95 `13.538 ms`
 - `offline_multiobjective_tuner 240 50 10000 3 2`:

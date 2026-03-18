@@ -50,6 +50,12 @@ RecoveryPlannerConfig recovery_planner_config_from_env()
         0.0,
         SAT_MAX_DELTAV_KM_S
     );
+    cfg.max_request_ratio = env_double(
+        "PROJECTBONK_RECOVERY_MAX_REQUEST_RATIO",
+        cfg.max_request_ratio,
+        0.1,
+        1.0
+    );
     return cfg;
 }
 
@@ -116,6 +122,15 @@ Vec3 compute_slot_target_recovery_dv(const StateStore& store,
     const double rem_norm = dv_norm_km_s(req.remaining_delta_v_km_s);
     if (slot_norm < cfg.fallback_norm_km_s && rem_norm > EPS_NUM) {
         slot_dv = req.remaining_delta_v_km_s;
+    }
+
+    const double cmd_norm = dv_norm_km_s(slot_dv);
+    const double max_allowed_norm = rem_norm * cfg.max_request_ratio;
+    if (cmd_norm > max_allowed_norm + EPS_NUM && max_allowed_norm > EPS_NUM) {
+        const double scale = max_allowed_norm / cmd_norm;
+        slot_dv.x *= scale;
+        slot_dv.y *= scale;
+        slot_dv.z *= scale;
     }
 
     return slot_dv;

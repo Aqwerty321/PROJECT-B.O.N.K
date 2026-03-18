@@ -531,6 +531,8 @@ std::string build_propagation_json(const StateStore& store,
     out += fmt_double(recovery_cfg.scale_n, 8);
     out += ",\"recovery_fallback_norm_km_s\":";
     out += fmt_double(recovery_cfg.fallback_norm_km_s, 8);
+    out += ",\"recovery_max_request_ratio\":";
+    out += fmt_double(recovery_cfg.max_request_ratio, 6);
     out += ",";
     out += "\"broad_shell_margin_km\":";
     out += fmt_double(cfg.broad_phase.shell_margin_km, 3);

@@ -71,6 +71,7 @@ struct RecoveryGains {
     double radial_share = 0.5;
     double scale_n = 6e-3;
     double fallback_norm_km_s = 2e-4;
+    double max_request_ratio = 1.0;
 };
 
 struct NamedGains {
@@ -347,8 +348,19 @@ Vec3 slot_target_recovery_dv(const StateStore& store,
         t_hat.z * dv_t + r_hat.z * dv_r + n_hat.z * dv_n
     };
 
-    if (vec_norm(slot_dv) < gains.fallback_norm_km_s && vec_norm(req.rem) > cascade::EPS_NUM) {
+    const double rem_norm = vec_norm(req.rem);
+    if (vec_norm(slot_dv) < gains.fallback_norm_km_s && rem_norm > cascade::EPS_NUM) {
         slot_dv = req.rem;
+    }
+
+    const double cmd_norm = vec_norm(slot_dv);
+    const double max_allowed_norm = rem_norm * gains.max_request_ratio;
+    if (cmd_norm > max_allowed_norm + cascade::EPS_NUM
+        && max_allowed_norm > cascade::EPS_NUM) {
+        const double scale = max_allowed_norm / cmd_norm;
+        slot_dv.x *= scale;
+        slot_dv.y *= scale;
+        slot_dv.z *= scale;
     }
 
     return slot_dv;
@@ -621,7 +633,7 @@ std::vector<NamedGains> build_sweep_candidates()
     const std::array<double, 3> mults{0.8, 1.0, 1.2};
 
     std::vector<NamedGains> out;
-    out.reserve(33);
+    out.reserve(48);
 
     for (double mt : mults) {
         for (double mr : mults) {
@@ -679,6 +691,33 @@ std::vector<NamedGains> build_sweep_candidates()
         out.push_back(NamedGains{"radial_0.65", g});
     }
 
+    {
+        const std::array<double, 6> ratios{0.20, 0.30, 0.40, 0.50, 0.60, 0.80};
+        for (double ratio : ratios) {
+            RecoveryGains g = base;
+            g.max_request_ratio = ratio;
+
+            std::ostringstream name;
+            name << std::fixed << std::setprecision(2)
+                 << "request_ratio_" << ratio;
+            out.push_back(NamedGains{name.str(), g});
+        }
+    }
+
+    {
+        const std::array<double, 4> ratios{0.20, 0.30, 0.40, 0.50};
+        for (double ratio : ratios) {
+            RecoveryGains g = base;
+            g.fallback_norm_km_s = 1e-4;
+            g.max_request_ratio = ratio;
+
+            std::ostringstream name;
+            name << std::fixed << std::setprecision(2)
+                 << "fallback_1e-4_ratio_" << ratio;
+            out.push_back(NamedGains{name.str(), g});
+        }
+    }
+
     return out;
 }
 
@@ -707,6 +746,7 @@ std::vector<NamedGains> build_sweep_candidates_for_profile(std::string_view prof
                     g.scale_n *= sn;
                     g.radial_share = rs;
                     g.fallback_norm_km_s = 1e-4;
+                    g.max_request_ratio = 1.0;
 
                     std::ostringstream name;
                     name << std::fixed << std::setprecision(2)
@@ -725,6 +765,7 @@ std::vector<NamedGains> build_sweep_candidates_for_profile(std::string_view prof
     for (double fallback : fallback_values) {
         RecoveryGains g = base;
         g.fallback_norm_km_s = fallback;
+        g.max_request_ratio = 1.0;
 
         std::ostringstream name;
         name << std::scientific << std::setprecision(1)
@@ -795,7 +836,8 @@ void write_sweep_json(const std::string& path,
         out << "        \"scale_r\":" << format_double(c.gains.scale_r) << ",\n";
         out << "        \"scale_n\":" << format_double(c.gains.scale_n) << ",\n";
         out << "        \"radial_share\":" << format_double(c.gains.radial_share) << ",\n";
-        out << "        \"fallback_norm_km_s\":" << format_double(c.gains.fallback_norm_km_s) << "\n";
+        out << "        \"fallback_norm_km_s\":" << format_double(c.gains.fallback_norm_km_s) << ",\n";
+        out << "        \"max_request_ratio\":" << format_double(c.gains.max_request_ratio) << "\n";
         out << "      },\n";
         out << "      \"pass\":" << (c.pass ? "true" : "false") << ",\n";
         out << "      \"pass_all_scenarios\":" << (c.pass_all_scenarios ? "true" : "false") << ",\n";
@@ -961,6 +1003,7 @@ int run_sweep_mode(const GateOptions& opts)
                   << " scenario_pass_count=" << c.scenario_pass_count << "/" << scenarios
                   << " mean_delta_slot_error=" << c.mean_delta_slot_error
                   << " mean_fuel_used_kg=" << c.mean_fuel_used_kg
+                  << " max_request_ratio=" << c.gains.max_request_ratio
                   << " fuel_ratio_to_default=" << c.fuel_ratio_to_default
                   << "\n";
     }
