@@ -129,6 +129,9 @@ TCA-window approximation (not endpoint-only distance).
 Near-threshold conjunction pairs are further refined with a targeted RK4
 micro-window pass; refinement failures are treated fail-open for safety.
 
+Ultra-near-threshold pairs may trigger a budgeted sampled full-window RK4
+refinement pass before final collision classification.
+
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.
 

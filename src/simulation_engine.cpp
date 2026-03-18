@@ -47,6 +47,7 @@ inline double refine_pair_min_d2_rk4(const Vec3& sat_r0,
                                      const Vec3& deb_r0,
                                      const Vec3& deb_v0,
                                      double step_seconds,
+                                     double max_step_s,
                                      bool& ok) noexcept
 {
     ok = true;
@@ -55,11 +56,11 @@ inline double refine_pair_min_d2_rk4(const Vec3& sat_r0,
     Vec3 rd = deb_r0;
     Vec3 vd = deb_v0;
 
-    if (!propagate_rk4_j2_substep(rs, vs, step_seconds, 5.0)) {
+    if (!propagate_rk4_j2_substep(rs, vs, step_seconds, max_step_s)) {
         ok = false;
         return 0.0;
     }
-    if (!propagate_rk4_j2_substep(rd, vd, step_seconds, 5.0)) {
+    if (!propagate_rk4_j2_substep(rd, vd, step_seconds, max_step_s)) {
         ok = false;
         return 0.0;
     }
@@ -201,8 +202,8 @@ bool run_simulation_step(StateStore& store,
     // Conservative narrow-phase sweep over [t0, t1] using multiple linear
     // TCA approximations derived from step endpoints.
     const double tca_guard_km = 0.02;
-    const double collision_threshold_sq = (COLLISION_THRESHOLD_KM + tca_guard_km)
-                                        * (COLLISION_THRESHOLD_KM + tca_guard_km);
+    const double screening_threshold_km = COLLISION_THRESHOLD_KM + tca_guard_km;
+    const double collision_threshold_sq = screening_threshold_km * screening_threshold_km;
 
     const auto tca_min_d2 = [&](std::size_t sat_idx, std::size_t obj_idx) noexcept {
         const double r0x = rx0[sat_idx] - rx0[obj_idx];
@@ -255,8 +256,41 @@ bool run_simulation_step(StateStore& store,
     // If propagation failed for any object this tick, fall back to full
     // SATELLITE-vs-DEBRIS scan to avoid relying on broad-phase filtering.
     const double refine_band_km = 0.05;
-    const double refine_band_sq = (COLLISION_THRESHOLD_KM + refine_band_km)
-                                * (COLLISION_THRESHOLD_KM + refine_band_km);
+    const double refine_band_sq = (screening_threshold_km + refine_band_km)
+                                * (screening_threshold_km + refine_band_km);
+    const double full_refine_band_km = 0.012;
+    const double full_refine_band_sq = (screening_threshold_km + full_refine_band_km)
+                                     * (screening_threshold_km + full_refine_band_km);
+    std::uint64_t full_refine_budget = 48;
+
+    const auto full_window_min_d2_rk4 = [&](std::size_t sat_idx,
+                                            std::size_t obj_idx,
+                                            bool& ok) noexcept {
+        constexpr int k_samples = 8;
+        constexpr double k_substep_s = 2.0;
+
+        Vec3 rs{rx0[sat_idx], ry0[sat_idx], rz0[sat_idx]};
+        Vec3 vs{vx0[sat_idx], vy0[sat_idx], vz0[sat_idx]};
+        Vec3 rd{rx0[obj_idx], ry0[obj_idx], rz0[obj_idx]};
+        Vec3 vd{vx0[obj_idx], vy0[obj_idx], vz0[obj_idx]};
+
+        ok = true;
+        double min_d2 = norm2(rs.x - rd.x, rs.y - rd.y, rs.z - rd.z);
+        const double dt = step_seconds / static_cast<double>(k_samples);
+        for (int s = 0; s < k_samples; ++s) {
+            if (!propagate_rk4_j2_substep(rs, vs, dt, k_substep_s)
+                || !propagate_rk4_j2_substep(rd, vd, dt, k_substep_s)) {
+                ok = false;
+                return 0.0;
+            }
+            const double dx = rs.x - rd.x;
+            const double dy = rs.y - rd.y;
+            const double dz = rs.z - rd.z;
+            const double d2 = norm2(dx, dy, dz);
+            if (d2 < min_d2) min_d2 = d2;
+        }
+        return min_d2;
+    };
 
     auto process_pair = [&](std::size_t sat_idx, std::size_t obj_idx) noexcept {
         ++out.narrow_pairs_checked;
@@ -276,6 +310,7 @@ bool run_simulation_step(StateStore& store,
                 deb_r0,
                 deb_v0,
                 step_seconds,
+                5.0,
                 refine_ok
             );
 
@@ -288,6 +323,26 @@ bool run_simulation_step(StateStore& store,
                 d2 = d2_refined;
             } else {
                 d2 = d2_refined;
+            }
+        }
+
+        if (d2 > collision_threshold_sq && d2 <= full_refine_band_sq + 1e-9) {
+            if (full_refine_budget == 0) {
+                ++out.narrow_full_refine_budget_exhausted;
+            } else {
+                --full_refine_budget;
+                bool full_ok = true;
+                const double d2_full = full_window_min_d2_rk4(sat_idx, obj_idx, full_ok);
+                ++out.narrow_full_refined_pairs;
+                if (!full_ok) {
+                    ++out.narrow_full_refine_fail_open;
+                    d2 = 0.0;
+                } else if (d2_full >= collision_threshold_sq) {
+                    ++out.narrow_full_refine_cleared;
+                    d2 = d2_full;
+                } else {
+                    d2 = d2_full;
+                }
             }
         }
 

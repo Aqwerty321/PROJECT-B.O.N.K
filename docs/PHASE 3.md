@@ -114,6 +114,8 @@ Latest integration snapshot:
   endpoint-relative linear approximations plus safety guard margin
 - narrow-phase now includes a targeted RK4 micro-window refinement for near-
   threshold pairs, with fail-open behavior if refinement integration fails
+- narrow-phase now includes a budgeted full-window RK4 sample refinement for
+  ultra-near-threshold pairs, with fail-open and budget-exhaustion counters
 
 Current status note:
 
@@ -121,8 +123,8 @@ Current status note:
 - station-geometry LOS windows are currently static point checks (no latency/
   upload-window planner yet)
 - TCA-window narrow-phase is conservative and currently linearized; high-
-  fidelity RK4 conjunction window solver remains pending (current refinement is
-  targeted, not full-window for all pairs)
+- fidelity RK4 conjunction window solver remains pending (current full-window
+  pass is budgeted and only applies to ultra-near-threshold pairs)
 - auto-COLA currently uses fixed small impulse and does not perform recovery
   planning yet
 
