@@ -520,6 +520,34 @@ add_custom_target(recovery_slot_acceptance_gate
     USES_TERMINAL
 )
 
+# ===================================================================
+# Recovery planner invariants gate harness
+# ===================================================================
+add_executable(recovery_planner_invariants
+    tools/recovery_planner_invariants.cpp
+    src/broad_phase.cpp
+    src/state_store.cpp
+    src/sim_clock.cpp
+    src/orbit_math.cpp
+    src/propagator.cpp
+    src/simulation_engine.cpp
+)
+
+target_include_directories(recovery_planner_invariants PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+target_compile_options(recovery_planner_invariants PRIVATE
+    -O3
+    -DNDEBUG
+)
+
+add_custom_target(recovery_planner_invariants_gate
+    COMMAND "$<TARGET_FILE:recovery_planner_invariants>"
+    DEPENDS recovery_planner_invariants
+    USES_TERMINAL
+)
+
 if(BUILD_TESTING)
     add_test(
         NAME phase2_regression_gate_test
@@ -536,5 +564,9 @@ if(BUILD_TESTING)
     add_test(
         NAME recovery_slot_gate_test
         COMMAND "$<TARGET_FILE:recovery_slot_gate>"
+    )
+    add_test(
+        NAME recovery_planner_invariants_gate_test
+        COMMAND "$<TARGET_FILE:recovery_planner_invariants>"
     )
 endif()

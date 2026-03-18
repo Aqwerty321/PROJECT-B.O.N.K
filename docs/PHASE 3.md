@@ -67,7 +67,7 @@ Observed:
 
 - integrate per-tick arena allocation strategy
 - tune adaptive full-window refinement budget policy using mixed load scenarios
-- tune slot-targeted recovery gains and add scenario-based acceptance sweeps
+- tune slot-targeted recovery gains using scenario-based acceptance sweeps
 
 ## Offline tuner scaffold
 
@@ -85,7 +85,8 @@ Observed:
 - `phase2_regression_gate` (strict adaptive propagation)
 - `broad_phase_sanity_gate` (indexed broad-phase vs shell baseline)
 - `recovery_slot_gate` (slot-targeted recovery acceptance)
-- CI workflow runs all three gates on push/PR
+- `recovery_planner_invariants_gate` (collision-pressure/fuel-floor planner invariants)
+- CI workflow runs all four gates on push/PR
 - CI pins Julia `1.10.0` to avoid `jluna` ABI/API incompatibility on newer
   runner images
 - runtime broad-phase keeps D-criterion disabled by default until Phase 4
@@ -97,6 +98,10 @@ Latest gate snapshot:
 - broad-phase sanity gate: PASS (`missing_vs_shell_baseline_total = 0`)
 - recovery slot gate: PASS (recovery path not worse than baseline in synthetic
   acceptance scenario)
+- recovery planner invariants gate: PASS (no recovery scheduling under
+  persistent collision pressure or fuel-floor violation)
+- recovery sweep helper: default gains pass `6/6` deterministic scenarios at
+  margin `0.1` (`./scripts/recovery_slot_sweep.sh ./build 6 0.1`)
 
 Latest integration snapshot:
 
@@ -130,6 +135,8 @@ Latest integration snapshot:
   (`recovery_planned`, `recovery_deferred`, `recovery_completed`)
 - recovery planner now computes slot-targeted correction impulses from current
   orbital element deltas (a/e/i/RAAN) with conservative per-burn capping
+- `tools/recovery_slot_gate.cpp` now supports parameterized multi-scenario
+  acceptance checks and a deterministic sweep mode for offline gain tuning
 
 Current status note:
 

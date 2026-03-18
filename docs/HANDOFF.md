@@ -65,6 +65,7 @@ cmake --build build --target ProjectBONK
 cmake --build build --target phase2_regression_gate
 cmake --build build --target broad_phase_sanity_gate
 cmake --build build --target recovery_slot_acceptance_gate
+cmake --build build --target recovery_planner_invariants_gate
 cmake --build build --target phase3_tick_benchmark
 cmake --build build --target offline_multiobjective_tuner
 ```
@@ -97,6 +98,14 @@ cmake --build build --target recovery_slot_acceptance_gate
 ./scripts/recovery_slot_gate.sh
 ```
 
+### Mandatory recovery planner invariants gate
+
+```bash
+cmake --build build --target recovery_planner_invariants_gate
+# or
+./scripts/recovery_planner_invariants_gate.sh
+```
+
 ### CTest gate suite
 
 ```bash
@@ -115,6 +124,13 @@ ctest --test-dir build --output-on-failure
 ```bash
 # args: samples satellites debris train_scenarios eval_scenarios
 ./build/offline_multiobjective_tuner 240 50 10000 3 2
+```
+
+### Optional recovery sweep helper
+
+```bash
+# args: [build_dir] [scenarios] [margin]
+./scripts/recovery_slot_sweep.sh ./build 6 0.1
 ```
 
 ## PS completeness matrix
@@ -139,7 +155,7 @@ ctest --test-dir build --output-on-failure
 
 - recovery planner is slot-targeted but heuristic; gain calibration and slot-box objectives remain pending
 - D-criterion is intentionally conservative; tune only through offline path
-- CI now enforces adaptive regression, broad-phase sanity, and recovery slot gates
+- CI now enforces adaptive regression, broad-phase sanity, recovery slot, and recovery planner invariants gates
 - CI pins Julia `1.10.0` to stay compatible with `jluna v1.0.1`
 
 ## Latest acceptance outputs
@@ -148,6 +164,10 @@ ctest --test-dir build --output-on-failure
 - `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`,
   `dcriterion_rejected_total=0`)
 - `recovery_slot_gate`: PASS (`recovery_slot_gate_result=PASS`)
+- `recovery_planner_invariants_gate`: PASS
+- `recovery_slot_sweep` (`./scripts/recovery_slot_sweep.sh ./build 6 0.1`):
+  default pass `6/6`, best passing candidate `fallback_strict`
+  (`mean_delta=-0.0236271`)
 - `phase3_tick_benchmark 50 10000 30`:
   mean `13.291 ms`, median `13.271 ms`, p95 `13.538 ms`
 - `offline_multiobjective_tuner 240 50 10000 3 2`:

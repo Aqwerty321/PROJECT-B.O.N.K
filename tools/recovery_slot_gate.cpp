@@ -2,7 +2,13 @@
 // recovery_slot_gate.cpp
 //
 // Acceptance gate: slot-targeted recovery should not regress aggregate slot
-// error after a bounded horizon in a deterministic synthetic scenario.
+// error after a bounded horizon in deterministic synthetic scenarios.
+//
+// Default mode (CI gate):
+//   recovery_slot_gate [--scenarios N] [--margin M]
+//
+// Sweep mode (offline tuning helper):
+//   recovery_slot_gate --sweep [--scenarios N] [--margin M]
 // ---------------------------------------------------------------------------
 
 #include "state_store.hpp"
@@ -14,9 +20,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -40,6 +50,125 @@ struct RecoveryRequest {
     Vec3 rem{};
     double earliest_s = 0.0;
 };
+
+struct RecoveryGains {
+    double scale_t = 6e-5;
+    double scale_r = 2e-3;
+    double radial_share = 0.5;
+    double scale_n = 6e-3;
+    double fallback_norm_km_s = 2e-4;
+};
+
+struct NamedGains {
+    std::string name;
+    RecoveryGains gains{};
+};
+
+struct RunOutcome {
+    bool ok = false;
+    double start_err = 0.0;
+    double end_err = 0.0;
+    std::uint64_t auto_cola_queued = 0;
+    std::uint64_t maneuvers_executed = 0;
+    std::uint64_t recovery_planned = 0;
+    std::uint64_t recovery_deferred = 0;
+    std::uint64_t recovery_completed = 0;
+    double fuel_used_kg = 0.0;
+};
+
+struct GateOptions {
+    bool sweep = false;
+    int scenarios = 1;
+    double margin = 0.1;
+};
+
+struct ScenarioEval {
+    bool pass = false;
+    std::string reason;
+    RunOutcome baseline{};
+    RunOutcome recovered{};
+    double delta_err = 0.0;
+};
+
+std::uint64_t mix64(std::uint64_t x)
+{
+    x ^= x >> 30;
+    x *= 0xbf58476d1ce4e5b9ULL;
+    x ^= x >> 27;
+    x *= 0x94d049bb133111ebULL;
+    x ^= x >> 31;
+    return x;
+}
+
+double deterministic_signed_noise(int scenario_id, int axis)
+{
+    const std::uint64_t key =
+        mix64(0x9e3779b97f4a7c15ULL
+              ^ (static_cast<std::uint64_t>(scenario_id + 1) * 0xA24BAED4963EE407ULL)
+              ^ (static_cast<std::uint64_t>(axis + 11) * 0x9FB21C651E98DF25ULL));
+
+    const double unit = static_cast<double>(key & 0xFFFFFFFFULL)
+                        / static_cast<double>(0xFFFFFFFFULL);
+    return (2.0 * unit) - 1.0;
+}
+
+bool parse_int(std::string_view text, int& out)
+{
+    if (text.empty()) return false;
+    char* end = nullptr;
+    const long v = std::strtol(std::string(text).c_str(), &end, 10);
+    if (end == nullptr || *end != '\0') return false;
+    if (v < std::numeric_limits<int>::min() || v > std::numeric_limits<int>::max()) return false;
+    out = static_cast<int>(v);
+    return true;
+}
+
+bool parse_double(std::string_view text, double& out)
+{
+    if (text.empty()) return false;
+    char* end = nullptr;
+    const double v = std::strtod(std::string(text).c_str(), &end);
+    if (end == nullptr || *end != '\0') return false;
+    if (!std::isfinite(v)) return false;
+    out = v;
+    return true;
+}
+
+void print_usage(const char* argv0)
+{
+    std::cout << "usage: " << argv0 << " [--scenarios N] [--margin M] [--sweep]\n";
+}
+
+bool parse_args(int argc, char** argv, GateOptions& opts)
+{
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg{argv[i]};
+        if (arg == "--help" || arg == "-h") {
+            print_usage(argv[0]);
+            return false;
+        }
+        if (arg == "--sweep") {
+            opts.sweep = true;
+            continue;
+        }
+        if (arg == "--scenarios") {
+            if (i + 1 >= argc) return false;
+            int value = 0;
+            if (!parse_int(argv[++i], value) || value <= 0) return false;
+            opts.scenarios = value;
+            continue;
+        }
+        if (arg == "--margin") {
+            if (i + 1 >= argc) return false;
+            double value = 0.0;
+            if (!parse_double(argv[++i], value) || value < 0.0) return false;
+            opts.margin = value;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
 
 double vec_norm(const Vec3& v)
 {
@@ -89,7 +218,8 @@ double slot_error_score(const OrbitalElements& slot, const OrbitalElements& cur)
 Vec3 slot_target_recovery_dv(const StateStore& store,
                              std::size_t sat_idx,
                              const RecoveryRequest& req,
-                             const OrbitalElements& slot)
+                             const OrbitalElements& slot,
+                             const RecoveryGains& gains)
 {
     OrbitalElements cur{};
     if (!get_elements(store, sat_idx, cur)) return req.rem;
@@ -116,9 +246,9 @@ Vec3 slot_target_recovery_dv(const StateStore& store,
     const double di = slot.i_rad - cur.i_rad;
     const double d_raan = cascade::wrap_0_2pi(slot.raan_rad - cur.raan_rad + cascade::PI) - cascade::PI;
 
-    const double dv_t = (da * 6e-5) + (de * 2e-3);
-    const double dv_r = de * 1e-3;
-    const double dv_n = (di + d_raan) * 6e-3;
+    const double dv_t = (da * gains.scale_t) + (de * gains.scale_r);
+    const double dv_r = de * (gains.radial_share * gains.scale_r);
+    const double dv_n = (di + d_raan) * gains.scale_n;
 
     Vec3 slot_dv{
         t_hat.x * dv_t + r_hat.x * dv_r + n_hat.x * dv_n,
@@ -126,7 +256,7 @@ Vec3 slot_target_recovery_dv(const StateStore& store,
         t_hat.z * dv_t + r_hat.z * dv_r + n_hat.z * dv_n
     };
 
-    if (vec_norm(slot_dv) < 2e-4 && vec_norm(req.rem) > cascade::EPS_NUM) {
+    if (vec_norm(slot_dv) < gains.fallback_norm_km_s && vec_norm(req.rem) > cascade::EPS_NUM) {
         slot_dv = req.rem;
     }
 
@@ -188,20 +318,9 @@ double aggregate_slot_error(const StateStore& store,
     return sum / static_cast<double>(n);
 }
 
-} // namespace
-
-struct RunOutcome {
-    bool ok = false;
-    double start_err = 0.0;
-    double end_err = 0.0;
-    std::uint64_t auto_cola_queued = 0;
-    std::uint64_t maneuvers_executed = 0;
-    std::uint64_t recovery_planned = 0;
-    std::uint64_t recovery_deferred = 0;
-    std::uint64_t recovery_completed = 0;
-};
-
-RunOutcome run_scenario(bool enable_recovery)
+RunOutcome run_scenario(bool enable_recovery,
+                        const RecoveryGains& gains,
+                        int scenario_id)
 {
     RunOutcome out;
 
@@ -213,15 +332,21 @@ RunOutcome run_scenario(bool enable_recovery)
     const double t0 = 1773302400.0; // 2026-03-12T08:00:00Z
     clock.set_epoch_s(t0);
 
+    const double offset_x = 0.02 * deterministic_signed_noise(scenario_id, 0);
+    const double offset_y = 0.02 * deterministic_signed_noise(scenario_id, 1);
+    const double offset_z = 0.02 * deterministic_signed_noise(scenario_id, 2);
+    const double sat_dv = 0.00010 * deterministic_signed_noise(scenario_id, 3);
+    const double deb_dv = 0.00010 * deterministic_signed_noise(scenario_id, 4);
+
     bool conflict = false;
     (void)store.upsert("SAT-GATE-1", ObjectType::SATELLITE,
                        7000.0, 0.0, 0.0,
-                       0.0, 7.5, 0.0,
+                       0.0, 7.5 + sat_dv, 0.0,
                        t0,
                        conflict);
     (void)store.upsert("DEB-GATE-1", ObjectType::DEBRIS,
-                       7000.0, 0.0, 0.0,
-                       0.0, 7.5, 0.0,
+                       7000.0 + offset_x, offset_y, offset_z,
+                       0.0, 7.5 + deb_dv, 0.0,
                        t0,
                        conflict);
 
@@ -309,7 +434,7 @@ RunOutcome run_scenario(bool enable_recovery)
                 continue;
             }
 
-            Vec3 dv = slot_target_recovery_dv(store, s, it->second, slot[sat_id]);
+            Vec3 dv = slot_target_recovery_dv(store, s, it->second, slot[sat_id], gains);
             const double n = vec_norm(dv);
             if (n <= cascade::EPS_NUM) {
                 rec.erase(it);
@@ -334,6 +459,9 @@ RunOutcome run_scenario(bool enable_recovery)
             ++planned;
         }
     };
+
+    const std::size_t sat_idx = store.find("SAT-GATE-1");
+    const double fuel_initial = (sat_idx < store.size()) ? store.fuel_kg(sat_idx) : 0.0;
 
     StepRunStats stats{};
     if (!cascade::run_simulation_step(store, clock, 1.0, stats, cfg)) {
@@ -360,43 +488,183 @@ RunOutcome run_scenario(bool enable_recovery)
         }
     }
 
+    const double fuel_final = (sat_idx < store.size()) ? store.fuel_kg(sat_idx) : fuel_initial;
+    out.fuel_used_kg = std::max(0.0, fuel_initial - fuel_final);
     out.end_err = aggregate_slot_error(store, slot);
     out.ok = true;
     return out;
 }
 
-int main()
+ScenarioEval evaluate_scenario(int scenario_id,
+                               const RecoveryGains& gains,
+                               double margin)
 {
-    const RunOutcome baseline = run_scenario(false);
-    const RunOutcome recovered = run_scenario(true);
+    ScenarioEval eval{};
+    eval.baseline = run_scenario(false, gains, scenario_id);
+    eval.recovered = run_scenario(true, gains, scenario_id);
 
-    if (!baseline.ok || !recovered.ok) {
-        std::cout << "recovery_slot_gate\n";
-        std::cout << "recovery_slot_gate_result=FAIL\n";
-        return 1;
+    if (!eval.baseline.ok || !eval.recovered.ok) {
+        eval.reason = "scenario execution failed";
+        return eval;
     }
 
+    if (eval.recovered.recovery_planned == 0 || eval.recovered.recovery_completed == 0) {
+        eval.reason = "no recovery burn was planned/executed";
+        return eval;
+    }
+
+    eval.delta_err = eval.recovered.end_err - eval.baseline.end_err;
+    if (eval.recovered.end_err > eval.baseline.end_err + margin) {
+        eval.reason = "recovery worsened slot error beyond margin";
+        return eval;
+    }
+
+    eval.pass = true;
+    return eval;
+}
+
+std::vector<NamedGains> build_sweep_candidates()
+{
+    const RecoveryGains base{};
+    return {
+        {"default", base},
+        {"balanced_low", RecoveryGains{base.scale_t * 0.85, base.scale_r * 0.85, base.radial_share, base.scale_n * 0.85, base.fallback_norm_km_s}},
+        {"balanced_high", RecoveryGains{base.scale_t * 1.15, base.scale_r * 1.15, base.radial_share, base.scale_n * 1.15, base.fallback_norm_km_s}},
+        {"t_low", RecoveryGains{base.scale_t * 0.75, base.scale_r, base.radial_share, base.scale_n, base.fallback_norm_km_s}},
+        {"t_high", RecoveryGains{base.scale_t * 1.25, base.scale_r, base.radial_share, base.scale_n, base.fallback_norm_km_s}},
+        {"n_low", RecoveryGains{base.scale_t, base.scale_r, base.radial_share, base.scale_n * 0.75, base.fallback_norm_km_s}},
+        {"n_high", RecoveryGains{base.scale_t, base.scale_r, base.radial_share, base.scale_n * 1.25, base.fallback_norm_km_s}},
+        {"fallback_strict", RecoveryGains{base.scale_t, base.scale_r, base.radial_share, base.scale_n, 1.0e-4}},
+        {"fallback_loose", RecoveryGains{base.scale_t, base.scale_r, base.radial_share, base.scale_n, 3.0e-4}},
+    };
+}
+
+int run_default_gate(const GateOptions& opts)
+{
     std::cout << "recovery_slot_gate\n";
-    std::cout << "baseline_start_slot_error_mean=" << baseline.start_err << "\n";
-    std::cout << "baseline_end_slot_error_mean=" << baseline.end_err << "\n";
-    std::cout << "recovery_start_slot_error_mean=" << recovered.start_err << "\n";
-    std::cout << "recovery_end_slot_error_mean=" << recovered.end_err << "\n";
-    std::cout << "baseline_auto_cola_queued=" << baseline.auto_cola_queued << "\n";
-    std::cout << "recovery_auto_cola_queued=" << recovered.auto_cola_queued << "\n";
-    std::cout << "recovery_planned_total=" << recovered.recovery_planned << "\n";
-    std::cout << "recovery_deferred_total=" << recovered.recovery_deferred << "\n";
-    std::cout << "recovery_completed_total=" << recovered.recovery_completed << "\n";
+    std::cout << "mode=acceptance\n";
+    std::cout << "scenarios=" << opts.scenarios << "\n";
+    std::cout << "margin=" << opts.margin << "\n";
 
-    if (recovered.recovery_planned == 0 || recovered.recovery_completed == 0) {
-        std::cout << "recovery_slot_gate_result=FAIL\n";
-        return 1;
+    const RecoveryGains gains{};
+
+    bool all_pass = true;
+    std::uint64_t planned_total = 0;
+    std::uint64_t completed_total = 0;
+    double worst_delta = -1.0e30;
+    double mean_delta = 0.0;
+
+    for (int s = 0; s < opts.scenarios; ++s) {
+        const ScenarioEval eval = evaluate_scenario(s, gains, opts.margin);
+        planned_total += eval.recovered.recovery_planned;
+        completed_total += eval.recovered.recovery_completed;
+        worst_delta = std::max(worst_delta, eval.delta_err);
+        mean_delta += eval.delta_err;
+
+        std::cout << "scenario_" << s << "_baseline_end=" << eval.baseline.end_err << "\n";
+        std::cout << "scenario_" << s << "_recovery_end=" << eval.recovered.end_err << "\n";
+        std::cout << "scenario_" << s << "_delta=" << eval.delta_err << "\n";
+        std::cout << "scenario_" << s << "_result=" << (eval.pass ? "PASS" : "FAIL") << "\n";
+        if (!eval.pass) {
+            all_pass = false;
+            std::cout << "scenario_" << s << "_reason=" << eval.reason << "\n";
+        }
     }
 
-    if (recovered.end_err > baseline.end_err + 0.1) {
+    mean_delta /= static_cast<double>(opts.scenarios);
+
+    std::cout << "recovery_planned_total=" << planned_total << "\n";
+    std::cout << "recovery_completed_total=" << completed_total << "\n";
+    std::cout << "worst_delta_slot_error=" << worst_delta << "\n";
+    std::cout << "mean_delta_slot_error=" << mean_delta << "\n";
+
+    if (!all_pass || planned_total == 0 || completed_total == 0) {
         std::cout << "recovery_slot_gate_result=FAIL\n";
         return 1;
     }
 
     std::cout << "recovery_slot_gate_result=PASS\n";
     return 0;
+}
+
+int run_sweep_mode(const GateOptions& opts)
+{
+    std::cout << "recovery_slot_sweep\n";
+    std::cout << "mode=sweep\n";
+    std::cout << "scenarios=" << opts.scenarios << "\n";
+    std::cout << "margin=" << opts.margin << "\n";
+
+    const std::vector<NamedGains> candidates = build_sweep_candidates();
+
+    bool default_pass = false;
+    std::string best_name;
+    double best_mean_delta = std::numeric_limits<double>::infinity();
+
+    for (const NamedGains& candidate : candidates) {
+        int pass_count = 0;
+        double worst_delta = -1.0e30;
+        double mean_delta = 0.0;
+        double mean_fuel_used = 0.0;
+
+        for (int s = 0; s < opts.scenarios; ++s) {
+            const ScenarioEval eval = evaluate_scenario(s, candidate.gains, opts.margin);
+            if (eval.pass) {
+                ++pass_count;
+            }
+            worst_delta = std::max(worst_delta, eval.delta_err);
+            mean_delta += eval.delta_err;
+            mean_fuel_used += eval.recovered.fuel_used_kg;
+        }
+
+        mean_delta /= static_cast<double>(opts.scenarios);
+        mean_fuel_used /= static_cast<double>(opts.scenarios);
+
+        std::cout << "candidate=" << candidate.name
+                  << " pass_count=" << pass_count << "/" << opts.scenarios
+                  << " worst_delta=" << worst_delta
+                  << " mean_delta=" << mean_delta
+                  << " mean_fuel_used_kg=" << mean_fuel_used
+                  << "\n";
+
+        const bool candidate_pass = (pass_count == opts.scenarios);
+        if (candidate.name == "default") {
+            default_pass = candidate_pass;
+        }
+
+        if (candidate_pass && mean_delta < best_mean_delta) {
+            best_mean_delta = mean_delta;
+            best_name = candidate.name;
+        }
+    }
+
+    if (!best_name.empty()) {
+        std::cout << "best_passing_candidate=" << best_name << "\n";
+        std::cout << "best_passing_mean_delta=" << best_mean_delta << "\n";
+    } else {
+        std::cout << "best_passing_candidate=NONE\n";
+    }
+
+    if (!default_pass) {
+        std::cout << "recovery_slot_sweep_default_result=FAIL\n";
+        return 1;
+    }
+
+    std::cout << "recovery_slot_sweep_default_result=PASS\n";
+    return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv)
+{
+    GateOptions opts;
+    if (!parse_args(argc, argv, opts)) {
+        print_usage(argv[0]);
+        return 2;
+    }
+
+    if (opts.sweep) {
+        return run_sweep_mode(opts);
+    }
+    return run_default_gate(opts);
 }

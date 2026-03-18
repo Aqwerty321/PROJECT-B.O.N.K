@@ -118,6 +118,14 @@ cmake --build build --target recovery_slot_acceptance_gate
 ./scripts/recovery_slot_gate.sh
 ```
 
+Hard-fail recovery planner invariants gate:
+
+```bash
+cmake --build build --target recovery_planner_invariants_gate
+# or
+./scripts/recovery_planner_invariants_gate.sh
+```
+
 Maneuver schedule endpoint currently enforces:
 
 - per-burn delta-V limit (`<= 15 m/s`)
@@ -180,6 +188,13 @@ Optional: run offline multi-objective tuner scaffold (separate path).
 cmake --build build --target offline_multiobjective_tuner -j"$(nproc)"
 # args: samples satellites debris train_scenarios eval_scenarios
 ./build/offline_multiobjective_tuner 240 50 10000 3 2
+```
+
+Optional: run recovery gain sweep helper (offline tuning, not runtime path).
+
+```bash
+# args: [build_dir] [scenarios] [margin]
+./scripts/recovery_slot_sweep.sh ./build 6 0.1
 ```
 
 CMake will automatically:
