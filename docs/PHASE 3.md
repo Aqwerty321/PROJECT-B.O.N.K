@@ -67,7 +67,7 @@ Observed:
 
 - integrate per-tick arena allocation strategy
 - tune adaptive full-window refinement budget policy using mixed load scenarios
-- evolve from inverse-impulse recovery to orbital-slot-targeted recovery
+- tune slot-targeted recovery gains and add scenario-based acceptance sweeps
 
 ## Offline tuner scaffold
 
@@ -123,6 +123,8 @@ Latest integration snapshot:
   cooldown/LOS/fuel-safe recovery burn plan each tick
 - status details/debug endpoints now expose recovery planner counters
   (`recovery_planned`, `recovery_deferred`, `recovery_completed`)
+- recovery planner now computes slot-targeted correction impulses from current
+  orbital element deltas (a/e/i/RAAN) with conservative per-burn capping
 
 Current status note:
 
@@ -134,8 +136,8 @@ Current status note:
 - adaptive budget telemetry is exposed via debug counters to monitor safety/
   performance tradeoff over time
 - recovery planner currently uses inverse-of-executed auto-COLA impulse and
-  may defer when conjunction pressure persists; orbital-slot targeting remains
-  pending
+- may defer when conjunction pressure persists; slot-targeted gain tuning and
+  mission-box objective shaping remain pending
 
 Latest tuner snapshot (`240 50 10000 3 2`):
 

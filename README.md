@@ -126,6 +126,10 @@ prograde burn (subject to LOS/cooldown/fuel safety checks).
 Executed auto-COLA burns now generate pending recovery requests; runtime then
 attempts recovery burns under the same cooldown/LOS/fuel safety constraints.
 
+Recovery burns are now slot-targeted (heuristic element-delta correction using
+semi-major axis/eccentricity/inclination/RAAN deltas), then capped to burn
+limits.
+
 Recovery planner counters are visible in debug/status details outputs
 (`recovery_planned`, `recovery_deferred`, `recovery_completed`).
 

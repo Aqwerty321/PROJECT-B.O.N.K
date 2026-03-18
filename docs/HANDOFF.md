@@ -113,7 +113,7 @@ ctest --test-dir build --output-on-failure
 | Endpoint | PS requires | Current status | Gap | Next task |
 |---|---|---|---|---|
 | `POST /api/telemetry` | strict ingest + ACK counters | implemented | no payload-level quality metrics in response | keep response PS-clean, expose extra diagnostics only in debug |
-| `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | adaptive-budget refinement and basic recovery planning exist; no slot-targeted recovery optimization yet | add orbital-slot-targeted recovery planner |
+| `POST /api/simulate/step` | timestamp advance + collision/maneuver counts | partial | slot-targeted recovery planner exists; gain tuning and mission-box objective shaping remain | calibrate recovery gains against station-keeping scenarios |
 | `POST /api/maneuver/schedule` | validation incl LOS/fuel/cooldown | partial | static LOS-at-burn-time check added (no latency/window planner yet) | integrate scheduler + station visibility window model |
 | `GET /api/visualization/snapshot` | geodetic satellite/debris visualization fields | implemented | no uncertainty/quality fields yet | add optional confidence metadata in debug path |
 | `GET /api/status` | health/tick/object counters | implemented | default schema remains PS-clean; details mode is non-PS extension | tune/expand optional details mode as needed |
@@ -128,7 +128,7 @@ ctest --test-dir build --output-on-failure
 
 ## Known open items before full Phase 4 integration
 
-- recovery planner is basic inverse-impulse logic; slot-targeted optimization remains pending
+- recovery planner is slot-targeted but heuristic; gain calibration and slot-box objectives remain pending
 - D-criterion is intentionally conservative; tune only through offline path
 - CI now enforces both adaptive regression gate and broad-phase sanity gate
 
@@ -138,7 +138,7 @@ ctest --test-dir build --output-on-failure
 - `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`,
   `dcriterion_rejected_total=0`)
 - `phase3_tick_benchmark 50 10000 30`:
-  mean `13.783 ms`, median `13.686 ms`, p95 `14.563 ms`
+  mean `12.803 ms`, median `13.119 ms`, p95 `13.937 ms`
 - `offline_multiobjective_tuner 240 50 10000 3 2`:
   strict-zero-risk enabled, disqualified `43`, safe population `197`, pareto
   set `3`
@@ -168,8 +168,8 @@ ctest --test-dir build --output-on-failure
   `GET /api/status?details=1` now returns optional internal metrics (queue,
   refinement, broad-phase load) while default response remains PS-compatible
 - Recovery planner note:
-  auto-COLA burns now create recovery requests; planner attempts cooldown/LOS/
-  fuel-safe recovery burns and reports plan/defer/complete counters
+  auto-COLA burns create recovery requests; planner computes slot-targeted
+  correction burns under cooldown/LOS/fuel guards and reports counters
 - Recovery smoke note:
   recovery plans are deferred while pending burns/collision pressure persist,
   and complete once a safe scheduling window is available

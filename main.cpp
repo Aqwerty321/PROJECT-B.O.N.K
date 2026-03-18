@@ -26,6 +26,7 @@
 #include "telemetry.hpp"
 #include "simulation_engine.hpp"
 #include "earth_frame.hpp"
+#include "orbit_math.hpp"
 
 static cascade::StateStore  g_store;
 static cascade::SimClock    g_clock;
@@ -91,11 +92,56 @@ static std::vector<ScheduledBurn> g_burn_queue;
 static std::unordered_map<std::string, double> g_last_burn_epoch_by_sat;
 static std::unordered_map<std::string, RecoveryRequest> g_recovery_requests_by_sat;
 
+static std::unordered_map<std::string, cascade::OrbitalElements> g_slot_elements_by_sat;
+
 static bool has_ground_station_los(const cascade::Vec3& sat_eci_km,
                                    double epoch_s) noexcept;
 static bool has_pending_burn_in_cooldown_window(const std::string& sat_id,
                                                 double epoch_s) noexcept;
 static bool has_any_pending_burn(const std::string& sat_id) noexcept;
+
+static bool get_current_elements(const cascade::StateStore& store,
+                                 std::size_t idx,
+                                 cascade::OrbitalElements& out) noexcept
+{
+    if (idx >= store.size()) return false;
+
+    if (store.elements_valid(idx)) {
+        out.a_km = store.a_km(idx);
+        out.e = store.e(idx);
+        out.i_rad = store.i_rad(idx);
+        out.raan_rad = store.raan_rad(idx);
+        out.argp_rad = store.argp_rad(idx);
+        out.M_rad = store.M_rad(idx);
+        out.n_rad_s = store.n_rad_s(idx);
+        out.p_km = store.p_km(idx);
+        out.rp_km = store.rp_km(idx);
+        out.ra_km = store.ra_km(idx);
+        return true;
+    }
+
+    const cascade::Vec3 r{store.rx(idx), store.ry(idx), store.rz(idx)};
+    const cascade::Vec3 v{store.vx(idx), store.vy(idx), store.vz(idx)};
+    return cascade::eci_to_elements(r, v, out);
+}
+
+static cascade::OrbitalElements derive_slot_elements_if_needed(const cascade::StateStore& store,
+                                                               std::size_t sat_idx) noexcept
+{
+    const std::string sat_id = store.id(sat_idx);
+    auto it = g_slot_elements_by_sat.find(sat_id);
+    if (it != g_slot_elements_by_sat.end()) {
+        return it->second;
+    }
+
+    cascade::OrbitalElements cur{};
+    if (get_current_elements(store, sat_idx, cur)) {
+        g_slot_elements_by_sat[sat_id] = cur;
+        return cur;
+    }
+
+    return cur;
+}
 
 static double dv_norm_km_s(const cascade::Vec3& dv) noexcept
 {
@@ -182,6 +228,76 @@ static void accumulate_recovery_request(const ScheduledBurn& burn,
     }
 }
 
+static cascade::Vec3 compute_slot_target_recovery_dv(const cascade::StateStore& store,
+                                                     std::size_t sat_idx,
+                                                     const RecoveryRequest& req) noexcept
+{
+    const cascade::OrbitalElements slot = derive_slot_elements_if_needed(store, sat_idx);
+    cascade::OrbitalElements cur{};
+    if (!get_current_elements(store, sat_idx, cur)) {
+        return req.remaining_delta_v_km_s;
+    }
+
+    const cascade::Vec3 r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+    const cascade::Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+
+    const double vx = v.x;
+    const double vy = v.y;
+    const double vz = v.z;
+    const double v_norm = std::sqrt(vx * vx + vy * vy + vz * vz);
+    if (v_norm < cascade::EPS_NUM) {
+        return req.remaining_delta_v_km_s;
+    }
+
+    const double rx = r.x;
+    const double ry = r.y;
+    const double rz = r.z;
+    const double r_norm = std::sqrt(rx * rx + ry * ry + rz * rz);
+    if (r_norm < cascade::EPS_NUM) {
+        return req.remaining_delta_v_km_s;
+    }
+
+    const cascade::Vec3 t_hat{vx / v_norm, vy / v_norm, vz / v_norm};
+    const cascade::Vec3 r_hat{rx / r_norm, ry / r_norm, rz / r_norm};
+
+    const double hx = ry * vz - rz * vy;
+    const double hy = rz * vx - rx * vz;
+    const double hz = rx * vy - ry * vx;
+    const double h_norm = std::sqrt(hx * hx + hy * hy + hz * hz);
+    if (h_norm < cascade::EPS_NUM) {
+        return req.remaining_delta_v_km_s;
+    }
+
+    const cascade::Vec3 n_hat{hx / h_norm, hy / h_norm, hz / h_norm};
+
+    const double da = slot.a_km - cur.a_km;
+    const double de = slot.e - cur.e;
+    const double di = slot.i_rad - cur.i_rad;
+    const double d_raan = cascade::wrap_0_2pi(slot.raan_rad - cur.raan_rad + cascade::PI) - cascade::PI;
+
+    const double scale_t = 6e-5;
+    const double scale_r = 2e-3;
+    const double scale_n = 6e-3;
+
+    const double dv_t = (da * scale_t) + (de * scale_r);
+    const double dv_r = de * (0.5 * scale_r);
+    const double dv_n = (di + d_raan) * scale_n;
+
+    cascade::Vec3 slot_dv{
+        t_hat.x * dv_t + r_hat.x * dv_r + n_hat.x * dv_n,
+        t_hat.y * dv_t + r_hat.y * dv_r + n_hat.y * dv_n,
+        t_hat.z * dv_t + r_hat.z * dv_r + n_hat.z * dv_n
+    };
+
+    const double slot_norm = dv_norm_km_s(slot_dv);
+    const double rem_norm = dv_norm_km_s(req.remaining_delta_v_km_s);
+    if (slot_norm < 2e-4 && rem_norm > cascade::EPS_NUM) {
+        slot_dv = req.remaining_delta_v_km_s;
+    }
+
+    return slot_dv;
+}
+
 static RecoveryPlanStats plan_recovery_burns(cascade::StateStore& store,
                                              double current_epoch_s,
                                              std::uint64_t tick_id)
@@ -219,7 +335,7 @@ static RecoveryPlanStats plan_recovery_burns(cascade::StateStore& store,
             continue;
         }
 
-        const cascade::Vec3 dv = it->second.remaining_delta_v_km_s;
+        const cascade::Vec3 dv = compute_slot_target_recovery_dv(store, idx, it->second);
         const double dv_norm = dv_norm_km_s(dv);
         if (dv_norm <= cascade::EPS_NUM) {
             g_recovery_requests_by_sat.erase(it);
@@ -944,6 +1060,11 @@ int main()
                 found_sat = true;
                 const double fuel_remaining = g_store.fuel_kg(idx);
                 const double mass_remaining = g_store.mass_kg(idx);
+
+                cascade::OrbitalElements slot_ref{};
+                if (get_current_elements(g_store, idx, slot_ref)) {
+                    g_slot_elements_by_sat[sat_id] = slot_ref;
+                }
 
                 const auto last_it = g_last_burn_epoch_by_sat.find(sat_id);
                 const double last_burn_epoch = (last_it == g_last_burn_epoch_by_sat.end())
