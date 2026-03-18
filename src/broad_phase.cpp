@@ -147,14 +147,16 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
 
                 ++out.shell_overlap_pass;
 
-                if (cfg.enable_dcriterion
-                    && store.elements_valid(i)
+                if (store.elements_valid(i)
                     && store.elements_valid(j)
                     && store.e(i) <= cfg.high_e_fail_open
                     && store.e(j) <= cfg.high_e_fail_open)
                 {
                     const double d = dcriterion_simple(store, i, j);
-                    if (d > cfg.dcriterion_threshold) {
+                    if (cfg.shadow_dcriterion && d > cfg.dcriterion_threshold) {
+                        ++out.dcriterion_shadow_rejected;
+                    }
+                    if (cfg.enable_dcriterion && d > cfg.dcriterion_threshold) {
                         ++out.dcriterion_rejected;
                         continue;
                     }
@@ -207,14 +209,16 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
 
             ++out.shell_overlap_pass;
 
-            if (cfg.enable_dcriterion
-                && store.elements_valid(i)
+            if (store.elements_valid(i)
                 && store.elements_valid(j)
                 && store.e(i) <= cfg.high_e_fail_open
                 && store.e(j) <= cfg.high_e_fail_open)
             {
                 const double d = dcriterion_simple(store, i, j);
-                if (d > cfg.dcriterion_threshold) {
+                if (cfg.shadow_dcriterion && d > cfg.dcriterion_threshold) {
+                    ++out.dcriterion_shadow_rejected;
+                }
+                if (cfg.enable_dcriterion && d > cfg.dcriterion_threshold) {
                     ++out.dcriterion_rejected;
                     continue;
                 }

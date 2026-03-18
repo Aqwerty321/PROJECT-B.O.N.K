@@ -159,6 +159,7 @@ int main(int argc, char** argv)
     std::uint64_t total_baseline = 0;
     std::uint64_t total_indexed = 0;
     std::uint64_t total_missing = 0;
+    std::uint64_t total_shadow_reject = 0;
     std::uint64_t total_dreject = 0;
 
     for (int s = 0; s < scenarios; ++s) {
@@ -191,6 +192,7 @@ int main(int argc, char** argv)
         total_baseline += static_cast<std::uint64_t>(baseline.size());
         total_indexed += static_cast<std::uint64_t>(indexed.candidates.size());
         total_missing += missing;
+        total_shadow_reject += indexed.dcriterion_shadow_rejected;
         total_dreject += d_result.dcriterion_rejected;
     }
 
@@ -201,6 +203,7 @@ int main(int argc, char** argv)
     std::cout << "baseline_shell_pairs_total=" << total_baseline << "\n";
     std::cout << "indexed_pairs_total=" << total_indexed << "\n";
     std::cout << "missing_vs_shell_baseline_total=" << total_missing << "\n";
+    std::cout << "dcriterion_shadow_rejected_total=" << total_shadow_reject << "\n";
     std::cout << "dcriterion_rejected_total=" << total_dreject << "\n";
     std::cout << "strict_dcriterion_zero=" << (strict_dcriterion_zero ? "true" : "false") << "\n";
 
