@@ -47,8 +47,16 @@ work.
     with explicit `RUNTIME_BUSY` reject path when full.
   - API contract gate now stress-checks queue pressure and verifies backpressure
     evidence (`RUNTIME_BUSY` or timeout/reject metrics).
-  - frontend/backend split packaging path (`5173` + `8000`) and proxy docs are
-    still pending.
+  - local split CORS controls are now supported via env (`PROJECTBONK_CORS_*`)
+    with `OPTIONS /api/*` preflight handling and CORS headers on API responses.
+    `PROJECTBONK_CORS_ALLOW_ORIGIN` supports comma-separated allowlists and the
+    server echoes only matching origins (`Vary: Origin` enabled).
+  - API contract gate now validates CORS preflight/allow-origin behavior in
+    addition to queue-pressure checks.
+  - queue latency observability added to `GET /api/status?details=1` as
+    per-command (`telemetry/schedule/step`) queue-wait and execution metrics.
+  - README now documents local split dev topology (`5173` + `8000`) and
+    reverse-proxy `/api` pass-through deployment.
 
 ## Scope to carry into networking refactor
 
@@ -110,9 +118,9 @@ Run on each networking PR:
 
 ## Next concrete tasks
 
-1. Add frontend dev topology docs and optional CORS guard for local split
-   workflow.
-2. Add deployment note for reverse-proxy `/api` pass-through to keep frontend
-   and backend topologies contract-consistent.
-3. Optional: add request latency histograms for queue wait + execution in
-   status details for tuning queue thresholds.
+1. Keep validating queue timeout/depth defaults under higher synthetic load to
+   tune `PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH` for CI and demo environments.
+2. Optional: export status `details` latency counters to external dashboards
+   (Prometheus sidecar/log pipeline) without changing API contract payloads.
+3. Continue preserving PS response-key/status compatibility as future network
+   packaging changes land.
