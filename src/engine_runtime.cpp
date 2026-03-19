@@ -375,6 +375,14 @@ std::string build_propagation_json(const StateStore& store,
     out += std::to_string(stats.narrow_plane_phase_hard_rejected_pairs_last_tick);
     out += ",\"narrow_plane_phase_fail_open_pairs\":";
     out += std::to_string(stats.narrow_plane_phase_fail_open_pairs_last_tick);
+    out += ",\"narrow_moid_evaluated_pairs\":";
+    out += std::to_string(stats.narrow_moid_evaluated_pairs_last_tick);
+    out += ",\"narrow_moid_shadow_rejected_pairs\":";
+    out += std::to_string(stats.narrow_moid_shadow_rejected_pairs_last_tick);
+    out += ",\"narrow_moid_hard_rejected_pairs\":";
+    out += std::to_string(stats.narrow_moid_hard_rejected_pairs_last_tick);
+    out += ",\"narrow_moid_fail_open_pairs\":";
+    out += std::to_string(stats.narrow_moid_fail_open_pairs_last_tick);
     out += ",\"auto_planned_maneuvers\":";
     out += std::to_string(stats.auto_planned_last_tick);
     out += ",\"recovery_pending_marked\":";
@@ -468,6 +476,14 @@ std::string build_propagation_json(const StateStore& store,
     out += std::to_string(stats.narrow_plane_phase_hard_rejected_pairs_total);
     out += ",\"narrow_plane_phase_fail_open_pairs\":";
     out += std::to_string(stats.narrow_plane_phase_fail_open_pairs_total);
+    out += ",\"narrow_moid_evaluated_pairs\":";
+    out += std::to_string(stats.narrow_moid_evaluated_pairs_total);
+    out += ",\"narrow_moid_shadow_rejected_pairs\":";
+    out += std::to_string(stats.narrow_moid_shadow_rejected_pairs_total);
+    out += ",\"narrow_moid_hard_rejected_pairs\":";
+    out += std::to_string(stats.narrow_moid_hard_rejected_pairs_total);
+    out += ",\"narrow_moid_fail_open_pairs\":";
+    out += std::to_string(stats.narrow_moid_fail_open_pairs_total);
     out += ",\"auto_planned_maneuvers\":";
     out += std::to_string(stats.auto_planned_total);
     out += ",\"recovery_pending_marked\":";
@@ -583,6 +599,16 @@ std::string build_propagation_json(const StateStore& store,
     out += fmt_double(cfg.narrow_phase.phase_angle_threshold_rad, 6);
     out += ",\"narrow_phase_max_e\":";
     out += fmt_double(cfg.narrow_phase.phase_max_e, 3);
+    out += ",\"narrow_moid_shadow\":";
+    out += (cfg.narrow_phase.moid_shadow ? "true" : "false");
+    out += ",\"narrow_moid_filter\":";
+    out += (cfg.narrow_phase.moid_filter ? "true" : "false");
+    out += ",\"narrow_moid_samples\":";
+    out += std::to_string(cfg.narrow_phase.moid_samples);
+    out += ",\"narrow_moid_reject_threshold_km\":";
+    out += fmt_double(cfg.narrow_phase.moid_reject_threshold_km, 3);
+    out += ",\"narrow_moid_max_e\":";
+    out += fmt_double(cfg.narrow_phase.moid_max_e, 3);
     out += ",\"recovery_scale_t\":";
     out += fmt_double(recovery_cfg.scale_t, 8);
     out += ",\"recovery_scale_r\":";
@@ -657,6 +683,11 @@ EngineRuntime::EngineRuntime()
     step_cfg_.narrow_phase.plane_angle_threshold_rad = 1.3089969389957472;
     step_cfg_.narrow_phase.phase_angle_threshold_rad = 2.6179938779914944;
     step_cfg_.narrow_phase.phase_max_e = 0.2;
+    step_cfg_.narrow_phase.moid_shadow = true;
+    step_cfg_.narrow_phase.moid_filter = false;
+    step_cfg_.narrow_phase.moid_samples = 24;
+    step_cfg_.narrow_phase.moid_reject_threshold_km = 2.0;
+    step_cfg_.narrow_phase.moid_max_e = 0.2;
 
     step_cfg_.narrow_phase.tca_guard_km =
         env_double("PROJECTBONK_NARROW_TCA_GUARD_KM", 0.02, 0.0, 1.0);
@@ -694,6 +725,17 @@ EngineRuntime::EngineRuntime()
         env_double("PROJECTBONK_NARROW_PHASE_ANGLE_THRESHOLD_RAD", 2.6179938779914944, 0.0, PI);
     step_cfg_.narrow_phase.phase_max_e =
         env_double("PROJECTBONK_NARROW_PHASE_MAX_E", 0.2, 0.0, 0.99);
+    step_cfg_.narrow_phase.moid_shadow =
+        env_u64("PROJECTBONK_NARROW_MOID_SHADOW", 1, 0, 1) == 1;
+    step_cfg_.narrow_phase.moid_filter =
+        env_u64("PROJECTBONK_NARROW_MOID_FILTER", 0, 0, 1) == 1;
+    step_cfg_.narrow_phase.moid_samples = static_cast<std::uint32_t>(
+        env_u64("PROJECTBONK_NARROW_MOID_SAMPLES", 24, 6, 128)
+    );
+    step_cfg_.narrow_phase.moid_reject_threshold_km =
+        env_double("PROJECTBONK_NARROW_MOID_REJECT_THRESHOLD_KM", 2.0, 0.0, 50.0);
+    step_cfg_.narrow_phase.moid_max_e =
+        env_double("PROJECTBONK_NARROW_MOID_MAX_E", 0.2, 0.0, 0.99);
 
     recovery_cfg_ = recovery_planner_config_from_env();
 
@@ -1393,6 +1435,10 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         prop_stats_.narrow_plane_phase_shadow_rejected_pairs_last_tick = stats.narrow_plane_phase_shadow_rejected_pairs;
         prop_stats_.narrow_plane_phase_hard_rejected_pairs_last_tick = stats.narrow_plane_phase_hard_rejected_pairs;
         prop_stats_.narrow_plane_phase_fail_open_pairs_last_tick = stats.narrow_plane_phase_fail_open_pairs;
+        prop_stats_.narrow_moid_evaluated_pairs_last_tick = stats.narrow_moid_evaluated_pairs;
+        prop_stats_.narrow_moid_shadow_rejected_pairs_last_tick = stats.narrow_moid_shadow_rejected_pairs;
+        prop_stats_.narrow_moid_hard_rejected_pairs_last_tick = stats.narrow_moid_hard_rejected_pairs;
+        prop_stats_.narrow_moid_fail_open_pairs_last_tick = stats.narrow_moid_fail_open_pairs;
         prop_stats_.auto_planned_last_tick = auto_planned + stationkeeping_recovery_planned;
         prop_stats_.recovery_pending_marked_last_tick = exec_stats.recovery_pending_marked;
         prop_stats_.recovery_planned_last_tick = rec_plan.planned;
@@ -1449,6 +1495,10 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         prop_stats_.narrow_plane_phase_shadow_rejected_pairs_total += stats.narrow_plane_phase_shadow_rejected_pairs;
         prop_stats_.narrow_plane_phase_hard_rejected_pairs_total += stats.narrow_plane_phase_hard_rejected_pairs;
         prop_stats_.narrow_plane_phase_fail_open_pairs_total += stats.narrow_plane_phase_fail_open_pairs;
+        prop_stats_.narrow_moid_evaluated_pairs_total += stats.narrow_moid_evaluated_pairs;
+        prop_stats_.narrow_moid_shadow_rejected_pairs_total += stats.narrow_moid_shadow_rejected_pairs;
+        prop_stats_.narrow_moid_hard_rejected_pairs_total += stats.narrow_moid_hard_rejected_pairs;
+        prop_stats_.narrow_moid_fail_open_pairs_total += stats.narrow_moid_fail_open_pairs;
         prop_stats_.auto_planned_total += auto_planned + stationkeeping_recovery_planned;
         prop_stats_.recovery_pending_marked_total += exec_stats.recovery_pending_marked;
         prop_stats_.recovery_planned_total += rec_plan.planned;
@@ -1818,6 +1868,12 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(prop_stats_.narrow_plane_phase_hard_rejected_pairs_total);
         out += ",\"narrow_plane_phase_fail_open_pairs_total\":";
         out += std::to_string(prop_stats_.narrow_plane_phase_fail_open_pairs_total);
+        out += ",\"narrow_moid_shadow_rejected_pairs_total\":";
+        out += std::to_string(prop_stats_.narrow_moid_shadow_rejected_pairs_total);
+        out += ",\"narrow_moid_hard_rejected_pairs_total\":";
+        out += std::to_string(prop_stats_.narrow_moid_hard_rejected_pairs_total);
+        out += ",\"narrow_moid_fail_open_pairs_total\":";
+        out += std::to_string(prop_stats_.narrow_moid_fail_open_pairs_total);
         out += ",\"collision_threshold_km\":";
         out += fmt_double(COLLISION_THRESHOLD_KM, 3);
         out += ",\"narrow_tca_guard_km\":";
@@ -1879,6 +1935,14 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(prop_stats_.narrow_plane_phase_hard_rejected_pairs_last_tick);
         out += ",\"narrow_plane_phase_fail_open_pairs\":";
         out += std::to_string(prop_stats_.narrow_plane_phase_fail_open_pairs_last_tick);
+        out += ",\"narrow_moid_evaluated_pairs\":";
+        out += std::to_string(prop_stats_.narrow_moid_evaluated_pairs_last_tick);
+        out += ",\"narrow_moid_shadow_rejected_pairs\":";
+        out += std::to_string(prop_stats_.narrow_moid_shadow_rejected_pairs_last_tick);
+        out += ",\"narrow_moid_hard_rejected_pairs\":";
+        out += std::to_string(prop_stats_.narrow_moid_hard_rejected_pairs_last_tick);
+        out += ",\"narrow_moid_fail_open_pairs\":";
+        out += std::to_string(prop_stats_.narrow_moid_fail_open_pairs_last_tick);
         out += ",\"broad_candidates\":";
         out += std::to_string(prop_stats_.broad_candidates_last_tick);
         out += ",\"broad_pairs_considered\":";
@@ -1964,6 +2028,14 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(prop_stats_.narrow_plane_phase_hard_rejected_pairs_total);
         out += ",\"narrow_plane_phase_fail_open_pairs\":";
         out += std::to_string(prop_stats_.narrow_plane_phase_fail_open_pairs_total);
+        out += ",\"narrow_moid_evaluated_pairs\":";
+        out += std::to_string(prop_stats_.narrow_moid_evaluated_pairs_total);
+        out += ",\"narrow_moid_shadow_rejected_pairs\":";
+        out += std::to_string(prop_stats_.narrow_moid_shadow_rejected_pairs_total);
+        out += ",\"narrow_moid_hard_rejected_pairs\":";
+        out += std::to_string(prop_stats_.narrow_moid_hard_rejected_pairs_total);
+        out += ",\"narrow_moid_fail_open_pairs\":";
+        out += std::to_string(prop_stats_.narrow_moid_fail_open_pairs_total);
         out += ",\"broad_dcriterion_shadow_rejected\":";
         out += std::to_string(prop_stats_.broad_dcriterion_shadow_rejected_total);
         out += ",\"broad_candidates\":";

@@ -102,6 +102,16 @@ Optional CORS controls:
   threshold (default `2.6179938779914944`, i.e. 150 deg)
 - `PROJECTBONK_NARROW_PHASE_MAX_E` max eccentricity for plane/phase gating
   (default `0.2`; higher-e pairs fail-open)
+- `PROJECTBONK_NARROW_MOID_SHADOW` enable sampled MOID-proxy shadow evidence
+  counters (default `1`)
+- `PROJECTBONK_NARROW_MOID_FILTER` enable sampled MOID-proxy hard filtering
+  (default `0`, recommended off until evidence is calibrated)
+- `PROJECTBONK_NARROW_MOID_SAMPLES` sampled points per orbit for MOID-proxy
+  evaluation (default `24`)
+- `PROJECTBONK_NARROW_MOID_REJECT_THRESHOLD_KM` conservative MOID-proxy reject
+  threshold (default `2.0`)
+- `PROJECTBONK_NARROW_MOID_MAX_E` max eccentricity for MOID-proxy evaluation
+  (default `0.2`; higher-e pairs fail-open)
 
 The backend echoes `Access-Control-Allow-Origin` only for matching allowed
 origins and sets `Vary: Origin` for cache safety.
@@ -307,6 +317,9 @@ and narrow-phase plane/phase gate evidence:
 - `narrow_plane_phase_shadow_rejected_pairs_total`
 - `narrow_plane_phase_hard_rejected_pairs_total`
 - `narrow_plane_phase_fail_open_pairs_total`
+- `narrow_moid_shadow_rejected_pairs_total`
+- `narrow_moid_hard_rejected_pairs_total`
+- `narrow_moid_fail_open_pairs_total`
 
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.

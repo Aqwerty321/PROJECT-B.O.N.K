@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace cascade {
@@ -16,6 +17,12 @@ namespace cascade {
 namespace {
 
 struct PlanePhaseGateResult {
+    bool evaluated = false;
+    bool reject = false;
+    bool fail_open = false;
+};
+
+struct MoidProxyGateResult {
     bool evaluated = false;
     bool reject = false;
     bool fail_open = false;
@@ -120,6 +127,118 @@ inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
     if (phase_delta > cfg.phase_angle_threshold_rad) {
         out.reject = true;
     }
+    return out;
+}
+
+inline MoidProxyGateResult evaluate_moid_proxy_gate(const StateStore& store,
+                                                    std::size_t sat_idx,
+                                                    std::size_t obj_idx,
+                                                    double epoch_s,
+                                                    const NarrowPhaseConfig& cfg) noexcept
+{
+    MoidProxyGateResult out{};
+    out.evaluated = true;
+
+    const bool sat_valid = store.elements_valid(sat_idx);
+    const bool obj_valid = store.elements_valid(obj_idx);
+    if (!sat_valid || !obj_valid) {
+        out.fail_open = true;
+        return out;
+    }
+
+    OrbitalElements sat_el{};
+    sat_el.a_km = store.a_km(sat_idx);
+    sat_el.e = store.e(sat_idx);
+    sat_el.i_rad = store.i_rad(sat_idx);
+    sat_el.raan_rad = store.raan_rad(sat_idx);
+    sat_el.argp_rad = store.argp_rad(sat_idx);
+    sat_el.M_rad = store.M_rad(sat_idx);
+    sat_el.n_rad_s = store.n_rad_s(sat_idx);
+    sat_el.p_km = store.p_km(sat_idx);
+    sat_el.rp_km = store.rp_km(sat_idx);
+    sat_el.ra_km = store.ra_km(sat_idx);
+
+    OrbitalElements obj_el{};
+    obj_el.a_km = store.a_km(obj_idx);
+    obj_el.e = store.e(obj_idx);
+    obj_el.i_rad = store.i_rad(obj_idx);
+    obj_el.raan_rad = store.raan_rad(obj_idx);
+    obj_el.argp_rad = store.argp_rad(obj_idx);
+    obj_el.M_rad = store.M_rad(obj_idx);
+    obj_el.n_rad_s = store.n_rad_s(obj_idx);
+    obj_el.p_km = store.p_km(obj_idx);
+    obj_el.rp_km = store.rp_km(obj_idx);
+    obj_el.ra_km = store.ra_km(obj_idx);
+
+    if (!std::isfinite(sat_el.a_km)
+        || !std::isfinite(sat_el.e)
+        || !std::isfinite(obj_el.a_km)
+        || !std::isfinite(obj_el.e)
+        || sat_el.e > cfg.moid_max_e
+        || obj_el.e > cfg.moid_max_e) {
+        out.fail_open = true;
+        return out;
+    }
+
+    const double sat_epoch = store.telemetry_epoch_s(sat_idx);
+    const double obj_epoch = store.telemetry_epoch_s(obj_idx);
+    const double sat_dt = std::max(0.0, epoch_s - sat_epoch);
+    const double obj_dt = std::max(0.0, epoch_s - obj_epoch);
+    if (!std::isfinite(sat_dt) || !std::isfinite(obj_dt)) {
+        out.fail_open = true;
+        return out;
+    }
+
+    apply_j2_secular(sat_el, sat_dt);
+    apply_j2_secular(obj_el, obj_dt);
+
+    const std::uint32_t samples = std::max<std::uint32_t>(cfg.moid_samples, 6U);
+    const double two_pi = TWO_PI;
+    const double step = two_pi / static_cast<double>(samples);
+
+    double min_d2 = std::numeric_limits<double>::infinity();
+    bool any_valid = false;
+
+    for (std::uint32_t s = 0; s < samples; ++s) {
+        const double sat_u = step * static_cast<double>(s);
+        OrbitalElements sat_sample = sat_el;
+        sat_sample.M_rad = sat_u;
+
+        Vec3 sat_r{};
+        Vec3 sat_v{};
+        if (!elements_to_eci(sat_sample, sat_r, sat_v)) {
+            continue;
+        }
+
+        for (std::uint32_t d = 0; d < samples; ++d) {
+            const double obj_u = step * static_cast<double>(d);
+            OrbitalElements obj_sample = obj_el;
+            obj_sample.M_rad = obj_u;
+
+            Vec3 obj_r{};
+            Vec3 obj_v{};
+            if (!elements_to_eci(obj_sample, obj_r, obj_v)) {
+                continue;
+            }
+
+            any_valid = true;
+            const double dx = sat_r.x - obj_r.x;
+            const double dy = sat_r.y - obj_r.y;
+            const double dz = sat_r.z - obj_r.z;
+            const double d2 = norm2(dx, dy, dz);
+            if (d2 < min_d2) {
+                min_d2 = d2;
+            }
+        }
+    }
+
+    if (!any_valid || !std::isfinite(min_d2)) {
+        out.fail_open = true;
+        return out;
+    }
+
+    const double threshold_km = std::max(0.0, cfg.moid_reject_threshold_km);
+    out.reject = std::sqrt(min_d2) > threshold_km;
     return out;
 }
 
@@ -376,6 +495,8 @@ bool run_simulation_step(StateStore& store,
                                      * (screening_threshold_km + full_refine_band_km);
     const bool plane_phase_shadow = cfg.narrow_phase.plane_phase_shadow;
     const bool plane_phase_filter = cfg.narrow_phase.plane_phase_filter;
+    const bool moid_shadow = cfg.narrow_phase.moid_shadow;
+    const bool moid_filter = cfg.narrow_phase.moid_filter;
 
     const double high_rel_speed_km_s = std::max(0.0, cfg.narrow_phase.high_rel_speed_km_s);
     const double high_rel_speed_extra_band_km =
@@ -484,9 +605,31 @@ bool run_simulation_step(StateStore& store,
                 if (plane_phase_shadow) {
                     ++out.narrow_plane_phase_shadow_rejected_pairs;
                 }
-                if (plane_phase_filter && !plane_phase.fail_open) {
+                if (plane_phase_filter && !plane_phase.fail_open && !uncertainty_promoted) {
                     ++out.narrow_plane_phase_hard_rejected_pairs;
                     d2 = std::max(d2, std::max(refine_band_sq, full_refine_band_sq) + 1.0);
+                } else if (plane_phase_filter && uncertainty_promoted) {
+                    ++out.narrow_plane_phase_fail_open_pairs;
+                }
+            }
+
+            MoidProxyGateResult moid{};
+            moid = evaluate_moid_proxy_gate(store, sat_idx, obj_idx, target_epoch, cfg.narrow_phase);
+            if (moid.evaluated) {
+                ++out.narrow_moid_evaluated_pairs;
+            }
+            if (moid.fail_open) {
+                ++out.narrow_moid_fail_open_pairs;
+            }
+            if (moid.reject) {
+                if (moid_shadow) {
+                    ++out.narrow_moid_shadow_rejected_pairs;
+                }
+                if (moid_filter && !moid.fail_open && !uncertainty_promoted) {
+                    ++out.narrow_moid_hard_rejected_pairs;
+                    d2 = std::max(d2, std::max(refine_band_sq, full_refine_band_sq) + 1.0);
+                } else if (moid_filter && uncertainty_promoted) {
+                    ++out.narrow_moid_fail_open_pairs;
                 }
             }
         }

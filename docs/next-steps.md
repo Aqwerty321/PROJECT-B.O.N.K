@@ -283,8 +283,15 @@ Status update (current branch):
   - `PROJECTBONK_NARROW_PLANE_ANGLE_THRESHOLD_RAD`
   - `PROJECTBONK_NARROW_PHASE_ANGLE_THRESHOLD_RAD`
   - `PROJECTBONK_NARROW_PHASE_MAX_E`
+- Added sampled MOID-proxy shadow stage scaffolding (still shadow-first):
+  - `PROJECTBONK_NARROW_MOID_SHADOW` (default `1`)
+  - `PROJECTBONK_NARROW_MOID_FILTER` (default `0`)
+  - `PROJECTBONK_NARROW_MOID_SAMPLES`
+  - `PROJECTBONK_NARROW_MOID_REJECT_THRESHOLD_KM`
+  - `PROJECTBONK_NARROW_MOID_MAX_E`
 - Added observability counters in debug/status details and calibration probe:
-  - evaluated/shadow-rejected/hard-rejected/fail-open pair totals
+  - plane/phase and MOID-proxy evaluated/shadow-rejected/hard-rejected/
+    fail-open pair totals
   - hard-rejected remains expected `0` under default shadow-first policy
 
 ### P1.3 Maneuver planner fidelity upgrade path
