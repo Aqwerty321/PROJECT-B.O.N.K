@@ -20,11 +20,11 @@ struct RecoveryPlannerConfig {
     double scale_n = 6e-3;
 
     // If computed slot correction is too small, use remaining dv request.
-    double fallback_norm_km_s = 2e-4;
+    double fallback_norm_km_s = 1e-4;
 
     // Prevent over-correction beyond remaining requested recovery budget.
     // 1.0 means do not command more norm than remaining request.
-    double max_request_ratio = 1.0;
+    double max_request_ratio = 0.05;
 };
 
 RecoveryPlannerConfig recovery_planner_config_from_env();

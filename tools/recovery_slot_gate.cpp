@@ -70,8 +70,8 @@ struct RecoveryGains {
     double scale_r = 2e-3;
     double radial_share = 0.5;
     double scale_n = 6e-3;
-    double fallback_norm_km_s = 2e-4;
-    double max_request_ratio = 1.0;
+    double fallback_norm_km_s = 1e-4;
+    double max_request_ratio = 0.05;
 };
 
 struct NamedGains {
@@ -643,7 +643,7 @@ std::vector<NamedGains> build_sweep_candidates()
                 g.scale_r *= mr;
                 g.scale_n *= mn;
                 g.radial_share = 0.5;
-                g.fallback_norm_km_s = 2e-4;
+                g.fallback_norm_km_s = base.fallback_norm_km_s;
 
                 std::ostringstream name;
                 if (mt == 1.0 && mr == 1.0 && mn == 1.0) {
