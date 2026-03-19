@@ -583,6 +583,21 @@ GateResult run_contract_checks(std::string_view host,
             out.reason = "status details missing narrow uncertainty promoted total";
             return out;
         }
+        if (!contains(res->body, "\"narrow_plane_phase_shadow_rejected_pairs_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase shadow total";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_plane_phase_hard_rejected_pairs_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase hard rejected total";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_plane_phase_fail_open_pairs_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase fail-open total";
+            return out;
+        }
         if (!contains(res->body, "\"broad_phase_shadow_dcriterion_rejected_total\"")) {
             out.pass = false;
             out.reason = "status details missing broad dcriterion shadow total";
@@ -596,6 +611,26 @@ GateResult run_contract_checks(std::string_view host,
         if (!contains(res->body, "\"narrow_uncertainty_promoted_pairs\"")) {
             out.pass = false;
             out.reason = "status details missing narrow uncertainty promoted last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_plane_phase_evaluated_pairs\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase evaluated last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_plane_phase_shadow_rejected_pairs\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase shadow last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_plane_phase_hard_rejected_pairs\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase hard rejected last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_plane_phase_fail_open_pairs\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase fail-open last tick metric";
             return out;
         }
         if (!contains(res->body, "\"collision_threshold_km\"")) {

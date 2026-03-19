@@ -267,12 +267,25 @@ Status: partial progress completed
 
 - Deliverables:
   - add plane-intersection and phase-gating stage(s) before expensive refine
+    (shadow-first rollout; hard reject remains opt-in until evidence stabilizes)
   - evaluate MOID stage feasibility (full solver or conservative approximation)
 - Acceptance:
   - reduced narrow pairs/compute on benchmark scenarios
   - zero false negatives preserved under gate suite
 - Verify:
   - phase4 aggregate gate + benchmark comparisons
+
+Status update (current branch):
+
+- Introduced narrow plane/phase pre-refine gate scaffolding in shadow-first mode:
+  - `PROJECTBONK_NARROW_PLANE_PHASE_SHADOW` (default `1`)
+  - `PROJECTBONK_NARROW_PLANE_PHASE_FILTER` (default `0`)
+  - `PROJECTBONK_NARROW_PLANE_ANGLE_THRESHOLD_RAD`
+  - `PROJECTBONK_NARROW_PHASE_ANGLE_THRESHOLD_RAD`
+  - `PROJECTBONK_NARROW_PHASE_MAX_E`
+- Added observability counters in debug/status details and calibration probe:
+  - evaluated/shadow-rejected/hard-rejected/fail-open pair totals
+  - hard-rejected remains expected `0` under default shadow-first policy
 
 ### P1.3 Maneuver planner fidelity upgrade path
 

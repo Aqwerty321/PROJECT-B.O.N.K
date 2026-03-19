@@ -396,6 +396,10 @@ int main(int argc, char** argv)
     std::uint64_t full_refined_total = 0;
     std::uint64_t full_budget_alloc_total = 0;
     std::uint64_t full_budget_exhausted_total = 0;
+    std::uint64_t plane_phase_evaluated_total = 0;
+    std::uint64_t plane_phase_shadow_rejected_total = 0;
+    std::uint64_t plane_phase_hard_rejected_total = 0;
+    std::uint64_t plane_phase_fail_open_total = 0;
     std::uint64_t collisions_total = 0;
 
     for (int t = 0; t < ticks; ++t) {
@@ -411,6 +415,10 @@ int main(int argc, char** argv)
         full_refined_total += stats.narrow_full_refined_pairs;
         full_budget_alloc_total += stats.narrow_full_refine_budget_allocated;
         full_budget_exhausted_total += stats.narrow_full_refine_budget_exhausted;
+        plane_phase_evaluated_total += stats.narrow_plane_phase_evaluated_pairs;
+        plane_phase_shadow_rejected_total += stats.narrow_plane_phase_shadow_rejected_pairs;
+        plane_phase_hard_rejected_total += stats.narrow_plane_phase_hard_rejected_pairs;
+        plane_phase_fail_open_total += stats.narrow_plane_phase_fail_open_pairs;
         collisions_total += stats.collisions_detected;
     }
 
@@ -441,6 +449,10 @@ int main(int argc, char** argv)
     std::cout << "narrow_full_refined_pairs_total=" << full_refined_total << "\n";
     std::cout << "narrow_full_refine_budget_allocated_total=" << full_budget_alloc_total << "\n";
     std::cout << "narrow_full_refine_budget_exhausted_total=" << full_budget_exhausted_total << "\n";
+    std::cout << "narrow_plane_phase_evaluated_pairs_total=" << plane_phase_evaluated_total << "\n";
+    std::cout << "narrow_plane_phase_shadow_rejected_pairs_total=" << plane_phase_shadow_rejected_total << "\n";
+    std::cout << "narrow_plane_phase_hard_rejected_pairs_total=" << plane_phase_hard_rejected_total << "\n";
+    std::cout << "narrow_plane_phase_fail_open_pairs_total=" << plane_phase_fail_open_total << "\n";
     std::cout << "collisions_detected_total=" << collisions_total << "\n";
     std::cout << "narrow_phase_calibration_probe_result=PASS\n";
     return 0;

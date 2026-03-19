@@ -76,6 +76,10 @@ struct PropagationStats {
     std::uint64_t narrow_full_refine_budget_allocated_last_tick = 0;
     std::uint64_t narrow_full_refine_budget_exhausted_last_tick = 0;
     std::uint64_t narrow_uncertainty_promoted_pairs_last_tick = 0;
+    std::uint64_t narrow_plane_phase_evaluated_pairs_last_tick = 0;
+    std::uint64_t narrow_plane_phase_shadow_rejected_pairs_last_tick = 0;
+    std::uint64_t narrow_plane_phase_hard_rejected_pairs_last_tick = 0;
+    std::uint64_t narrow_plane_phase_fail_open_pairs_last_tick = 0;
     std::uint64_t auto_planned_last_tick = 0;
     std::uint64_t recovery_pending_marked_last_tick = 0;
     std::uint64_t recovery_planned_last_tick = 0;
@@ -119,6 +123,10 @@ struct PropagationStats {
     std::uint64_t narrow_full_refine_budget_allocated_total = 0;
     std::uint64_t narrow_full_refine_budget_exhausted_total = 0;
     std::uint64_t narrow_uncertainty_promoted_pairs_total = 0;
+    std::uint64_t narrow_plane_phase_evaluated_pairs_total = 0;
+    std::uint64_t narrow_plane_phase_shadow_rejected_pairs_total = 0;
+    std::uint64_t narrow_plane_phase_hard_rejected_pairs_total = 0;
+    std::uint64_t narrow_plane_phase_fail_open_pairs_total = 0;
     std::uint64_t auto_planned_total = 0;
     std::uint64_t recovery_pending_marked_total = 0;
     std::uint64_t recovery_planned_total = 0;

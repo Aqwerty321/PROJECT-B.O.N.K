@@ -92,6 +92,16 @@ Optional CORS controls:
   override (default `202`, allowed range `200..299`)
 - `PROJECTBONK_MAX_STEP_SECONDS` max allowed `step_seconds` for
   `POST /api/simulate/step` (default `86400`)
+- `PROJECTBONK_NARROW_PLANE_PHASE_SHADOW` enable pre-refine plane/phase shadow
+  evidence counters (default `1`)
+- `PROJECTBONK_NARROW_PLANE_PHASE_FILTER` enable hard pre-refine plane/phase
+  filtering (default `0`, recommended off until evidence is calibrated)
+- `PROJECTBONK_NARROW_PLANE_ANGLE_THRESHOLD_RAD` conservative plane-separation
+  threshold (default `1.3089969389957472`, i.e. 75 deg)
+- `PROJECTBONK_NARROW_PHASE_ANGLE_THRESHOLD_RAD` conservative phase-separation
+  threshold (default `2.6179938779914944`, i.e. 150 deg)
+- `PROJECTBONK_NARROW_PHASE_MAX_E` max eccentricity for plane/phase gating
+  (default `0.2`; higher-e pairs fail-open)
 
 The backend echoes `Access-Control-Allow-Origin` only for matching allowed
 origins and sets `Vary: Origin` for cache safety.
@@ -291,6 +301,12 @@ and operational HTTP policy values:
 
 - `schedule_success_status`
 - `max_step_seconds`
+
+and narrow-phase plane/phase gate evidence:
+
+- `narrow_plane_phase_shadow_rejected_pairs_total`
+- `narrow_plane_phase_hard_rejected_pairs_total`
+- `narrow_plane_phase_fail_open_pairs_total`
 
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.

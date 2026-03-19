@@ -33,6 +33,13 @@ struct NarrowPhaseConfig {
     std::uint32_t full_refine_samples = 16;
     double full_refine_substep_s = 1.0;
     double micro_refine_max_step_s = 5.0;
+
+    // Conservative pre-refine gate (plane/phase) rollout.
+    bool plane_phase_shadow = true;
+    bool plane_phase_filter = false;
+    double plane_angle_threshold_rad = 1.3089969389957472; // 75 deg
+    double phase_angle_threshold_rad = 2.6179938779914944; // 150 deg
+    double phase_max_e = 0.2;
 };
 
 struct StepRunStats {
@@ -55,6 +62,10 @@ struct StepRunStats {
     std::uint64_t narrow_full_refine_budget_allocated = 0;
     std::uint64_t narrow_full_refine_budget_exhausted = 0;
     std::uint64_t narrow_uncertainty_promoted_pairs = 0;
+    std::uint64_t narrow_plane_phase_evaluated_pairs = 0;
+    std::uint64_t narrow_plane_phase_shadow_rejected_pairs = 0;
+    std::uint64_t narrow_plane_phase_hard_rejected_pairs = 0;
+    std::uint64_t narrow_plane_phase_fail_open_pairs = 0;
     std::vector<std::uint32_t> collision_sat_indices;
 
     // Broad-phase (conservative shell overlap)

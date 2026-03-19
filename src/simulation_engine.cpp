@@ -15,9 +15,112 @@ namespace cascade {
 
 namespace {
 
+struct PlanePhaseGateResult {
+    bool evaluated = false;
+    bool reject = false;
+    bool fail_open = false;
+};
+
 inline double norm2(double x, double y, double z) noexcept
 {
     return x * x + y * y + z * z;
+}
+
+inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
+                                                      std::size_t sat_idx,
+                                                      std::size_t obj_idx,
+                                                      const NarrowPhaseConfig& cfg) noexcept
+{
+    PlanePhaseGateResult out{};
+    out.evaluated = true;
+
+    const bool sat_valid = store.elements_valid(sat_idx);
+    const bool obj_valid = store.elements_valid(obj_idx);
+    if (!sat_valid || !obj_valid) {
+        out.fail_open = true;
+        return out;
+    }
+
+    const double sat_e = store.e(sat_idx);
+    const double obj_e = store.e(obj_idx);
+    if (!std::isfinite(sat_e) || !std::isfinite(obj_e)) {
+        out.fail_open = true;
+        return out;
+    }
+    if (sat_e > cfg.phase_max_e || obj_e > cfg.phase_max_e) {
+        out.fail_open = true;
+        return out;
+    }
+
+    const double sat_i = store.i_rad(sat_idx);
+    const double sat_raan = store.raan_rad(sat_idx);
+    const double obj_i = store.i_rad(obj_idx);
+    const double obj_raan = store.raan_rad(obj_idx);
+    const double sat_argp = store.argp_rad(sat_idx);
+    const double sat_M = store.M_rad(sat_idx);
+    const double obj_argp = store.argp_rad(obj_idx);
+    const double obj_M = store.M_rad(obj_idx);
+
+    if (!std::isfinite(sat_i)
+        || !std::isfinite(sat_raan)
+        || !std::isfinite(obj_i)
+        || !std::isfinite(obj_raan)
+        || !std::isfinite(sat_argp)
+        || !std::isfinite(sat_M)
+        || !std::isfinite(obj_argp)
+        || !std::isfinite(obj_M)) {
+        out.fail_open = true;
+        return out;
+    }
+
+    const Vec3 sat_h{
+        std::sin(sat_i) * std::sin(sat_raan),
+        -std::sin(sat_i) * std::cos(sat_raan),
+        std::cos(sat_i)
+    };
+    const Vec3 obj_h{
+        std::sin(obj_i) * std::sin(obj_raan),
+        -std::sin(obj_i) * std::cos(obj_raan),
+        std::cos(obj_i)
+    };
+
+    const double sat_h_norm = std::sqrt(norm2(sat_h.x, sat_h.y, sat_h.z));
+    const double obj_h_norm = std::sqrt(norm2(obj_h.x, obj_h.y, obj_h.z));
+    if (!(sat_h_norm > EPS_NUM) || !(obj_h_norm > EPS_NUM)) {
+        out.fail_open = true;
+        return out;
+    }
+
+    const double cos_plane = std::clamp(
+        (sat_h.x * obj_h.x + sat_h.y * obj_h.y + sat_h.z * obj_h.z)
+            / (sat_h_norm * obj_h_norm),
+        -1.0,
+        1.0
+    );
+    const double plane_angle = std::acos(cos_plane);
+    if (!std::isfinite(plane_angle)) {
+        out.fail_open = true;
+        return out;
+    }
+
+    if (plane_angle > cfg.plane_angle_threshold_rad) {
+        out.reject = true;
+        return out;
+    }
+
+    const double sat_phase = wrap_0_2pi(sat_argp + sat_M);
+    const double obj_phase = wrap_0_2pi(obj_argp + obj_M);
+    const double phase_delta =
+        std::abs(wrap_0_2pi(sat_phase - obj_phase + PI) - PI);
+    if (!std::isfinite(phase_delta)) {
+        out.fail_open = true;
+        return out;
+    }
+
+    if (phase_delta > cfg.phase_angle_threshold_rad) {
+        out.reject = true;
+    }
+    return out;
 }
 
 inline double min_d2_linear_segment(double rx,
@@ -271,6 +374,8 @@ bool run_simulation_step(StateStore& store,
     const double full_refine_band_km = std::max(0.0, cfg.narrow_phase.full_refine_band_km);
     const double full_refine_band_sq = (screening_threshold_km + full_refine_band_km)
                                      * (screening_threshold_km + full_refine_band_km);
+    const bool plane_phase_shadow = cfg.narrow_phase.plane_phase_shadow;
+    const bool plane_phase_filter = cfg.narrow_phase.plane_phase_filter;
 
     const double high_rel_speed_km_s = std::max(0.0, cfg.narrow_phase.high_rel_speed_km_s);
     const double high_rel_speed_extra_band_km =
@@ -360,6 +465,30 @@ bool run_simulation_step(StateStore& store,
              && d2 <= high_rel_speed_band_sq + 1e-9);
         if (uncertainty_promoted) {
             ++out.narrow_uncertainty_promoted_pairs;
+        }
+
+        PlanePhaseGateResult plane_phase{};
+        const bool near_refine_window =
+            ((d2 >= collision_threshold_sq && d2 <= refine_band_sq)
+             || (d2 > collision_threshold_sq
+                 && (d2 <= full_refine_band_sq + 1e-9 || uncertainty_promoted)));
+        if (near_refine_window) {
+            plane_phase = evaluate_plane_phase_gate(store, sat_idx, obj_idx, cfg.narrow_phase);
+            if (plane_phase.evaluated) {
+                ++out.narrow_plane_phase_evaluated_pairs;
+            }
+            if (plane_phase.fail_open) {
+                ++out.narrow_plane_phase_fail_open_pairs;
+            }
+            if (plane_phase.reject) {
+                if (plane_phase_shadow) {
+                    ++out.narrow_plane_phase_shadow_rejected_pairs;
+                }
+                if (plane_phase_filter && !plane_phase.fail_open) {
+                    ++out.narrow_plane_phase_hard_rejected_pairs;
+                    d2 = std::max(d2, std::max(refine_band_sq, full_refine_band_sq) + 1.0);
+                }
+            }
         }
 
         if (d2 >= collision_threshold_sq && d2 <= refine_band_sq) {
