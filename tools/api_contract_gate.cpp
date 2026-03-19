@@ -37,6 +37,37 @@ bool json_has(std::string_view body, std::string_view key)
     return contains(body, token);
 }
 
+int parse_env_int_or_default(const char* key,
+                             int default_value,
+                             int min_value,
+                             int max_value)
+{
+    const char* raw = std::getenv(key);
+    if (raw == nullptr || *raw == '\0') {
+        return default_value;
+    }
+
+    char* end = nullptr;
+    const long parsed = std::strtol(raw, &end, 10);
+    if (end == nullptr || *end != '\0') {
+        return default_value;
+    }
+    if (parsed < min_value || parsed > max_value) {
+        return default_value;
+    }
+    return static_cast<int>(parsed);
+}
+
+int expected_schedule_success_status()
+{
+    return parse_env_int_or_default(
+        "PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS",
+        202,
+        200,
+        299
+    );
+}
+
 std::string telemetry_payload()
 {
     return R"JSON({
@@ -65,6 +96,20 @@ std::string schedule_payload_valid()
   "maneuver_sequence": [
     {
       "burn_id": "CONTRACT_BURN_1",
+      "burnTime": "2026-03-12T08:30:00.000Z",
+      "deltaV_vector": {"x": 0.0, "y": 0.001, "z": 0.0}
+    }
+  ]
+})JSON";
+}
+
+std::string schedule_payload_unknown_satellite()
+{
+    return R"JSON({
+  "satelliteId": "SAT-NOT-FOUND",
+  "maneuver_sequence": [
+    {
+      "burn_id": "CONTRACT_BURN_UNKNOWN",
       "burnTime": "2026-03-12T08:30:00.000Z",
       "deltaV_vector": {"x": 0.0, "y": 0.001, "z": 0.0}
     }
@@ -262,12 +307,45 @@ GateResult run_queue_backpressure_check(std::string_view host,
 }
 
 GateResult run_contract_checks(std::string_view host,
-                               int port)
+                               int port,
+                               int schedule_success_status)
 {
     GateResult out;
     httplib::Client cli(std::string(host), port);
     cli.set_connection_timeout(2, 0);
     cli.set_read_timeout(5, 0);
+
+    {
+        // Status semantics: simulate before telemetry must be rejected.
+        auto res = cli.Post("/api/simulate/step", step_payload(), "application/json");
+        std::string reason;
+        if (!require_http(res, 400, "\"status\":\"ERROR\"", reason)) {
+            out.pass = false;
+            out.reason = "pre-telemetry step contract failed: " + reason;
+            return out;
+        }
+        if (!contains(res->body, "\"code\":\"CLOCK_UNINITIALIZED\"")) {
+            out.pass = false;
+            out.reason = "pre-telemetry step error code mismatch";
+            return out;
+        }
+    }
+
+    {
+        // Status semantics: malformed telemetry payload must be deterministic.
+        auto res = cli.Post("/api/telemetry", R"JSON({"timestamp":)JSON", "application/json");
+        std::string reason;
+        if (!require_http(res, 400, "\"status\":\"ERROR\"", reason)) {
+            out.pass = false;
+            out.reason = "telemetry malformed-json contract failed: " + reason;
+            return out;
+        }
+        if (!contains(res->body, "\"code\":\"MALFORMED_JSON\"")) {
+            out.pass = false;
+            out.reason = "telemetry malformed-json error code mismatch";
+            return out;
+        }
+    }
 
     {
         auto res = cli.Post("/api/telemetry", telemetry_payload(), "application/json");
@@ -285,9 +363,24 @@ GateResult run_contract_checks(std::string_view host,
     }
 
     {
+        auto res = cli.Post("/api/maneuver/schedule", schedule_payload_unknown_satellite(), "application/json");
+        std::string reason;
+        if (!require_http(res, 404, "\"status\":\"ERROR\"", reason)) {
+            out.pass = false;
+            out.reason = "schedule unknown-satellite contract failed: " + reason;
+            return out;
+        }
+        if (!contains(res->body, "\"code\":\"SATELLITE_NOT_FOUND\"")) {
+            out.pass = false;
+            out.reason = "schedule unknown-satellite error code mismatch";
+            return out;
+        }
+    }
+
+    {
         auto res = cli.Post("/api/maneuver/schedule", schedule_payload_valid(), "application/json");
         std::string reason;
-        if (!require_http(res, 202, "\"status\":\"SCHEDULED\"", reason)) {
+        if (!require_http(res, schedule_success_status, "\"status\":\"SCHEDULED\"", reason)) {
             out.pass = false;
             out.reason = "schedule success contract failed: " + reason;
             return out;
@@ -298,6 +391,12 @@ GateResult run_contract_checks(std::string_view host,
             || !json_has(res->body, "projected_mass_remaining_kg")) {
             out.pass = false;
             out.reason = "schedule ACK missing required PS validation keys";
+            return out;
+        }
+        if (!contains(res->body, "\"ground_station_los\":true")
+            || !contains(res->body, "\"sufficient_fuel\":true")) {
+            out.pass = false;
+            out.reason = "schedule ACK validation flags mismatch";
             return out;
         }
     }
@@ -377,6 +476,11 @@ GateResult run_contract_checks(std::string_view host,
             out.reason = "status response missing required PS keys";
             return out;
         }
+        if (contains(res->body, "\"internal_metrics\"")) {
+            out.pass = false;
+            out.reason = "status default response leaked non-PS internal metrics";
+            return out;
+        }
     }
 
     {
@@ -424,6 +528,31 @@ GateResult run_contract_checks(std::string_view host,
             out.reason = "status details missing narrow uncertainty promoted last tick metric";
             return out;
         }
+        if (!contains(res->body, "\"collision_threshold_km\"")) {
+            out.pass = false;
+            out.reason = "status details missing collision threshold metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_tca_guard_km\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow tca guard metric";
+            return out;
+        }
+        if (!contains(res->body, "\"effective_collision_threshold_km\"")) {
+            out.pass = false;
+            out.reason = "status details missing effective collision threshold metric";
+            return out;
+        }
+    }
+
+    {
+        auto res = cli.Get("/api/status?verbose=1");
+        std::string reason;
+        if (!require_http(res, 200, "\"internal_metrics\"", reason)) {
+            out.pass = false;
+            out.reason = "status verbose contract failed: " + reason;
+            return out;
+        }
     }
 
     {
@@ -452,11 +581,13 @@ int main(int argc, char** argv)
         port = std::max(1, std::atoi(argv[2]));
     }
 
-    const GateResult result = run_contract_checks(host, port);
+    const int schedule_success_status = expected_schedule_success_status();
+    const GateResult result = run_contract_checks(host, port, schedule_success_status);
 
     std::cout << "api_contract_gate\n";
     std::cout << "host=" << host << "\n";
     std::cout << "port=" << port << "\n";
+    std::cout << "schedule_success_expected_status=" << schedule_success_status << "\n";
     std::cout << "api_contract_gate_result=" << (result.pass ? "PASS" : "FAIL") << "\n";
     if (!result.pass) {
         std::cout << "api_contract_gate_reason=" << result.reason << "\n";

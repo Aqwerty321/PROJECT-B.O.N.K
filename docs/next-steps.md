@@ -212,6 +212,22 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 - Verify:
   - `./scripts/api_contract_gate.sh ./build`
 
+Status: partial progress completed
+
+- `api_contract_gate` now also asserts:
+  - pre-telemetry `simulate/step` deterministic rejection (`CLOCK_UNINITIALIZED`),
+  - malformed telemetry deterministic rejection (`MALFORMED_JSON`),
+  - unknown satellite schedule rejection (`SATELLITE_NOT_FOUND`),
+  - default `GET /api/status` remains PS-clean (no `internal_metrics` leak),
+  - `?verbose=1` parity with `?details=1` details behavior.
+- details mode now exposes explicit threshold semantics:
+  - `collision_threshold_km`
+  - `narrow_tca_guard_km`
+  - `effective_collision_threshold_km`
+- schedule success expected HTTP status is now explicitly gate-configurable via
+  `PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS` (default `202`) for
+  compatibility checks without changing runtime defaults.
+
 ### P0.6 Documentation consistency sweep
 
 - Why:

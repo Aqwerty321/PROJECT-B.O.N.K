@@ -1701,6 +1701,12 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(prop_stats_.broad_dcriterion_shadow_rejected_total);
         out += ",\"narrow_uncertainty_promoted_pairs_total\":";
         out += std::to_string(prop_stats_.narrow_uncertainty_promoted_pairs_total);
+        out += ",\"collision_threshold_km\":";
+        out += fmt_double(COLLISION_THRESHOLD_KM, 3);
+        out += ",\"narrow_tca_guard_km\":";
+        out += fmt_double(step_cfg_.narrow_phase.tca_guard_km, 3);
+        out += ",\"effective_collision_threshold_km\":";
+        out += fmt_double(COLLISION_THRESHOLD_KM + std::max(0.0, step_cfg_.narrow_phase.tca_guard_km), 3);
         out += ",\"propagation_last_tick\":{";
         out += "\"narrow_pairs_checked\":";
         out += std::to_string(prop_stats_.narrow_pairs_last_tick);

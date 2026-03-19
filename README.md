@@ -103,6 +103,14 @@ PROJECTBONK_CORS_ALLOW_ORIGIN="http://localhost:5173,https://demo.example.com" \
 CORS is disabled by default. API schemas and status/error contracts remain
 unchanged (see `PS.md`).
 
+Contract-gate schedule success status policy:
+
+- default expected HTTP status for successful `POST /api/maneuver/schedule` is
+  `202` (runtime behavior)
+- override in gate only with
+  `PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS=<code>` when running
+  external compatibility checks
+
 ---
 
 ## Reverse Proxy Deployment (Demo/Prod)
@@ -266,6 +274,13 @@ duration, and propagation failure pressure).
 `GET /api/status` keeps PS-compatible default fields; add `?details=1` (or
 `?verbose=1`) to include internal diagnostics metrics such as queue depth,
 backpressure counters, and per-command queue/execution latency stats.
+
+Details mode also reports collision-threshold semantics used by runtime
+classification:
+
+- `collision_threshold_km`
+- `narrow_tca_guard_km`
+- `effective_collision_threshold_km`
 
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.

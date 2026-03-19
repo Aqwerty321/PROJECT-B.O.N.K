@@ -23,7 +23,8 @@ PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH="${PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH:-1}" 
 SERVER_PID=$!
 
 for _ in $(seq 1 80); do
-  if "$BUILD_DIR/api_contract_gate" 127.0.0.1 "$PORT" >/tmp/projectbonk_api_contract_probe.log 2>&1; then
+  if PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS="${PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS:-202}" \
+      "$BUILD_DIR/api_contract_gate" 127.0.0.1 "$PORT" >/tmp/projectbonk_api_contract_probe.log 2>&1; then
     cat /tmp/projectbonk_api_contract_probe.log
     echo "api contract gate: PASS"
     exit 0
@@ -31,4 +32,5 @@ for _ in $(seq 1 80); do
   sleep 0.1
 done
 
-"$BUILD_DIR/api_contract_gate" 127.0.0.1 "$PORT"
+PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS="${PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS:-202}" \
+  "$BUILD_DIR/api_contract_gate" 127.0.0.1 "$PORT"
