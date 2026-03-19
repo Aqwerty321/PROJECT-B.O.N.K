@@ -95,6 +95,14 @@ cmake --build build --target broad_phase_sanity_gate
 ./scripts/broad_phase_sanity_gate.sh
 ```
 
+### Mandatory narrow-phase false-negative gate
+
+```bash
+cmake --build build --target narrow_phase_false_negative_regression_gate
+# or
+./scripts/narrow_phase_false_negative_gate.sh ./build 10 8 120
+```
+
 ### Mandatory recovery slot gate
 
 ```bash
@@ -227,7 +235,7 @@ Strict sweep interpretation:
 - strict recovery sweep (`./scripts/recovery_slot_sweep.sh ./build 24 0.08`):
   writes `build/recovery_slot_sweep_strict.json`; latest strict run reports
   `selection.status=PASS` with selected candidate
-  `fallback_1e-4_ratio_0.05`
+  `grid_t1.2_r0.8_n0.8`
 - repeated strict and strict-expanded sweeps selected the same candidate in this
   branch snapshot (see `docs/PHASE 4.md` artifact list)
 - `phase3_tick_benchmark 50 10000 30`:
@@ -266,9 +274,18 @@ Strict sweep interpretation:
 - Communication/blackout note:
   command upload is validated against pre-burn windows with 10 s latency;
   burns can execute through blackout if uplink occurred before the latency cut
+- Ground-station dataset note:
+  runtime now loads stations from `docs/groundstations.csv` (or
+  `PROJECTBONK_GROUND_STATIONS_CSV` when set); if unavailable it falls back to
+  builtin PS-equivalent defaults
 - Graveyard note:
   satellites at/under EOL fuel are reserved for graveyard transfer; successful
   graveyard execution transitions satellite status to `OFFLINE`
 - Recovery smoke note:
   recovery plans are deferred while pending burns/collision pressure persist,
   and complete once a safe scheduling window is available
+
+## Backend audit roadmap
+
+- Detailed backend conformance audit and prioritized hardening plan are tracked in
+  `docs/next-steps.md`

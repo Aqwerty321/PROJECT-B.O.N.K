@@ -85,6 +85,9 @@ Optional CORS controls:
   when enabled: `http://localhost:5173`)
 - `PROJECTBONK_CORS_ALLOW_METHODS` (default: `GET, POST, OPTIONS`)
 - `PROJECTBONK_CORS_ALLOW_HEADERS` (default: `Content-Type, X-Source-Id`)
+- `PROJECTBONK_GROUND_STATIONS_CSV` optional path override for ground-station
+  catalog (default lookup order: `docs/groundstations.csv`,
+  `../docs/groundstations.csv`, then builtin PS defaults)
 
 The backend echoes `Access-Control-Allow-Origin` only for matching allowed
 origins and sets `Vary: Origin` for cache safety.
@@ -186,6 +189,14 @@ Hard-fail broad-phase sanity gate:
 cmake --build build --target broad_phase_sanity_gate
 # or
 ./scripts/broad_phase_sanity_gate.sh
+```
+
+Hard-fail narrow-phase false-negative gate:
+
+```bash
+cmake --build build --target narrow_phase_false_negative_regression_gate
+# or
+./scripts/narrow_phase_false_negative_gate.sh ./build 10 8 120
 ```
 
 Hard-fail recovery slot acceptance gate:
@@ -330,6 +341,13 @@ Strict sweep criteria:
 - every scenario must execute at least one recovery burn
 - candidate mean fuel must satisfy
   `mean_fuel_used_kg <= default_candidate_mean_fuel_used_kg * 1.10`
+
+Ground-station dataset source:
+
+- runtime loads station geometry from `docs/groundstations.csv` when available
+  (same values as PS dataset)
+- if file is unavailable, runtime falls back to builtin PS-equivalent defaults
+  to preserve deterministic behavior
 
 Current deterministic sweep snapshot in this branch:
 

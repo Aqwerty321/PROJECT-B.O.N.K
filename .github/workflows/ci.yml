@@ -69,5 +69,16 @@ jobs:
       - name: Run API contract gate script
         run: ./scripts/api_contract_gate.sh
 
+      - name: Run phase4 aggregate calibration gate
+        run: ./scripts/phase4_calibration_gate.sh ./build
+
+      - name: Upload phase4 calibration summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase4-calibration-summary
+          path: build/phase4_calibration_gate_summary.json
+          if-no-files-found: warn
+
       - name: Run CTest safety suite
         run: ctest --test-dir build --output-on-failure

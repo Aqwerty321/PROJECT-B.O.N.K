@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -55,12 +56,16 @@ struct SlotReference {
 };
 
 struct GroundStation {
-    const char* id;
+    std::string id;
     double lat_deg;
     double lon_deg;
     double alt_km;
     double min_el_deg;
 };
+
+std::size_t active_ground_station_count() noexcept;
+bool active_ground_station_has_id(std::string_view station_id) noexcept;
+std::string active_ground_station_source();
 
 inline constexpr double SIGNAL_LATENCY_S = 10.0;
 inline constexpr double STATIONKEEPING_BOX_RADIUS_KM = 10.0;

@@ -8,14 +8,27 @@
 #include "orbit_math.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
+#include <fstream>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace cascade {
 
 namespace {
 
-constexpr GroundStation k_ground_stations[] = {
+struct GroundStationRaw {
+    const char* id;
+    double lat_deg;
+    double lon_deg;
+    double alt_km;
+    double min_el_deg;
+};
+
+constexpr GroundStationRaw k_default_ground_stations[] = {
     {"GS-001", 13.0333,   77.5167, 0.820,  5.0},
     {"GS-002", 78.2297,   15.4077, 0.400,  5.0},
     {"GS-003", 35.4266, -116.8900, 1.000, 10.0},
@@ -23,6 +36,173 @@ constexpr GroundStation k_ground_stations[] = {
     {"GS-005", 28.5450,   77.1926, 0.225, 15.0},
     {"GS-006",-77.8463,  166.6682, 0.010,  5.0}
 };
+
+struct GroundStationCatalog {
+    std::vector<GroundStation> stations;
+    std::string source;
+};
+
+std::string_view trim_ascii(std::string_view raw) noexcept
+{
+    std::size_t begin = 0;
+    std::size_t end = raw.size();
+
+    while (begin < end && std::isspace(static_cast<unsigned char>(raw[begin]))) {
+        ++begin;
+    }
+    while (end > begin && std::isspace(static_cast<unsigned char>(raw[end - 1]))) {
+        --end;
+    }
+
+    return raw.substr(begin, end - begin);
+}
+
+bool parse_double_field(std::string_view raw,
+                        double& out) noexcept
+{
+    const std::string token(trim_ascii(raw));
+    if (token.empty()) {
+        return false;
+    }
+
+    char* end = nullptr;
+    const double parsed = std::strtod(token.c_str(), &end);
+    if (end == nullptr || *end != '\0' || !std::isfinite(parsed)) {
+        return false;
+    }
+
+    out = parsed;
+    return true;
+}
+
+bool parse_ground_station_csv_line(std::string_view line,
+                                   GroundStation& out) noexcept
+{
+    std::vector<std::string_view> fields;
+    fields.reserve(6);
+
+    std::size_t begin = 0;
+    while (begin <= line.size()) {
+        const std::size_t comma = line.find(',', begin);
+        if (comma == std::string_view::npos) {
+            fields.push_back(line.substr(begin));
+            break;
+        }
+        fields.push_back(line.substr(begin, comma - begin));
+        begin = comma + 1;
+    }
+
+    if (fields.size() != 6) {
+        return false;
+    }
+
+    out.id = std::string(trim_ascii(fields[0]));
+    if (out.id.empty()) {
+        return false;
+    }
+
+    double alt_m = 0.0;
+    if (!parse_double_field(fields[2], out.lat_deg)
+        || !parse_double_field(fields[3], out.lon_deg)
+        || !parse_double_field(fields[4], alt_m)
+        || !parse_double_field(fields[5], out.min_el_deg)) {
+        return false;
+    }
+
+    out.alt_km = alt_m * 1.0e-3;
+    return true;
+}
+
+std::vector<GroundStation> default_ground_stations()
+{
+    std::vector<GroundStation> out;
+    out.reserve(std::size(k_default_ground_stations));
+    for (const GroundStationRaw& raw : k_default_ground_stations) {
+        GroundStation gs;
+        gs.id = raw.id;
+        gs.lat_deg = raw.lat_deg;
+        gs.lon_deg = raw.lon_deg;
+        gs.alt_km = raw.alt_km;
+        gs.min_el_deg = raw.min_el_deg;
+        out.push_back(std::move(gs));
+    }
+    return out;
+}
+
+bool load_ground_stations_from_csv(const std::string& path,
+                                   std::vector<GroundStation>& out) noexcept
+{
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        return false;
+    }
+
+    std::vector<GroundStation> loaded;
+    loaded.reserve(16);
+
+    std::string line;
+    while (std::getline(in, line)) {
+        const std::string_view trimmed = trim_ascii(line);
+        if (trimmed.empty()) {
+            continue;
+        }
+        if (trimmed.front() == '#') {
+            continue;
+        }
+        if (trimmed.rfind("Station_ID", 0) == 0) {
+            continue;
+        }
+
+        GroundStation gs;
+        if (!parse_ground_station_csv_line(trimmed, gs)) {
+            continue;
+        }
+        loaded.push_back(std::move(gs));
+    }
+
+    if (loaded.empty()) {
+        return false;
+    }
+
+    out = std::move(loaded);
+    return true;
+}
+
+GroundStationCatalog build_ground_station_catalog()
+{
+    GroundStationCatalog catalog;
+
+    std::vector<std::string> candidates;
+    if (const char* env_path = std::getenv("PROJECTBONK_GROUND_STATIONS_CSV");
+        env_path != nullptr && *env_path != '\0') {
+        candidates.emplace_back(env_path);
+    }
+    candidates.emplace_back("docs/groundstations.csv");
+    candidates.emplace_back("../docs/groundstations.csv");
+    candidates.emplace_back("groundstations.csv");
+    candidates.emplace_back("../groundstations.csv");
+
+    for (const std::string& path : candidates) {
+        std::vector<GroundStation> loaded;
+        if (!load_ground_stations_from_csv(path, loaded)) {
+            continue;
+        }
+
+        catalog.stations = std::move(loaded);
+        catalog.source = "file:" + path;
+        return catalog;
+    }
+
+    catalog.stations = default_ground_stations();
+    catalog.source = "builtin:ps_default";
+    return catalog;
+}
+
+const GroundStationCatalog& ground_station_catalog()
+{
+    static const GroundStationCatalog catalog = build_ground_station_catalog();
+    return catalog;
+}
 
 bool can_schedule_burn_now(const StateStore& store,
                            const std::vector<ScheduledBurn>& burn_queue,
@@ -246,7 +426,7 @@ bool has_ground_station_los(const Vec3& sat_eci_km,
 {
     const Vec3 sat_ecef = eci_to_ecef(sat_eci_km, epoch_s);
 
-    for (const GroundStation& gs : k_ground_stations) {
+    for (const GroundStation& gs : ground_station_catalog().stations) {
         const double lat_rad = gs.lat_deg * PI / 180.0;
         const double lon_rad = gs.lon_deg * PI / 180.0;
         const double min_el_rad = gs.min_el_deg * PI / 180.0;
@@ -305,7 +485,7 @@ bool has_ground_station_los_for_sat_epoch(const StateStore& store,
     }
 
     const Vec3 sat_ecef = eci_to_ecef(sat_eci, epoch_s);
-    for (const GroundStation& gs : k_ground_stations) {
+    for (const GroundStation& gs : ground_station_catalog().stations) {
         const double lat_rad = gs.lat_deg * PI / 180.0;
         const double lon_rad = gs.lon_deg * PI / 180.0;
         const double min_el_rad = gs.min_el_deg * PI / 180.0;
@@ -683,6 +863,30 @@ void validate_pending_upload_windows(StateStore& store,
     }
 
     burn_queue.swap(retained);
+}
+
+std::size_t active_ground_station_count() noexcept
+{
+    return ground_station_catalog().stations.size();
+}
+
+bool active_ground_station_has_id(std::string_view station_id) noexcept
+{
+    if (station_id.empty()) {
+        return false;
+    }
+
+    for (const GroundStation& gs : ground_station_catalog().stations) {
+        if (gs.id == station_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string active_ground_station_source()
+{
+    return ground_station_catalog().source;
 }
 
 } // namespace cascade

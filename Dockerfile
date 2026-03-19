@@ -51,7 +51,11 @@ RUN cmake -S /workspace -B /workspace/build \
 # 4. Copy source files and build the real executable
 # ---------------------------------------------------------------------------
 COPY main.cpp /workspace/main.cpp
-# Future: COPY src/ /workspace/src/
+COPY src/ /workspace/src/
+COPY tools/ /workspace/tools/
+COPY tuner/ /workspace/tuner/
+COPY scripts/ /workspace/scripts/
+COPY docs/ /workspace/docs/
 
 RUN cmake -S /workspace -B /workspace/build \
         -DPROJECTBONK_PREFETCH_ONLY=OFF \

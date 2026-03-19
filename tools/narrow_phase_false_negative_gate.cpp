@@ -12,6 +12,7 @@
 #include "propagator.hpp"
 #include "simulation_engine.hpp"
 
+#include <array>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -174,19 +175,123 @@ struct ScenarioOutcome {
     std::uint64_t reference_collision_sats = 0;
     std::uint64_t production_collision_sats = 0;
     std::uint64_t false_negative_sats = 0;
+    std::string family;
+    int scenario_seed = 0;
+    double step_seconds = 0.0;
 };
 
 ScenarioOutcome run_scenario(int scenario_id,
-                             int sat_count,
-                             int deb_count,
-                             double step_seconds)
+                              int sat_count,
+                              int deb_count,
+                              double step_seconds,
+                              std::uint64_t seed,
+                              bool high_e_bias,
+                              bool coorbital_bias,
+                              bool crossing_injection)
 {
     ScenarioOutcome out;
+    out.step_seconds = step_seconds;
+    out.scenario_seed = static_cast<int>(seed % 1000000000ULL);
+    if (crossing_injection) {
+        out.family = "crossing";
+    } else if (coorbital_bias) {
+        out.family = "coorbital";
+    } else if (high_e_bias) {
+        out.family = "high_e";
+    } else {
+        out.family = "baseline";
+    }
 
     cascade::StateStore store_ref(static_cast<std::size_t>(sat_count + deb_count + 64));
     cascade::SimClock clock_ref;
     clock_ref.set_epoch_s(1773292800.0 + static_cast<double>(scenario_id) * 300.0);
-    seed_store(store_ref, clock_ref, sat_count, deb_count, 2026031800ULL + static_cast<std::uint64_t>(scenario_id));
+    seed_store(store_ref, clock_ref, sat_count, deb_count, seed);
+
+    if (coorbital_bias) {
+        const int pair_count = std::min(sat_count, std::min(deb_count, 4));
+        for (int k = 0; k < pair_count; ++k) {
+            const std::size_t sat_idx = store_ref.find("SAT-" + std::to_string(k));
+            const std::size_t deb_idx = store_ref.find("DEB-" + std::to_string(k));
+            if (sat_idx >= store_ref.size() || deb_idx >= store_ref.size()) {
+                continue;
+            }
+
+            const double offset = 0.015 + 0.005 * static_cast<double>(k);
+            store_ref.rx_mut(deb_idx) = store_ref.rx(sat_idx) + offset;
+            store_ref.ry_mut(deb_idx) = store_ref.ry(sat_idx);
+            store_ref.rz_mut(deb_idx) = store_ref.rz(sat_idx);
+            store_ref.vx_mut(deb_idx) = store_ref.vx(sat_idx) + 1e-5 * (k + 1);
+            store_ref.vy_mut(deb_idx) = store_ref.vy(sat_idx) - 1e-5 * (k + 1);
+            store_ref.vz_mut(deb_idx) = store_ref.vz(sat_idx);
+            store_ref.set_elements(deb_idx, cascade::OrbitalElements{}, false);
+        }
+    }
+
+    if (high_e_bias) {
+        const int count = std::min(deb_count, 6);
+        for (int k = 0; k < count; ++k) {
+            const std::size_t deb_idx = store_ref.find("DEB-" + std::to_string(k));
+            if (deb_idx >= store_ref.size()) {
+                continue;
+            }
+
+            cascade::OrbitalElements el{};
+            if (!store_ref.elements_valid(deb_idx)) {
+                continue;
+            }
+            el.a_km = store_ref.a_km(deb_idx);
+            el.e = std::min(0.25, std::max(0.12, store_ref.e(deb_idx) + 0.10));
+            el.i_rad = store_ref.i_rad(deb_idx);
+            el.raan_rad = store_ref.raan_rad(deb_idx);
+            el.argp_rad = store_ref.argp_rad(deb_idx);
+            el.M_rad = store_ref.M_rad(deb_idx);
+            el.n_rad_s = std::sqrt(cascade::MU_KM3_S2 / (el.a_km * el.a_km * el.a_km));
+            el.p_km = el.a_km * (1.0 - el.e * el.e);
+            el.rp_km = el.a_km * (1.0 - el.e);
+            el.ra_km = el.a_km * (1.0 + el.e);
+
+            cascade::Vec3 r{};
+            cascade::Vec3 v{};
+            if (!cascade::elements_to_eci(el, r, v)) {
+                continue;
+            }
+            store_ref.rx_mut(deb_idx) = r.x;
+            store_ref.ry_mut(deb_idx) = r.y;
+            store_ref.rz_mut(deb_idx) = r.z;
+            store_ref.vx_mut(deb_idx) = v.x;
+            store_ref.vy_mut(deb_idx) = v.y;
+            store_ref.vz_mut(deb_idx) = v.z;
+            store_ref.set_elements(deb_idx, el, true);
+        }
+    }
+
+    if (crossing_injection) {
+        const int pair_count = std::min(sat_count, std::min(deb_count, 4));
+        for (int k = 0; k < pair_count; ++k) {
+            const std::size_t sat_idx = store_ref.find("SAT-" + std::to_string(k));
+            const std::size_t deb_idx = store_ref.find("DEB-" + std::to_string(k));
+            if (sat_idx >= store_ref.size() || deb_idx >= store_ref.size()) {
+                continue;
+            }
+
+            const cascade::Vec3 sat_r{store_ref.rx(sat_idx), store_ref.ry(sat_idx), store_ref.rz(sat_idx)};
+            const cascade::Vec3 sat_v{store_ref.vx(sat_idx), store_ref.vy(sat_idx), store_ref.vz(sat_idx)};
+            const double v_norm = std::sqrt(sat_v.x * sat_v.x + sat_v.y * sat_v.y + sat_v.z * sat_v.z);
+            if (v_norm <= cascade::EPS_NUM) {
+                continue;
+            }
+
+            const cascade::Vec3 t_hat{sat_v.x / v_norm, sat_v.y / v_norm, sat_v.z / v_norm};
+            const double sign = (k % 2 == 0) ? 1.0 : -1.0;
+            store_ref.rx_mut(deb_idx) = sat_r.x + 0.04 * sign;
+            store_ref.ry_mut(deb_idx) = sat_r.y;
+            store_ref.rz_mut(deb_idx) = sat_r.z;
+            store_ref.vx_mut(deb_idx) = sat_v.x - t_hat.x * (12.0 * sign);
+            store_ref.vy_mut(deb_idx) = sat_v.y - t_hat.y * (12.0 * sign);
+            store_ref.vz_mut(deb_idx) = sat_v.z - t_hat.z * (12.0 * sign);
+            store_ref.set_elements(deb_idx, cascade::OrbitalElements{}, false);
+        }
+    }
 
     cascade::StateStore store_prod = store_ref;
     cascade::SimClock clock_prod = clock_ref;
@@ -274,7 +379,8 @@ int main(int argc, char** argv)
     if (argc >= 3) sat_count = std::max(1, std::atoi(argv[2]));
     if (argc >= 4) deb_count = std::max(1, std::atoi(argv[3]));
 
-    const std::vector<double> steps{30.0, 120.0, 600.0, 1200.0};
+    const std::array<double, 8> steps{{30.0, 120.0, 600.0, 1200.0, 3600.0, 21600.0, 86400.0, 1800.0}};
+    const std::array<const char*, 8> family{{"baseline", "baseline", "high_e", "coorbital", "crossing", "high_e", "coorbital", "crossing"}};
 
     std::uint64_t total_reference = 0;
     std::uint64_t total_production = 0;
@@ -289,7 +395,22 @@ int main(int argc, char** argv)
 
     for (int s = 0; s < scenarios; ++s) {
         const double step_seconds = steps[static_cast<std::size_t>(s) % steps.size()];
-        const ScenarioOutcome outcome = run_scenario(s, sat_count, deb_count, step_seconds);
+        const std::string family_tag = family[static_cast<std::size_t>(s) % family.size()];
+        const bool high_e_bias = (family_tag == "high_e");
+        const bool coorbital_bias = (family_tag == "coorbital");
+        const bool crossing_injection = (family_tag == "crossing");
+        const std::uint64_t seed = 2026031800ULL + static_cast<std::uint64_t>(s) * 131ULL;
+
+        const ScenarioOutcome outcome = run_scenario(
+            s,
+            sat_count,
+            deb_count,
+            step_seconds,
+            seed,
+            high_e_bias,
+            coorbital_bias,
+            crossing_injection
+        );
 
         if (!outcome.ok) {
             all_ok = false;
@@ -302,7 +423,9 @@ int main(int argc, char** argv)
         total_production += outcome.production_collision_sats;
         total_false_negatives += outcome.false_negative_sats;
 
-        std::cout << "scenario_" << s << "_step_seconds=" << step_seconds << "\n";
+        std::cout << "scenario_" << s << "_family=" << outcome.family << "\n";
+        std::cout << "scenario_" << s << "_seed=" << outcome.scenario_seed << "\n";
+        std::cout << "scenario_" << s << "_step_seconds=" << outcome.step_seconds << "\n";
         std::cout << "scenario_" << s << "_reference_collision_sats=" << outcome.reference_collision_sats << "\n";
         std::cout << "scenario_" << s << "_production_collision_sats=" << outcome.production_collision_sats << "\n";
         std::cout << "scenario_" << s << "_false_negative_sats=" << outcome.false_negative_sats << "\n";

@@ -209,7 +209,7 @@ Recovery calibration evidence update:
 
 - strict sweep now reports `selection.status=PASS` under `fuel_ratio_cap=1.10`
   after adding request-ratio candidate coverage
-- selected strict candidate: `fallback_1e-4_ratio_0.05`
+- selected strict candidate: `grid_t1.2_r0.8_n0.8`
 - deterministic repeat sweeps on strict and strict-expanded profiles selected
   the same candidate in this branch snapshot
 - detailed evidence and artifacts are tracked in `docs/PHASE 4.md`

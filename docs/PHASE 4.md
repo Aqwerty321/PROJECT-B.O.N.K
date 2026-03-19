@@ -155,6 +155,16 @@ Artifact:
 
 ## Narrow-phase calibration probe (phase 4)
 
+False-negative gate scope note (updated):
+
+- `narrow_phase_false_negative_gate` now runs an expanded deterministic scenario
+  family set including:
+  - baseline short-step windows,
+  - high-e stress windows,
+  - co-orbital low-relative-speed windows,
+  - crossing high-relative-speed windows,
+  - long-step windows (`3600`, `21600`, `86400` seconds)
+
 Probe helper:
 
 ```bash

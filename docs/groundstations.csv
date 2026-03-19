@@ -1,0 +1,7 @@
+Station_ID,Station_Name,Latitude,Longitude,Elevation_m,Min_Elevation_Angle_deg
+GS-001,ISTRAC_Bengaluru,13.0333,77.5167,820,5.0
+GS-002,Svalbard_Sat_Station,78.2297,15.4077,400,5.0
+GS-003,Goldstone_Tracking,35.4266,-116.8900,1000,10.0
+GS-004,Punta_Arenas,-53.1500,-70.9167,30,5.0
+GS-005,IIT_Delhi_Ground_Node,28.5450,77.1926,225,15.0
+GS-006,McMurdo_Station,-77.8463,166.6682,10,5.0

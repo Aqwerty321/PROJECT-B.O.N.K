@@ -450,6 +450,26 @@ ScenarioOutcome test_stationkeeping_breach_triggers_recovery_plan()
     return out;
 }
 
+ScenarioOutcome test_ground_station_catalog_loaded()
+{
+    ScenarioOutcome out;
+
+    const std::size_t count = cascade::active_ground_station_count();
+    if (count < 6) {
+        out.reason = "ground station catalog has fewer than expected stations";
+        return out;
+    }
+
+    if (!cascade::active_ground_station_has_id("GS-001")
+        || !cascade::active_ground_station_has_id("GS-005")) {
+        out.reason = "ground station catalog missing required PS station IDs";
+        return out;
+    }
+
+    out.pass = true;
+    return out;
+}
+
 } // namespace
 
 int main()
@@ -458,6 +478,7 @@ int main()
     const ScenarioOutcome upload_prune = test_invalid_upload_epoch_is_pruned();
     const ScenarioOutcome graveyard = test_graveyard_execution_transitions_offline();
     const ScenarioOutcome stationkeeping = test_stationkeeping_breach_triggers_recovery_plan();
+    const ScenarioOutcome stations = test_ground_station_catalog_loaded();
 
     std::cout << std::fixed << std::setprecision(6);
     std::cout << "maneuver_ops_invariants_gate\n";
@@ -482,7 +503,15 @@ int main()
         std::cout << "stationkeeping_recovery_plan_reason=" << stationkeeping.reason << "\n";
     }
 
-    const bool pass_all = blackout.pass && upload_prune.pass && graveyard.pass && stationkeeping.pass;
+    std::cout << "ground_station_catalog_result=" << (stations.pass ? "PASS" : "FAIL") << "\n";
+    if (!stations.pass) {
+        std::cout << "ground_station_catalog_reason=" << stations.reason << "\n";
+    }
+    std::cout << "ground_station_catalog_source=" << cascade::active_ground_station_source() << "\n";
+    std::cout << "ground_station_catalog_count=" << cascade::active_ground_station_count() << "\n";
+
+    const bool pass_all = blackout.pass && upload_prune.pass && graveyard.pass
+        && stationkeeping.pass && stations.pass;
     std::cout << "maneuver_ops_invariants_gate_result=" << (pass_all ? "PASS" : "FAIL") << "\n";
     return pass_all ? 0 : 1;
 }
