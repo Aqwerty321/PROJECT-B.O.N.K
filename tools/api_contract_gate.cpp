@@ -643,6 +643,11 @@ GateResult run_contract_checks(std::string_view host,
             out.reason = "status details missing narrow moid fail-open sampling-failure reason total";
             return out;
         }
+        if (!contains(res->body, "\"narrow_moid_fail_open_reason_hf_placeholder_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow moid fail-open hf-placeholder reason total";
+            return out;
+        }
         if (!contains(res->body, "\"narrow_moid_fail_open_reason_uncertainty_override_total\"")) {
             out.pass = false;
             out.reason = "status details missing narrow moid fail-open uncertainty-override reason total";
@@ -731,6 +736,11 @@ GateResult run_contract_checks(std::string_view host,
         if (!contains(res->body, "\"narrow_moid_fail_open_reason_sampling_failure\"")) {
             out.pass = false;
             out.reason = "status details missing narrow moid fail-open sampling-failure reason last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_moid_fail_open_reason_hf_placeholder\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow moid fail-open hf-placeholder reason last tick metric";
             return out;
         }
         if (!contains(res->body, "\"narrow_refine_fail_open_reason_rk4_failure\"")) {

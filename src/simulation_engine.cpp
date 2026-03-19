@@ -46,6 +46,7 @@ struct MoidProxyGateResult {
         FAIL_OPEN_ECCENTRICITY_GUARD,
         FAIL_OPEN_NON_FINITE_STATE,
         FAIL_OPEN_SAMPLING_FAILURE,
+        FAIL_OPEN_HF_PLACEHOLDER,
     } reason = Reason::NONE;
 };
 
@@ -291,10 +292,12 @@ inline MoidProxyGateResult evaluate_moid_hf_gate(const StateStore&,
 {
     // HF path is intentionally fail-open until the evaluator lands to protect
     // LAW1 (no false negatives) during staged rollout.
+    // Remove this placeholder only when the real HF evaluator is merged in the
+    // same change set as observability/schema updates.
     MoidProxyGateResult out{};
     out.evaluated = true;
     out.fail_open = true;
-    out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_SAMPLING_FAILURE;
+    out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_HF_PLACEHOLDER;
     return out;
 }
 
@@ -736,6 +739,9 @@ bool run_simulation_step(StateStore& store,
                         break;
                     case MoidProxyGateResult::Reason::FAIL_OPEN_SAMPLING_FAILURE:
                         ++out.narrow_moid_fail_open_reason_sampling_failure_total;
+                        break;
+                    case MoidProxyGateResult::Reason::FAIL_OPEN_HF_PLACEHOLDER:
+                        ++out.narrow_moid_fail_open_reason_hf_placeholder_total;
                         break;
                     default:
                         break;

@@ -209,6 +209,12 @@ Strict sweep interpretation:
 
 ## Phase 4 safety calibration kickoff (in progress)
 
+- HF MOID mode lifecycle:
+  - `PROJECTBONK_NARROW_MOID_MODE=hf` currently enables a deliberate fail-open
+    placeholder path and emits `narrow_moid_fail_open_reason_hf_placeholder`.
+  - Removal criteria for this placeholder are: full HF evaluator merged,
+    reason/schema validators updated atomically, and schema version bump.
+
 - Recovery planner calibration path:
   - runtime now loads planner gains from env with guarded ranges
   - runtime now supports recovery request-ratio cap (`PROJECTBONK_RECOVERY_MAX_REQUEST_RATIO`)

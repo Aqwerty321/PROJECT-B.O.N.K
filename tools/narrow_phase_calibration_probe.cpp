@@ -470,6 +470,7 @@ int main(int argc, char** argv)
     std::uint64_t moid_fail_open_reason_eccentricity_guard_total = 0;
     std::uint64_t moid_fail_open_reason_non_finite_state_total = 0;
     std::uint64_t moid_fail_open_reason_sampling_failure_total = 0;
+    std::uint64_t moid_fail_open_reason_hf_placeholder_total = 0;
     std::uint64_t moid_fail_open_reason_uncertainty_override_total = 0;
     std::uint64_t refine_fail_open_reason_rk4_failure_total = 0;
     std::uint64_t full_refine_fail_open_reason_rk4_failure_total = 0;
@@ -513,6 +514,7 @@ int main(int argc, char** argv)
         moid_fail_open_reason_eccentricity_guard_total += stats.narrow_moid_fail_open_reason_eccentricity_guard_total;
         moid_fail_open_reason_non_finite_state_total += stats.narrow_moid_fail_open_reason_non_finite_state_total;
         moid_fail_open_reason_sampling_failure_total += stats.narrow_moid_fail_open_reason_sampling_failure_total;
+        moid_fail_open_reason_hf_placeholder_total += stats.narrow_moid_fail_open_reason_hf_placeholder_total;
         moid_fail_open_reason_uncertainty_override_total += stats.narrow_moid_fail_open_reason_uncertainty_override_total;
         refine_fail_open_reason_rk4_failure_total += stats.narrow_refine_fail_open_reason_rk4_failure_total;
         full_refine_fail_open_reason_rk4_failure_total += stats.narrow_full_refine_fail_open_reason_rk4_failure_total;
@@ -576,6 +578,7 @@ int main(int argc, char** argv)
     std::cout << "narrow_moid_fail_open_reason_eccentricity_guard_total=" << moid_fail_open_reason_eccentricity_guard_total << "\n";
     std::cout << "narrow_moid_fail_open_reason_non_finite_state_total=" << moid_fail_open_reason_non_finite_state_total << "\n";
     std::cout << "narrow_moid_fail_open_reason_sampling_failure_total=" << moid_fail_open_reason_sampling_failure_total << "\n";
+    std::cout << "narrow_moid_fail_open_reason_hf_placeholder_total=" << moid_fail_open_reason_hf_placeholder_total << "\n";
     std::cout << "narrow_moid_fail_open_reason_uncertainty_override_total=" << moid_fail_open_reason_uncertainty_override_total << "\n";
     std::cout << "narrow_refine_fail_open_reason_rk4_failure_total=" << refine_fail_open_reason_rk4_failure_total << "\n";
     std::cout << "narrow_full_refine_fail_open_reason_rk4_failure_total=" << full_refine_fail_open_reason_rk4_failure_total << "\n";

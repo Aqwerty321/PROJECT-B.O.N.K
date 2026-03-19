@@ -73,7 +73,7 @@ result = metrics["narrow_phase_false_negative_gate_result"]
 fn_total = int(metrics["false_negative_sats_total"])
 
 payload = {
-    "schema_version": 1,
+    "schema_version": 2,
     "status": "PASS" if (result == "PASS" and fn_total == 0) else "FAIL",
     "mode": "hard_filter_canary",
     "env": {

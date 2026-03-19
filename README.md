@@ -108,8 +108,11 @@ Optional CORS controls:
   (default `0`, recommended off until evidence is calibrated)
 - `PROJECTBONK_NARROW_MOID_SAMPLES` sampled points per orbit for MOID-proxy
   evaluation (default `24`)
+- `PROJECTBONK_NARROW_MOID_MODE` select MOID evaluator mode: `proxy` (default)
+  or `hf` (staged). Current `hf` mode is a fail-open placeholder and records
+  `narrow_moid_fail_open_reason_hf_placeholder` until the full evaluator lands.
 - `PROJECTBONK_NARROW_MOID_REJECT_THRESHOLD_KM` conservative MOID-proxy reject
-  threshold (default `2.0`; smaller values reject less)
+  threshold (default `2.0`; smaller values reject more)
 - `PROJECTBONK_NARROW_MOID_MAX_E` max eccentricity for MOID-proxy evaluation
   (default `0.2`; higher-e pairs fail-open)
 

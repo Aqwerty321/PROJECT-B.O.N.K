@@ -98,6 +98,7 @@ struct PropagationStats {
     std::uint64_t narrow_moid_fail_open_reason_eccentricity_guard_last_tick = 0;
     std::uint64_t narrow_moid_fail_open_reason_non_finite_state_last_tick = 0;
     std::uint64_t narrow_moid_fail_open_reason_sampling_failure_last_tick = 0;
+    std::uint64_t narrow_moid_fail_open_reason_hf_placeholder_last_tick = 0;
     std::uint64_t narrow_moid_fail_open_reason_uncertainty_override_last_tick = 0;
     std::uint64_t narrow_refine_fail_open_reason_rk4_failure_last_tick = 0;
     std::uint64_t narrow_full_refine_fail_open_reason_rk4_failure_last_tick = 0;
@@ -167,6 +168,7 @@ struct PropagationStats {
     std::uint64_t narrow_moid_fail_open_reason_eccentricity_guard_total = 0;
     std::uint64_t narrow_moid_fail_open_reason_non_finite_state_total = 0;
     std::uint64_t narrow_moid_fail_open_reason_sampling_failure_total = 0;
+    std::uint64_t narrow_moid_fail_open_reason_hf_placeholder_total = 0;
     std::uint64_t narrow_moid_fail_open_reason_uncertainty_override_total = 0;
     std::uint64_t narrow_refine_fail_open_reason_rk4_failure_total = 0;
     std::uint64_t narrow_full_refine_fail_open_reason_rk4_failure_total = 0;

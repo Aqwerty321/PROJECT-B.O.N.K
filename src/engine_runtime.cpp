@@ -411,6 +411,8 @@ std::string build_propagation_json(const StateStore& store,
     out += std::to_string(stats.narrow_moid_fail_open_reason_non_finite_state_last_tick);
     out += ",\"narrow_moid_fail_open_reason_sampling_failure\":";
     out += std::to_string(stats.narrow_moid_fail_open_reason_sampling_failure_last_tick);
+    out += ",\"narrow_moid_fail_open_reason_hf_placeholder\":";
+    out += std::to_string(stats.narrow_moid_fail_open_reason_hf_placeholder_last_tick);
     out += ",\"narrow_moid_fail_open_reason_uncertainty_override\":";
     out += std::to_string(stats.narrow_moid_fail_open_reason_uncertainty_override_last_tick);
     out += ",\"narrow_refine_fail_open_reason_rk4_failure\":";
@@ -548,6 +550,8 @@ std::string build_propagation_json(const StateStore& store,
     out += std::to_string(stats.narrow_moid_fail_open_reason_non_finite_state_total);
     out += ",\"narrow_moid_fail_open_reason_sampling_failure\":";
     out += std::to_string(stats.narrow_moid_fail_open_reason_sampling_failure_total);
+    out += ",\"narrow_moid_fail_open_reason_hf_placeholder\":";
+    out += std::to_string(stats.narrow_moid_fail_open_reason_hf_placeholder_total);
     out += ",\"narrow_moid_fail_open_reason_uncertainty_override\":";
     out += std::to_string(stats.narrow_moid_fail_open_reason_uncertainty_override_total);
     out += ",\"narrow_refine_fail_open_reason_rk4_failure\":";
@@ -1525,6 +1529,7 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         prop_stats_.narrow_moid_fail_open_reason_eccentricity_guard_last_tick = stats.narrow_moid_fail_open_reason_eccentricity_guard_total;
         prop_stats_.narrow_moid_fail_open_reason_non_finite_state_last_tick = stats.narrow_moid_fail_open_reason_non_finite_state_total;
         prop_stats_.narrow_moid_fail_open_reason_sampling_failure_last_tick = stats.narrow_moid_fail_open_reason_sampling_failure_total;
+        prop_stats_.narrow_moid_fail_open_reason_hf_placeholder_last_tick = stats.narrow_moid_fail_open_reason_hf_placeholder_total;
         prop_stats_.narrow_moid_fail_open_reason_uncertainty_override_last_tick = stats.narrow_moid_fail_open_reason_uncertainty_override_total;
         prop_stats_.narrow_refine_fail_open_reason_rk4_failure_last_tick = stats.narrow_refine_fail_open_reason_rk4_failure_total;
         prop_stats_.narrow_full_refine_fail_open_reason_rk4_failure_last_tick = stats.narrow_full_refine_fail_open_reason_rk4_failure_total;
@@ -1603,6 +1608,7 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         prop_stats_.narrow_moid_fail_open_reason_eccentricity_guard_total += stats.narrow_moid_fail_open_reason_eccentricity_guard_total;
         prop_stats_.narrow_moid_fail_open_reason_non_finite_state_total += stats.narrow_moid_fail_open_reason_non_finite_state_total;
         prop_stats_.narrow_moid_fail_open_reason_sampling_failure_total += stats.narrow_moid_fail_open_reason_sampling_failure_total;
+        prop_stats_.narrow_moid_fail_open_reason_hf_placeholder_total += stats.narrow_moid_fail_open_reason_hf_placeholder_total;
         prop_stats_.narrow_moid_fail_open_reason_uncertainty_override_total += stats.narrow_moid_fail_open_reason_uncertainty_override_total;
         prop_stats_.narrow_refine_fail_open_reason_rk4_failure_total += stats.narrow_refine_fail_open_reason_rk4_failure_total;
         prop_stats_.narrow_full_refine_fail_open_reason_rk4_failure_total += stats.narrow_full_refine_fail_open_reason_rk4_failure_total;
@@ -2010,6 +2016,8 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_non_finite_state_total);
         out += ",\"narrow_moid_fail_open_reason_sampling_failure_total\":";
         out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_sampling_failure_total);
+        out += ",\"narrow_moid_fail_open_reason_hf_placeholder_total\":";
+        out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_hf_placeholder_total);
         out += ",\"narrow_moid_fail_open_reason_uncertainty_override_total\":";
         out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_uncertainty_override_total);
         out += ",\"narrow_refine_fail_open_reason_rk4_failure_total\":";
@@ -2115,6 +2123,8 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_non_finite_state_last_tick);
         out += ",\"narrow_moid_fail_open_reason_sampling_failure\":";
         out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_sampling_failure_last_tick);
+        out += ",\"narrow_moid_fail_open_reason_hf_placeholder\":";
+        out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_hf_placeholder_last_tick);
         out += ",\"narrow_moid_fail_open_reason_uncertainty_override\":";
         out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_uncertainty_override_last_tick);
         out += ",\"narrow_refine_fail_open_reason_rk4_failure\":";
@@ -2244,6 +2254,8 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_non_finite_state_total);
         out += ",\"narrow_moid_fail_open_reason_sampling_failure\":";
         out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_sampling_failure_total);
+        out += ",\"narrow_moid_fail_open_reason_hf_placeholder\":";
+        out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_hf_placeholder_total);
         out += ",\"narrow_moid_fail_open_reason_uncertainty_override\":";
         out += std::to_string(prop_stats_.narrow_moid_fail_open_reason_uncertainty_override_total);
         out += ",\"narrow_refine_fail_open_reason_rk4_failure\":";

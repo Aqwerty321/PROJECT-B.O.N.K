@@ -77,7 +77,7 @@ jobs:
         run: ./scripts/phase4_calibration_gate.sh ./build
 
       - name: Run phase4 law assertions gate
-        run: ./scripts/phase4_law_assertions_gate.sh ./build/phase4_calibration_gate_summary.json 1
+        run: ./scripts/phase4_law_assertions_gate.sh ./build/phase4_calibration_gate_summary.json 2
 
       - name: Upload phase4 calibration summary
         if: always()

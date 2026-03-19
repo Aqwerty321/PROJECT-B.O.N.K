@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SUMMARY_JSON="${1:-$ROOT_DIR/build/phase4_calibration_gate_summary.json}"
-EXPECTED_SCHEMA_VERSION="${2:-1}"
+EXPECTED_SCHEMA_VERSION="${2:-2}"
 
 if [[ ! "$SUMMARY_JSON" = /* ]]; then
   SUMMARY_JSON="$ROOT_DIR/${SUMMARY_JSON#./}"

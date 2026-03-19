@@ -188,6 +188,7 @@ expected_reason_keys = {
   "narrow_moid_fail_open_reason_eccentricity_guard_total",
   "narrow_moid_fail_open_reason_non_finite_state_total",
   "narrow_moid_fail_open_reason_sampling_failure_total",
+  "narrow_moid_fail_open_reason_hf_placeholder_total",
   "narrow_moid_fail_open_reason_uncertainty_override_total",
   "narrow_refine_fail_open_reason_rk4_failure_total",
   "narrow_full_refine_fail_open_reason_rk4_failure_total",
@@ -234,6 +235,7 @@ moid_fail_open_sum = (
   + need("narrow_moid_fail_open_reason_eccentricity_guard_total")
   + need("narrow_moid_fail_open_reason_non_finite_state_total")
   + need("narrow_moid_fail_open_reason_sampling_failure_total")
+  + need("narrow_moid_fail_open_reason_hf_placeholder_total")
   + need("narrow_moid_fail_open_reason_uncertainty_override_total")
 )
 
