@@ -146,6 +146,12 @@ Probe helper:
   5.5 0.25 96 16 320 0.35 0.14 0.03 24 0.7 3.0
 ```
 
+Build target:
+
+```bash
+cmake --build build --target narrow_phase_calibration_probe
+```
+
 Current probe evidence snapshot:
 
 - baseline profile (`step=30s`):

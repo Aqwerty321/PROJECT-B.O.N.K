@@ -299,6 +299,10 @@ Optional: run recovery gain sweep helper (offline tuning, not runtime path).
 
 # narrow-phase calibration probe (phase 4 evidence)
 ./scripts/narrow_phase_calibration_probe.sh ./build 50 10000 5 30
+
+# optional tuned probe profile
+./scripts/narrow_phase_calibration_probe.sh ./build 50 10000 5 120 \
+  5.5 0.25 96 16 320 0.35 0.14 0.03 24 0.7 3.0
 ```
 
 `recovery_slot_gate --sweep` supports profiles:
