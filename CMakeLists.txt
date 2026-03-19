@@ -494,6 +494,12 @@ add_custom_target(narrow_phase_false_negative_regression_gate
     USES_TERMINAL
 )
 
+add_custom_target(narrow_phase_uncertainty_observability_gate
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/narrow_phase_uncertainty_observability_gate.sh" "${CMAKE_BINARY_DIR}"
+    DEPENDS narrow_phase_calibration_probe
+    USES_TERMINAL
+)
+
 # ===================================================================
 # Narrow-phase calibration probe harness (phase 4 evidence)
 # ===================================================================

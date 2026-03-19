@@ -156,6 +156,18 @@ Build target:
 cmake --build build --target narrow_phase_calibration_probe
 ```
 
+Observability gate helper:
+
+```bash
+./scripts/narrow_phase_uncertainty_observability_gate.sh ./build
+```
+
+Build target:
+
+```bash
+cmake --build build --target narrow_phase_uncertainty_observability_gate
+```
+
 Current probe evidence snapshot:
 
 - baseline profile (`step=30s`):
@@ -189,6 +201,15 @@ Interpretation:
 - fixture injection now exercises uncertainty-promotion and full-window budget
   pathways deterministically while keeping false-negative and contract gates
   green.
+
+## Contract/details gate extension
+
+- `api_contract_gate` now additionally verifies `GET /api/status?details=1`
+  includes the new observability keys:
+  - `narrow_uncertainty_promoted_pairs_total`
+  - `broad_phase_shadow_dcriterion_rejected_total`
+  - `narrow_uncertainty_promoted_pairs`
+  - `broad_dcriterion_shadow_rejected`
 
 ## Promotion policy
 

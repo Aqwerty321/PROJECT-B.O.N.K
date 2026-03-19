@@ -307,6 +307,9 @@ Optional: run recovery gain sweep helper (offline tuning, not runtime path).
 # fixture-heavy profile (forces uncertainty-promotion/full-refine evidence)
 ./scripts/narrow_phase_calibration_probe.sh ./build 50 10000 5 120 \
   5.5 0.25 96 16 320 0.35 0.14 0.03 24 0.7 3.0 4 8.5 0.42 0.01
+
+# observability gate (assert non-zero promotion/full-refine evidence)
+./scripts/narrow_phase_uncertainty_observability_gate.sh ./build
 ```
 
 `recovery_slot_gate --sweep` supports profiles:

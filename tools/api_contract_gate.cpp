@@ -404,6 +404,26 @@ GateResult run_contract_checks(std::string_view host,
             out.reason = "status details missing command latency metrics";
             return out;
         }
+        if (!contains(res->body, "\"narrow_uncertainty_promoted_pairs_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow uncertainty promoted total";
+            return out;
+        }
+        if (!contains(res->body, "\"broad_phase_shadow_dcriterion_rejected_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing broad dcriterion shadow total";
+            return out;
+        }
+        if (!contains(res->body, "\"broad_dcriterion_shadow_rejected\"")) {
+            out.pass = false;
+            out.reason = "status details missing broad dcriterion shadow last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_uncertainty_promoted_pairs\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow uncertainty promoted last tick metric";
+            return out;
+        }
     }
 
     {
