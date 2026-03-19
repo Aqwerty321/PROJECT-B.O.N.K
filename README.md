@@ -310,6 +310,12 @@ Optional: run recovery gain sweep helper (offline tuning, not runtime path).
 
 # observability gate (assert non-zero promotion/full-refine evidence)
 ./scripts/narrow_phase_uncertainty_observability_gate.sh ./build
+
+# phase4 aggregate calibration gate (determinism + observability + safety suite)
+./scripts/phase4_calibration_gate.sh ./build
+
+# optional explicit summary artifact path
+./scripts/phase4_calibration_gate.sh ./build ./build/phase4_calibration_gate_summary.json
 ```
 
 `recovery_slot_gate --sweep` supports profiles:

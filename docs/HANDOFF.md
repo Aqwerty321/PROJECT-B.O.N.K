@@ -147,6 +147,12 @@ ctest --test-dir build --output-on-failure
 
 # strict-expanded profile (deeper deterministic candidate set)
 ./scripts/recovery_slot_sweep.sh ./build 24 0.08 1.10 strict-expanded
+
+# deterministic repeat selection gate
+./scripts/recovery_sweep_determinism_gate.sh ./build 3 24 0.08 1.10
+
+# phase4 aggregate calibration gate (determinism + observability + safety suite)
+./scripts/phase4_calibration_gate.sh ./build
 ```
 
 Default sweep artifacts by profile:

@@ -598,6 +598,12 @@ add_custom_target(recovery_sweep_determinism_gate
     USES_TERMINAL
 )
 
+add_custom_target(phase4_calibration_gate
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/phase4_calibration_gate.sh" "${CMAKE_BINARY_DIR}" "${CMAKE_BINARY_DIR}/phase4_calibration_gate_summary.json"
+    DEPENDS recovery_slot_gate narrow_phase_calibration_probe phase2_regression broad_phase_validation narrow_phase_false_negative_gate maneuver_ops_invariants_gate recovery_planner_invariants api_contract_gate ProjectBONK
+    USES_TERMINAL
+)
+
 # ===================================================================
 # Recovery planner invariants gate harness
 # ===================================================================

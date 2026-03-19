@@ -136,6 +136,23 @@ All PASS on this calibration step:
 - `./scripts/api_contract_gate.sh`
 - `ctest --test-dir build --output-on-failure`
 
+Aggregate gate helper:
+
+```bash
+./scripts/phase4_calibration_gate.sh ./build
+```
+
+Build target:
+
+```bash
+cmake --build build --target phase4_calibration_gate
+```
+
+Artifact:
+
+- `build/phase4_calibration_gate_summary.json`
+  - contains per-step PASS/FAIL and overall phase4 gate result
+
 ## Narrow-phase calibration probe (phase 4)
 
 Probe helper:
