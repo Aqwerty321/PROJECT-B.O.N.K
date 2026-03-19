@@ -164,11 +164,112 @@ if (( MOID_SHADOW_REJECTED_TOTAL < MIN_MOID_SHADOW_REJECTED_TOTAL )); then
   exit 1
 fi
 
+python3 - <<'PY' "$PROBE_LOG"
+import re
+import sys
+
+txt = open(sys.argv[1], 'r', encoding='utf-8').read()
+metrics = {}
+for m in re.finditer(r'^([a-z0-9_]+)=(\d+)$', txt, re.M):
+  metrics[m.group(1)] = int(m.group(2))
+
+expected_reason_keys = {
+  "narrow_plane_phase_reject_reason_plane_angle_total",
+  "narrow_plane_phase_reject_reason_phase_angle_total",
+  "narrow_plane_phase_fail_open_reason_elements_invalid_total",
+  "narrow_plane_phase_fail_open_reason_eccentricity_guard_total",
+  "narrow_plane_phase_fail_open_reason_non_finite_state_total",
+  "narrow_plane_phase_fail_open_reason_angular_momentum_degenerate_total",
+  "narrow_plane_phase_fail_open_reason_plane_angle_non_finite_total",
+  "narrow_plane_phase_fail_open_reason_phase_angle_non_finite_total",
+  "narrow_plane_phase_fail_open_reason_uncertainty_override_total",
+  "narrow_moid_reject_reason_distance_threshold_total",
+  "narrow_moid_fail_open_reason_elements_invalid_total",
+  "narrow_moid_fail_open_reason_eccentricity_guard_total",
+  "narrow_moid_fail_open_reason_non_finite_state_total",
+  "narrow_moid_fail_open_reason_sampling_failure_total",
+  "narrow_moid_fail_open_reason_uncertainty_override_total",
+  "narrow_refine_fail_open_reason_rk4_failure_total",
+  "narrow_full_refine_fail_open_reason_rk4_failure_total",
+  "narrow_full_refine_fail_open_reason_budget_exhausted_total",
+}
+
+found_reason_keys = {
+  k for k in metrics.keys()
+  if "_reason_" in k and k.endswith("_total")
+}
+
+missing = sorted(expected_reason_keys - found_reason_keys)
+unexpected = sorted(found_reason_keys - expected_reason_keys)
+if missing or unexpected:
+  print("narrow-phase uncertainty observability gate: FAIL", file=sys.stderr)
+  if missing:
+    print("reason=reason_code_keys_missing", file=sys.stderr)
+    print("missing_keys=" + ",".join(missing), file=sys.stderr)
+  if unexpected:
+    print("reason=reason_code_keys_unexpected", file=sys.stderr)
+    print("unexpected_keys=" + ",".join(unexpected), file=sys.stderr)
+  raise SystemExit(1)
+
+def need(name: str) -> int:
+  if name not in metrics:
+    print("narrow-phase uncertainty observability gate: FAIL", file=sys.stderr)
+    print("reason=missing_reason_metric", file=sys.stderr)
+    print(f"missing_metric={name}", file=sys.stderr)
+    raise SystemExit(1)
+  return metrics[name]
+
+plane_fail_open_sum = (
+  need("narrow_plane_phase_fail_open_reason_elements_invalid_total")
+  + need("narrow_plane_phase_fail_open_reason_eccentricity_guard_total")
+  + need("narrow_plane_phase_fail_open_reason_non_finite_state_total")
+  + need("narrow_plane_phase_fail_open_reason_angular_momentum_degenerate_total")
+  + need("narrow_plane_phase_fail_open_reason_plane_angle_non_finite_total")
+  + need("narrow_plane_phase_fail_open_reason_phase_angle_non_finite_total")
+  + need("narrow_plane_phase_fail_open_reason_uncertainty_override_total")
+)
+
+moid_fail_open_sum = (
+  need("narrow_moid_fail_open_reason_elements_invalid_total")
+  + need("narrow_moid_fail_open_reason_eccentricity_guard_total")
+  + need("narrow_moid_fail_open_reason_non_finite_state_total")
+  + need("narrow_moid_fail_open_reason_sampling_failure_total")
+  + need("narrow_moid_fail_open_reason_uncertainty_override_total")
+)
+
+refine_fail_open_sum = need("narrow_refine_fail_open_reason_rk4_failure_total")
+full_refine_fail_open_sum = (
+  need("narrow_full_refine_fail_open_reason_rk4_failure_total")
+  + need("narrow_full_refine_fail_open_reason_budget_exhausted_total")
+)
+
+if plane_fail_open_sum != need("narrow_plane_phase_fail_open_pairs_total"):
+  print("narrow-phase uncertainty observability gate: FAIL", file=sys.stderr)
+  print("reason=plane_phase_fail_open_reason_sum_mismatch", file=sys.stderr)
+  raise SystemExit(1)
+
+if moid_fail_open_sum != need("narrow_moid_fail_open_pairs_total"):
+  print("narrow-phase uncertainty observability gate: FAIL", file=sys.stderr)
+  print("reason=moid_fail_open_reason_sum_mismatch", file=sys.stderr)
+  raise SystemExit(1)
+
+if refine_fail_open_sum != need("narrow_refine_fail_open_total"):
+  print("narrow-phase uncertainty observability gate: FAIL", file=sys.stderr)
+  print("reason=refine_fail_open_reason_sum_mismatch", file=sys.stderr)
+  raise SystemExit(1)
+
+if full_refine_fail_open_sum != need("narrow_full_refine_fail_open_total"):
+  print("narrow-phase uncertainty observability gate: FAIL", file=sys.stderr)
+  print("reason=full_refine_fail_open_reason_sum_mismatch", file=sys.stderr)
+  raise SystemExit(1)
+PY
+
 echo "narrow_uncertainty_promoted_pairs_total=$PROMOTED_TOTAL"
 echo "narrow_full_refined_pairs_total=$FULL_REFINED_TOTAL"
 echo "narrow_plane_phase_evaluated_pairs_total=$PLANE_PHASE_EVALUATED_TOTAL"
 echo "narrow_plane_phase_shadow_rejected_pairs_total=$PLANE_PHASE_SHADOW_REJECTED_TOTAL"
 echo "narrow_moid_evaluated_pairs_total=$MOID_EVALUATED_TOTAL"
 echo "narrow_moid_shadow_rejected_pairs_total=$MOID_SHADOW_REJECTED_TOTAL"
+echo "reason_codes_strict_enum_validation=PASS"
 echo "narrow_phase_uncertainty_observability_gate_result=PASS"
 echo "narrow-phase uncertainty observability gate: PASS"

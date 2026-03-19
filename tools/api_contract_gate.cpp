@@ -598,6 +598,26 @@ GateResult run_contract_checks(std::string_view host,
             out.reason = "status details missing narrow plane-phase fail-open total";
             return out;
         }
+        if (!contains(res->body, "\"narrow_plane_phase_reject_reason_plane_angle_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase plane-angle reject reason total";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_plane_phase_reject_reason_phase_angle_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase phase-angle reject reason total";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_plane_phase_fail_open_reason_elements_invalid_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase fail-open elements-invalid reason total";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_plane_phase_fail_open_reason_uncertainty_override_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase fail-open uncertainty-override reason total";
+            return out;
+        }
         if (!contains(res->body, "\"narrow_moid_shadow_rejected_pairs_total\"")) {
             out.pass = false;
             out.reason = "status details missing narrow moid shadow total";
@@ -611,6 +631,31 @@ GateResult run_contract_checks(std::string_view host,
         if (!contains(res->body, "\"narrow_moid_fail_open_pairs_total\"")) {
             out.pass = false;
             out.reason = "status details missing narrow moid fail-open total";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_moid_reject_reason_distance_threshold_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow moid reject distance-threshold reason total";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_moid_fail_open_reason_sampling_failure_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow moid fail-open sampling-failure reason total";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_moid_fail_open_reason_uncertainty_override_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow moid fail-open uncertainty-override reason total";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_refine_fail_open_reason_rk4_failure_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow refine fail-open rk4-failure reason total";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_full_refine_fail_open_reason_budget_exhausted_total\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow full-refine fail-open budget-exhausted reason total";
             return out;
         }
         if (!contains(res->body, "\"broad_phase_shadow_dcriterion_rejected_total\"")) {
@@ -648,6 +693,16 @@ GateResult run_contract_checks(std::string_view host,
             out.reason = "status details missing narrow plane-phase fail-open last tick metric";
             return out;
         }
+        if (!contains(res->body, "\"narrow_plane_phase_reject_reason_plane_angle\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase plane-angle reject reason last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_plane_phase_fail_open_reason_uncertainty_override\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow plane-phase uncertainty-override reason last tick metric";
+            return out;
+        }
         if (!contains(res->body, "\"narrow_moid_evaluated_pairs\"")) {
             out.pass = false;
             out.reason = "status details missing narrow moid evaluated last tick metric";
@@ -666,6 +721,26 @@ GateResult run_contract_checks(std::string_view host,
         if (!contains(res->body, "\"narrow_moid_fail_open_pairs\"")) {
             out.pass = false;
             out.reason = "status details missing narrow moid fail-open last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_moid_reject_reason_distance_threshold\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow moid reject distance-threshold reason last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_moid_fail_open_reason_sampling_failure\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow moid fail-open sampling-failure reason last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_refine_fail_open_reason_rk4_failure\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow refine rk4-failure reason last tick metric";
+            return out;
+        }
+        if (!contains(res->body, "\"narrow_full_refine_fail_open_reason_budget_exhausted\"")) {
+            out.pass = false;
+            out.reason = "status details missing narrow full-refine budget-exhausted reason last tick metric";
             return out;
         }
         if (!contains(res->body, "\"collision_threshold_km\"")) {

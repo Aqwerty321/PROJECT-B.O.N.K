@@ -32,6 +32,14 @@ for key in "${STEP_ORDER[@]}"; do
   STEP_RESULT["$key"]="NOT_RUN"
 done
 
+LAW1_FALSE_NEGATIVES_TOTAL=""
+LAW1_ZERO_FALSE_NEGATIVES="UNKNOWN"
+LAW2_UNCERTAINTY_FAIL_OPEN="UNKNOWN"
+LAW3_TRANSITIONS_OBSERVABLE="UNKNOWN"
+LAW4_NO_SILENT_FALLBACK="UNKNOWN"
+REASON_CODES_STRICT_ENUM_VALIDATION="UNKNOWN"
+REASON_CODES_SCHEMA_VERSION="1"
+
 TMP_DIR="$(mktemp -d)"
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -60,9 +68,62 @@ write_summary() {
       printf '    "%s":"%s"%s\n' "$key" "${STEP_RESULT[$key]}" "$comma"
     done
 
+    printf '  },\n'
+    printf '  "law_assertions":{\n'
+    printf '    "law1_no_false_negatives":{\n'
+    printf '      "status":"%s",\n' "$LAW1_ZERO_FALSE_NEGATIVES"
+    printf '      "false_negative_sats_total":"%s"\n' "$LAW1_FALSE_NEGATIVES_TOTAL"
+    printf '    },\n'
+    printf '    "law2_uncertainty_fail_open":{\n'
+    printf '      "status":"%s"\n' "$LAW2_UNCERTAINTY_FAIL_OPEN"
+    printf '    },\n'
+    printf '    "law3_transitions_observable":{\n'
+    printf '      "status":"%s"\n' "$LAW3_TRANSITIONS_OBSERVABLE"
+    printf '    },\n'
+    printf '    "law4_no_silent_fallback":{\n'
+    printf '      "status":"%s",\n' "$LAW4_NO_SILENT_FALLBACK"
+    printf '      "strict_reason_codes":"%s",\n' "$REASON_CODES_STRICT_ENUM_VALIDATION"
+    printf '      "reason_codes_schema_version":"%s"\n' "$REASON_CODES_SCHEMA_VERSION"
+    printf '    }\n'
     printf '  }\n'
     printf '}\n'
   } > "$SUMMARY_JSON"
+}
+
+capture_step_assertions() {
+  local key="$1"
+  local log_file="$2"
+
+  case "$key" in
+    narrow_phase_false_negative)
+      local fn_total=""
+      fn_total="$(sed -n 's/^false_negative_sats_total=\([0-9][0-9]*\)$/\1/p' "$log_file" | tail -n1)"
+      if [[ -n "$fn_total" ]]; then
+        LAW1_FALSE_NEGATIVES_TOTAL="$fn_total"
+        if [[ "$fn_total" == "0" ]]; then
+          LAW1_ZERO_FALSE_NEGATIVES="PASS"
+        else
+          LAW1_ZERO_FALSE_NEGATIVES="FAIL"
+        fi
+      fi
+      ;;
+    narrow_phase_uncertainty_observability)
+      local strict_reason=""
+      strict_reason="$(sed -n 's/^reason_codes_strict_enum_validation=\(PASS\|FAIL\)$/\1/p' "$log_file" | tail -n1)"
+      if [[ -n "$strict_reason" ]]; then
+        REASON_CODES_STRICT_ENUM_VALIDATION="$strict_reason"
+        if [[ "$strict_reason" == "PASS" ]]; then
+          LAW2_UNCERTAINTY_FAIL_OPEN="PASS"
+          LAW3_TRANSITIONS_OBSERVABLE="PASS"
+          LAW4_NO_SILENT_FALLBACK="PASS"
+        else
+          LAW2_UNCERTAINTY_FAIL_OPEN="FAIL"
+          LAW3_TRANSITIONS_OBSERVABLE="FAIL"
+          LAW4_NO_SILENT_FALLBACK="FAIL"
+        fi
+      fi
+      ;;
+  esac
 }
 
 run_step() {
@@ -74,6 +135,7 @@ run_step() {
   if "$@" >"$log_file" 2>&1; then
     cat "$log_file"
     STEP_RESULT["$key"]="PASS"
+    capture_step_assertions "$key" "$log_file"
     return 0
   fi
 

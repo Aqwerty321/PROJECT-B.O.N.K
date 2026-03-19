@@ -13,6 +13,11 @@
 namespace cascade {
 
 struct NarrowPhaseConfig {
+    enum class MoidMode : std::uint8_t {
+        PROXY = 0,
+        HF = 1,
+    };
+
     // Conservative linear-TCA screening guard.
     double tca_guard_km = 0.02;
 
@@ -42,6 +47,7 @@ struct NarrowPhaseConfig {
     double phase_max_e = 0.2;
 
     // MOID proxy rollout (sampled, shadow-first).
+    MoidMode moid_mode = MoidMode::PROXY;
     bool moid_shadow = true;
     bool moid_filter = false;
     std::uint32_t moid_samples = 24;
@@ -73,10 +79,28 @@ struct StepRunStats {
     std::uint64_t narrow_plane_phase_shadow_rejected_pairs = 0;
     std::uint64_t narrow_plane_phase_hard_rejected_pairs = 0;
     std::uint64_t narrow_plane_phase_fail_open_pairs = 0;
+    std::uint64_t narrow_plane_phase_reject_reason_plane_angle_total = 0;
+    std::uint64_t narrow_plane_phase_reject_reason_phase_angle_total = 0;
+    std::uint64_t narrow_plane_phase_fail_open_reason_elements_invalid_total = 0;
+    std::uint64_t narrow_plane_phase_fail_open_reason_eccentricity_guard_total = 0;
+    std::uint64_t narrow_plane_phase_fail_open_reason_non_finite_state_total = 0;
+    std::uint64_t narrow_plane_phase_fail_open_reason_angular_momentum_degenerate_total = 0;
+    std::uint64_t narrow_plane_phase_fail_open_reason_plane_angle_non_finite_total = 0;
+    std::uint64_t narrow_plane_phase_fail_open_reason_phase_angle_non_finite_total = 0;
+    std::uint64_t narrow_plane_phase_fail_open_reason_uncertainty_override_total = 0;
     std::uint64_t narrow_moid_evaluated_pairs = 0;
     std::uint64_t narrow_moid_shadow_rejected_pairs = 0;
     std::uint64_t narrow_moid_hard_rejected_pairs = 0;
     std::uint64_t narrow_moid_fail_open_pairs = 0;
+    std::uint64_t narrow_moid_reject_reason_distance_threshold_total = 0;
+    std::uint64_t narrow_moid_fail_open_reason_elements_invalid_total = 0;
+    std::uint64_t narrow_moid_fail_open_reason_eccentricity_guard_total = 0;
+    std::uint64_t narrow_moid_fail_open_reason_non_finite_state_total = 0;
+    std::uint64_t narrow_moid_fail_open_reason_sampling_failure_total = 0;
+    std::uint64_t narrow_moid_fail_open_reason_uncertainty_override_total = 0;
+    std::uint64_t narrow_refine_fail_open_reason_rk4_failure_total = 0;
+    std::uint64_t narrow_full_refine_fail_open_reason_rk4_failure_total = 0;
+    std::uint64_t narrow_full_refine_fail_open_reason_budget_exhausted_total = 0;
     std::vector<std::uint32_t> collision_sat_indices;
 
     // Broad-phase (conservative shell overlap)

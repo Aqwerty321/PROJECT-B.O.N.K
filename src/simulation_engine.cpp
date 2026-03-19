@@ -9,7 +9,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
+#include <string>
 #include <vector>
 
 namespace cascade {
@@ -20,12 +22,31 @@ struct PlanePhaseGateResult {
     bool evaluated = false;
     bool reject = false;
     bool fail_open = false;
+    enum class Reason : std::uint8_t {
+        NONE = 0,
+        REJECT_PLANE_ANGLE,
+        REJECT_PHASE_ANGLE,
+        FAIL_OPEN_ELEMENTS_INVALID,
+        FAIL_OPEN_ECCENTRICITY_GUARD,
+        FAIL_OPEN_NON_FINITE_STATE,
+        FAIL_OPEN_ANGULAR_MOMENTUM_DEGENERATE,
+        FAIL_OPEN_PLANE_ANGLE_NON_FINITE,
+        FAIL_OPEN_PHASE_ANGLE_NON_FINITE,
+    } reason = Reason::NONE;
 };
 
 struct MoidProxyGateResult {
     bool evaluated = false;
     bool reject = false;
     bool fail_open = false;
+    enum class Reason : std::uint8_t {
+        NONE = 0,
+        REJECT_DISTANCE_THRESHOLD,
+        FAIL_OPEN_ELEMENTS_INVALID,
+        FAIL_OPEN_ECCENTRICITY_GUARD,
+        FAIL_OPEN_NON_FINITE_STATE,
+        FAIL_OPEN_SAMPLING_FAILURE,
+    } reason = Reason::NONE;
 };
 
 inline double norm2(double x, double y, double z) noexcept
@@ -45,6 +66,7 @@ inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
     const bool obj_valid = store.elements_valid(obj_idx);
     if (!sat_valid || !obj_valid) {
         out.fail_open = true;
+        out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_ELEMENTS_INVALID;
         return out;
     }
 
@@ -52,10 +74,12 @@ inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
     const double obj_e = store.e(obj_idx);
     if (!std::isfinite(sat_e) || !std::isfinite(obj_e)) {
         out.fail_open = true;
+        out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
         return out;
     }
     if (sat_e > cfg.phase_max_e || obj_e > cfg.phase_max_e) {
         out.fail_open = true;
+        out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_ECCENTRICITY_GUARD;
         return out;
     }
 
@@ -77,6 +101,7 @@ inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
         || !std::isfinite(obj_argp)
         || !std::isfinite(obj_M)) {
         out.fail_open = true;
+        out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
         return out;
     }
 
@@ -95,6 +120,7 @@ inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
     const double obj_h_norm = std::sqrt(norm2(obj_h.x, obj_h.y, obj_h.z));
     if (!(sat_h_norm > EPS_NUM) || !(obj_h_norm > EPS_NUM)) {
         out.fail_open = true;
+        out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_ANGULAR_MOMENTUM_DEGENERATE;
         return out;
     }
 
@@ -107,11 +133,13 @@ inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
     const double plane_angle = std::acos(cos_plane);
     if (!std::isfinite(plane_angle)) {
         out.fail_open = true;
+        out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_PLANE_ANGLE_NON_FINITE;
         return out;
     }
 
     if (plane_angle > cfg.plane_angle_threshold_rad) {
         out.reject = true;
+        out.reason = PlanePhaseGateResult::Reason::REJECT_PLANE_ANGLE;
         return out;
     }
 
@@ -121,11 +149,13 @@ inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
         std::abs(wrap_0_2pi(sat_phase - obj_phase + PI) - PI);
     if (!std::isfinite(phase_delta)) {
         out.fail_open = true;
+        out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_PHASE_ANGLE_NON_FINITE;
         return out;
     }
 
     if (phase_delta > cfg.phase_angle_threshold_rad) {
         out.reject = true;
+        out.reason = PlanePhaseGateResult::Reason::REJECT_PHASE_ANGLE;
     }
     return out;
 }
@@ -143,6 +173,7 @@ inline MoidProxyGateResult evaluate_moid_proxy_gate(const StateStore& store,
     const bool obj_valid = store.elements_valid(obj_idx);
     if (!sat_valid || !obj_valid) {
         out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_ELEMENTS_INVALID;
         return out;
     }
 
@@ -173,10 +204,15 @@ inline MoidProxyGateResult evaluate_moid_proxy_gate(const StateStore& store,
     if (!std::isfinite(sat_el.a_km)
         || !std::isfinite(sat_el.e)
         || !std::isfinite(obj_el.a_km)
-        || !std::isfinite(obj_el.e)
-        || sat_el.e > cfg.moid_max_e
-        || obj_el.e > cfg.moid_max_e) {
+        || !std::isfinite(obj_el.e)) {
         out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
+        return out;
+    }
+
+    if (sat_el.e > cfg.moid_max_e || obj_el.e > cfg.moid_max_e) {
+        out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_ECCENTRICITY_GUARD;
         return out;
     }
 
@@ -186,6 +222,7 @@ inline MoidProxyGateResult evaluate_moid_proxy_gate(const StateStore& store,
     const double obj_dt = std::max(0.0, epoch_s - obj_epoch);
     if (!std::isfinite(sat_dt) || !std::isfinite(obj_dt)) {
         out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
         return out;
     }
 
@@ -234,12 +271,46 @@ inline MoidProxyGateResult evaluate_moid_proxy_gate(const StateStore& store,
 
     if (!any_valid || !std::isfinite(min_d2)) {
         out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_SAMPLING_FAILURE;
         return out;
     }
 
     const double threshold_km = std::max(0.0, cfg.moid_reject_threshold_km);
     out.reject = std::sqrt(min_d2) > threshold_km;
+    if (out.reject) {
+        out.reason = MoidProxyGateResult::Reason::REJECT_DISTANCE_THRESHOLD;
+    }
     return out;
+}
+
+inline MoidProxyGateResult evaluate_moid_hf_gate(const StateStore&,
+                                                 std::size_t,
+                                                 std::size_t,
+                                                 double,
+                                                 const NarrowPhaseConfig&) noexcept
+{
+    // HF path is intentionally fail-open until the evaluator lands to protect
+    // LAW1 (no false negatives) during staged rollout.
+    MoidProxyGateResult out{};
+    out.evaluated = true;
+    out.fail_open = true;
+    out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_SAMPLING_FAILURE;
+    return out;
+}
+
+inline NarrowPhaseConfig::MoidMode resolve_moid_mode(const NarrowPhaseConfig& cfg) noexcept
+{
+    const char* env = std::getenv("PROJECTBONK_NARROW_MOID_MODE");
+    if (env != nullptr) {
+        const std::string mode(env);
+        if (mode == "hf" || mode == "HF") {
+            return NarrowPhaseConfig::MoidMode::HF;
+        }
+        if (mode == "proxy" || mode == "PROXY") {
+            return NarrowPhaseConfig::MoidMode::PROXY;
+        }
+    }
+    return cfg.moid_mode;
 }
 
 inline double min_d2_linear_segment(double rx,
@@ -600,8 +671,35 @@ bool run_simulation_step(StateStore& store,
             }
             if (plane_phase.fail_open) {
                 ++out.narrow_plane_phase_fail_open_pairs;
+                switch (plane_phase.reason) {
+                    case PlanePhaseGateResult::Reason::FAIL_OPEN_ELEMENTS_INVALID:
+                        ++out.narrow_plane_phase_fail_open_reason_elements_invalid_total;
+                        break;
+                    case PlanePhaseGateResult::Reason::FAIL_OPEN_ECCENTRICITY_GUARD:
+                        ++out.narrow_plane_phase_fail_open_reason_eccentricity_guard_total;
+                        break;
+                    case PlanePhaseGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE:
+                        ++out.narrow_plane_phase_fail_open_reason_non_finite_state_total;
+                        break;
+                    case PlanePhaseGateResult::Reason::FAIL_OPEN_ANGULAR_MOMENTUM_DEGENERATE:
+                        ++out.narrow_plane_phase_fail_open_reason_angular_momentum_degenerate_total;
+                        break;
+                    case PlanePhaseGateResult::Reason::FAIL_OPEN_PLANE_ANGLE_NON_FINITE:
+                        ++out.narrow_plane_phase_fail_open_reason_plane_angle_non_finite_total;
+                        break;
+                    case PlanePhaseGateResult::Reason::FAIL_OPEN_PHASE_ANGLE_NON_FINITE:
+                        ++out.narrow_plane_phase_fail_open_reason_phase_angle_non_finite_total;
+                        break;
+                    default:
+                        break;
+                }
             }
             if (plane_phase.reject) {
+                if (plane_phase.reason == PlanePhaseGateResult::Reason::REJECT_PLANE_ANGLE) {
+                    ++out.narrow_plane_phase_reject_reason_plane_angle_total;
+                } else if (plane_phase.reason == PlanePhaseGateResult::Reason::REJECT_PHASE_ANGLE) {
+                    ++out.narrow_plane_phase_reject_reason_phase_angle_total;
+                }
                 if (plane_phase_shadow) {
                     ++out.narrow_plane_phase_shadow_rejected_pairs;
                 }
@@ -610,18 +708,43 @@ bool run_simulation_step(StateStore& store,
                     d2 = std::max(d2, std::max(refine_band_sq, full_refine_band_sq) + 1.0);
                 } else if (plane_phase_filter && uncertainty_promoted) {
                     ++out.narrow_plane_phase_fail_open_pairs;
+                    ++out.narrow_plane_phase_fail_open_reason_uncertainty_override_total;
                 }
             }
 
             MoidProxyGateResult moid{};
-            moid = evaluate_moid_proxy_gate(store, sat_idx, obj_idx, target_epoch, cfg.narrow_phase);
+            const NarrowPhaseConfig::MoidMode moid_mode = resolve_moid_mode(cfg.narrow_phase);
+            if (moid_mode == NarrowPhaseConfig::MoidMode::HF) {
+                moid = evaluate_moid_hf_gate(store, sat_idx, obj_idx, target_epoch, cfg.narrow_phase);
+            } else {
+                moid = evaluate_moid_proxy_gate(store, sat_idx, obj_idx, target_epoch, cfg.narrow_phase);
+            }
             if (moid.evaluated) {
                 ++out.narrow_moid_evaluated_pairs;
             }
             if (moid.fail_open) {
                 ++out.narrow_moid_fail_open_pairs;
+                switch (moid.reason) {
+                    case MoidProxyGateResult::Reason::FAIL_OPEN_ELEMENTS_INVALID:
+                        ++out.narrow_moid_fail_open_reason_elements_invalid_total;
+                        break;
+                    case MoidProxyGateResult::Reason::FAIL_OPEN_ECCENTRICITY_GUARD:
+                        ++out.narrow_moid_fail_open_reason_eccentricity_guard_total;
+                        break;
+                    case MoidProxyGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE:
+                        ++out.narrow_moid_fail_open_reason_non_finite_state_total;
+                        break;
+                    case MoidProxyGateResult::Reason::FAIL_OPEN_SAMPLING_FAILURE:
+                        ++out.narrow_moid_fail_open_reason_sampling_failure_total;
+                        break;
+                    default:
+                        break;
+                }
             }
             if (moid.reject) {
+                if (moid.reason == MoidProxyGateResult::Reason::REJECT_DISTANCE_THRESHOLD) {
+                    ++out.narrow_moid_reject_reason_distance_threshold_total;
+                }
                 if (moid_shadow) {
                     ++out.narrow_moid_shadow_rejected_pairs;
                 }
@@ -630,6 +753,7 @@ bool run_simulation_step(StateStore& store,
                     d2 = std::max(d2, std::max(refine_band_sq, full_refine_band_sq) + 1.0);
                 } else if (moid_filter && uncertainty_promoted) {
                     ++out.narrow_moid_fail_open_pairs;
+                    ++out.narrow_moid_fail_open_reason_uncertainty_override_total;
                 }
             }
         }
@@ -654,6 +778,7 @@ bool run_simulation_step(StateStore& store,
             ++out.narrow_refined_pairs;
             if (!refine_ok) {
                 ++out.narrow_refine_fail_open;
+                ++out.narrow_refine_fail_open_reason_rk4_failure_total;
                 d2 = 0.0;
             } else if (d2_refined >= collision_threshold_sq) {
                 ++out.narrow_refine_cleared;
@@ -667,6 +792,7 @@ bool run_simulation_step(StateStore& store,
             && (d2 <= full_refine_band_sq + 1e-9 || uncertainty_promoted)) {
             if (full_refine_budget == 0) {
                 ++out.narrow_full_refine_budget_exhausted;
+                ++out.narrow_full_refine_fail_open_reason_budget_exhausted_total;
                 // Fail-open policy: if a pair is near-threshold but budget is
                 // exhausted, classify as potential conjunction to avoid
                 // false negatives from under-refinement.
@@ -678,6 +804,7 @@ bool run_simulation_step(StateStore& store,
                 ++out.narrow_full_refined_pairs;
                 if (!full_ok) {
                     ++out.narrow_full_refine_fail_open;
+                    ++out.narrow_full_refine_fail_open_reason_rk4_failure_total;
                     d2 = 0.0;
                 } else if (d2_full >= collision_threshold_sq) {
                     ++out.narrow_full_refine_cleared;

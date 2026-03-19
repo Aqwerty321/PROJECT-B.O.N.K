@@ -494,6 +494,15 @@ add_custom_target(narrow_phase_false_negative_regression_gate
     USES_TERMINAL
 )
 
+add_custom_target(narrow_phase_false_negative_canary_gate
+    COMMAND "bash" "${CMAKE_SOURCE_DIR}/scripts/narrow_phase_false_negative_canary.sh"
+            "${CMAKE_BINARY_DIR}"
+            "${CMAKE_BINARY_DIR}/narrow_phase_false_negative_canary_summary.json"
+            10 8 120
+    DEPENDS narrow_phase_false_negative_gate
+    USES_TERMINAL
+)
+
 # ===================================================================
 # Narrow-phase calibration probe harness (phase 4 evidence)
 # ===================================================================
@@ -601,6 +610,12 @@ add_custom_target(recovery_sweep_determinism_gate
 add_custom_target(phase4_calibration_gate
     COMMAND "${CMAKE_SOURCE_DIR}/scripts/phase4_calibration_gate.sh" "${CMAKE_BINARY_DIR}" "${CMAKE_BINARY_DIR}/phase4_calibration_gate_summary.json"
     DEPENDS recovery_slot_gate narrow_phase_calibration_probe phase2_regression broad_phase_validation narrow_phase_false_negative_gate maneuver_ops_invariants_gate recovery_planner_invariants api_contract_gate ProjectBONK
+    USES_TERMINAL
+)
+
+add_custom_target(phase4_law_assertions_gate
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/phase4_law_assertions_gate.sh" "${CMAKE_BINARY_DIR}/phase4_calibration_gate_summary.json" 1
+    DEPENDS phase4_calibration_gate
     USES_TERMINAL
 )
 

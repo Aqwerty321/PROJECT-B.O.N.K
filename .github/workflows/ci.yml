@@ -43,6 +43,7 @@ jobs:
           cmake --build build --target phase2_regression_gate
           cmake --build build --target broad_phase_sanity_gate
           cmake --build build --target narrow_phase_false_negative_regression_gate
+          cmake --build build --target narrow_phase_false_negative_canary_gate
           cmake --build build --target recovery_slot_acceptance_gate
           cmake --build build --target recovery_planner_invariants_gate
           cmake --build build --target maneuver_ops_invariants_regression_gate
@@ -56,6 +57,9 @@ jobs:
 
       - name: Run narrow-phase false-negative gate script
         run: ./scripts/narrow_phase_false_negative_gate.sh
+
+      - name: Run narrow-phase false-negative canary script
+        run: bash ./scripts/narrow_phase_false_negative_canary.sh ./build ./build/narrow_phase_false_negative_canary_summary.json
 
       - name: Run recovery slot gate script
         run: ./scripts/recovery_slot_gate.sh
@@ -72,12 +76,23 @@ jobs:
       - name: Run phase4 aggregate calibration gate
         run: ./scripts/phase4_calibration_gate.sh ./build
 
+      - name: Run phase4 law assertions gate
+        run: ./scripts/phase4_law_assertions_gate.sh ./build/phase4_calibration_gate_summary.json 1
+
       - name: Upload phase4 calibration summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: phase4-calibration-summary
           path: build/phase4_calibration_gate_summary.json
+          if-no-files-found: warn
+
+      - name: Upload narrow-phase canary summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: narrow-phase-false-negative-canary-summary
+          path: build/narrow_phase_false_negative_canary_summary.json
           if-no-files-found: warn
 
       - name: Run CTest safety suite
