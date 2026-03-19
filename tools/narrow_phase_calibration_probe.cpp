@@ -208,8 +208,24 @@ int inject_high_rel_fixture_pairs(cascade::StateStore& store,
             store.vy_mut(deb_idx) = sat_v.y + n_hat.y * (sign * rel_speed_km_s);
             store.vz_mut(deb_idx) = sat_v.z + n_hat.z * (sign * rel_speed_km_s);
 
-            // Force broad-phase fail-open path for deterministic coverage.
-            store.set_elements(deb_idx, cascade::OrbitalElements{}, false);
+            cascade::OrbitalElements deb_el{};
+            const cascade::Vec3 deb_r{
+                store.rx(deb_idx),
+                store.ry(deb_idx),
+                store.rz(deb_idx)
+            };
+            const cascade::Vec3 deb_v{
+                store.vx(deb_idx),
+                store.vy(deb_idx),
+                store.vz(deb_idx)
+            };
+            if (cascade::eci_to_elements(deb_r, deb_v, deb_el)) {
+                store.set_elements(deb_idx, deb_el, true);
+            } else {
+                // Fail-open path is still represented when injected states are
+                // not convertible to elliptic elements.
+                store.set_elements(deb_idx, cascade::OrbitalElements{}, false);
+            }
             ++injected;
         }
     }
@@ -228,6 +244,8 @@ void print_usage(const char* argv0)
         << " [full_refine_samples] [full_refine_substep_s] [micro_refine_max_step_s]"
         << " [fixture_pairs_per_sat] [fixture_rel_speed_km_s]"
         << " [fixture_offset_km] [fixture_offset_jitter_km]"
+        << " [moid_shadow] [moid_filter] [moid_samples]"
+        << " [moid_reject_threshold_km] [moid_max_e]"
         << "\n";
 }
 
@@ -337,6 +355,38 @@ int main(int argc, char** argv)
         return 2;
     }
     if (argc >= 20 && !parse_double(argv[19], fixture_offset_jitter_km)) {
+        print_usage(argv[0]);
+        return 2;
+    }
+    if (argc >= 21) {
+        int v = 0;
+        if (!parse_int(argv[20], v)) {
+            print_usage(argv[0]);
+            return 2;
+        }
+        cfg.narrow_phase.moid_shadow = (v != 0);
+    }
+    if (argc >= 22) {
+        int v = 0;
+        if (!parse_int(argv[21], v)) {
+            print_usage(argv[0]);
+            return 2;
+        }
+        cfg.narrow_phase.moid_filter = (v != 0);
+    }
+    if (argc >= 23) {
+        int v = 0;
+        if (!parse_int(argv[22], v)) {
+            print_usage(argv[0]);
+            return 2;
+        }
+        cfg.narrow_phase.moid_samples = static_cast<std::uint32_t>(std::max(6, v));
+    }
+    if (argc >= 24 && !parse_double(argv[23], cfg.narrow_phase.moid_reject_threshold_km)) {
+        print_usage(argv[0]);
+        return 2;
+    }
+    if (argc >= 25 && !parse_double(argv[24], cfg.narrow_phase.moid_max_e)) {
         print_usage(argv[0]);
         return 2;
     }
@@ -452,6 +502,11 @@ int main(int argc, char** argv)
     std::cout << "narrow_full_refine_samples=" << cfg.narrow_phase.full_refine_samples << "\n";
     std::cout << "narrow_full_refine_substep_s=" << cfg.narrow_phase.full_refine_substep_s << "\n";
     std::cout << "narrow_micro_refine_max_step_s=" << cfg.narrow_phase.micro_refine_max_step_s << "\n";
+    std::cout << "narrow_moid_shadow=" << (cfg.narrow_phase.moid_shadow ? 1 : 0) << "\n";
+    std::cout << "narrow_moid_filter=" << (cfg.narrow_phase.moid_filter ? 1 : 0) << "\n";
+    std::cout << "narrow_moid_samples=" << cfg.narrow_phase.moid_samples << "\n";
+    std::cout << "narrow_moid_reject_threshold_km=" << cfg.narrow_phase.moid_reject_threshold_km << "\n";
+    std::cout << "narrow_moid_max_e=" << cfg.narrow_phase.moid_max_e << "\n";
     std::cout << "narrow_pairs_checked_total=" << narrow_pairs_total << "\n";
     std::cout << "narrow_uncertainty_promoted_pairs_total=" << uncertainty_promoted_total << "\n";
     std::cout << "narrow_full_refined_pairs_total=" << full_refined_total << "\n";

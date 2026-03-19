@@ -109,7 +109,7 @@ Optional CORS controls:
 - `PROJECTBONK_NARROW_MOID_SAMPLES` sampled points per orbit for MOID-proxy
   evaluation (default `24`)
 - `PROJECTBONK_NARROW_MOID_REJECT_THRESHOLD_KM` conservative MOID-proxy reject
-  threshold (default `2.0`)
+  threshold (default `2.0`; smaller values reject less)
 - `PROJECTBONK_NARROW_MOID_MAX_E` max eccentricity for MOID-proxy evaluation
   (default `0.2`; higher-e pairs fail-open)
 
@@ -320,6 +320,9 @@ and narrow-phase plane/phase gate evidence:
 - `narrow_moid_shadow_rejected_pairs_total`
 - `narrow_moid_hard_rejected_pairs_total`
 - `narrow_moid_fail_open_pairs_total`
+
+Current observability gate defaults are calibrated for non-zero MOID shadow
+evidence under deterministic fixtures while preserving zero-FN behavior.
 
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.

@@ -293,6 +293,10 @@ Status update (current branch):
   - plane/phase and MOID-proxy evaluated/shadow-rejected/hard-rejected/
     fail-open pair totals
   - hard-rejected remains expected `0` under default shadow-first policy
+- Calibrated observability probe defaults to ensure deterministic non-zero MOID
+  shadow evidence while keeping FN gate at zero (fixture profile now uses
+  `high_rel_speed_km_s=2.0`, `high_rel_speed_extra_band_km=0.5`,
+  `fixture_rel_speed_km_s=3.0`).
 
 ### P1.3 Maneuver planner fidelity upgrade path
 

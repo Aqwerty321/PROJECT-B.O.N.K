@@ -24,6 +24,11 @@ FIXTURE_PAIRS_PER_SAT="${17:-3}"
 FIXTURE_REL_SPEED_KM_S="${18:-9.0}"
 FIXTURE_OFFSET_KM="${19:-0.33}"
 FIXTURE_OFFSET_JITTER_KM="${20:-0.01}"
+MOID_SHADOW="${21:-1}"
+MOID_FILTER="${22:-0}"
+MOID_SAMPLES="${23:-24}"
+MOID_REJECT_THRESHOLD_KM="${24:-2.0}"
+MOID_MAX_E="${25:-0.2}"
 
 cmake --build "$BUILD_DIR" --target narrow_phase_calibration_probe
 
@@ -46,6 +51,11 @@ cmake --build "$BUILD_DIR" --target narrow_phase_calibration_probe
   "$FIXTURE_PAIRS_PER_SAT" \
   "$FIXTURE_REL_SPEED_KM_S" \
   "$FIXTURE_OFFSET_KM" \
-  "$FIXTURE_OFFSET_JITTER_KM"
+  "$FIXTURE_OFFSET_JITTER_KM" \
+  "$MOID_SHADOW" \
+  "$MOID_FILTER" \
+  "$MOID_SAMPLES" \
+  "$MOID_REJECT_THRESHOLD_KM" \
+  "$MOID_MAX_E"
 
 echo "narrow-phase calibration probe: PASS"
