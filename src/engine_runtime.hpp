@@ -55,6 +55,11 @@ struct StepCommandResult {
     std::uint64_t maneuvers_executed = 0;
 };
 
+struct RuntimeHttpPolicy {
+    int schedule_success_status = 202;
+    std::int64_t max_step_seconds = 86400;
+};
+
 struct PropagationStats {
     std::uint64_t fast_last_tick = 0;
     std::uint64_t rk4_last_tick = 0;
@@ -257,6 +262,7 @@ private:
     std::atomic<std::int64_t> tick_count_{0};
     StepRunConfig step_cfg_{};
     RecoveryPlannerConfig recovery_cfg_{};
+    RuntimeHttpPolicy http_policy_{};
     PropagationStats prop_stats_{};
 
     std::vector<ScheduledBurn> burn_queue_;

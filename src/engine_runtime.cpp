@@ -73,6 +73,42 @@ std::uint64_t env_u64(std::string_view key,
     return static_cast<std::uint64_t>(parsed);
 }
 
+std::int64_t env_i64(std::string_view key,
+                     std::int64_t default_value,
+                     std::int64_t min_value,
+                     std::int64_t max_value) noexcept
+{
+    const char* raw = std::getenv(std::string(key).c_str());
+    if (raw == nullptr) {
+        return default_value;
+    }
+
+    char* end = nullptr;
+    const long long parsed = std::strtoll(raw, &end, 10);
+    if (end == nullptr || *end != '\0') {
+        return default_value;
+    }
+
+    if (parsed < min_value || parsed > max_value) {
+        return default_value;
+    }
+
+    return static_cast<std::int64_t>(parsed);
+}
+
+int env_int(std::string_view key,
+            int default_value,
+            int min_value,
+            int max_value) noexcept
+{
+    return static_cast<int>(
+        env_i64(key,
+                static_cast<std::int64_t>(default_value),
+                static_cast<std::int64_t>(min_value),
+                static_cast<std::int64_t>(max_value))
+    );
+}
+
 std::uint64_t plan_collision_avoidance_burns(
     StateStore& store,
     const StepRunStats& step_stats,
@@ -619,6 +655,19 @@ EngineRuntime::EngineRuntime()
 
     recovery_cfg_ = recovery_planner_config_from_env();
 
+    http_policy_.schedule_success_status = env_int(
+        "PROJECTBONK_SCHEDULE_SUCCESS_STATUS",
+        202,
+        200,
+        299
+    );
+    http_policy_.max_step_seconds = env_i64(
+        "PROJECTBONK_MAX_STEP_SECONDS",
+        86400,
+        1,
+        604800
+    );
+
     const char* queue_depth_env = std::getenv("PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH");
     if (queue_depth_env != nullptr) {
         char* end = nullptr;
@@ -1157,7 +1206,7 @@ ScheduleCommandResult EngineRuntime::execute_schedule_maneuver(std::string_view 
     graveyard_requested_by_sat_[sat_id] = false;
 
     result.ok = true;
-    result.http_status = 202;
+    result.http_status = http_policy_.schedule_success_status;
     result.projected_mass_remaining_kg = projected_mass_remaining;
     return result;
 }
@@ -1171,6 +1220,14 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         result.http_status = 422;
         result.error_code = "INVALID_STEP_SECONDS";
         result.error_message = "step_seconds must be > 0";
+        return result;
+    }
+
+    if (step_seconds > http_policy_.max_step_seconds) {
+        result.ok = false;
+        result.http_status = 422;
+        result.error_code = "STEP_SECONDS_EXCEEDS_LIMIT";
+        result.error_message = "step_seconds exceeds configured max limit";
         return result;
     }
 
@@ -1678,6 +1735,10 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(queue_depth_max);
         out += ",\"command_queue_depth_limit\":";
         out += std::to_string(max_queue_depth_);
+        out += ",\"schedule_success_status\":";
+        out += std::to_string(http_policy_.schedule_success_status);
+        out += ",\"max_step_seconds\":";
+        out += std::to_string(http_policy_.max_step_seconds);
         out += ",\"failed_objects_last_tick\":";
         out += std::to_string(failed_last_tick);
         out += ",\"failed_objects_total\":";

@@ -88,6 +88,10 @@ Optional CORS controls:
 - `PROJECTBONK_GROUND_STATIONS_CSV` optional path override for ground-station
   catalog (default lookup order: `docs/groundstations.csv`,
   `../docs/groundstations.csv`, then builtin PS defaults)
+- `PROJECTBONK_SCHEDULE_SUCCESS_STATUS` optional schedule ACK HTTP code
+  override (default `202`, allowed range `200..299`)
+- `PROJECTBONK_MAX_STEP_SECONDS` max allowed `step_seconds` for
+  `POST /api/simulate/step` (default `86400`)
 
 The backend echoes `Access-Control-Allow-Origin` only for matching allowed
 origins and sets `Vary: Origin` for cache safety.
@@ -105,11 +109,12 @@ unchanged (see `PS.md`).
 
 Contract-gate schedule success status policy:
 
-- default expected HTTP status for successful `POST /api/maneuver/schedule` is
-  `202` (runtime behavior)
-- override in gate only with
-  `PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS=<code>` when running
-  external compatibility checks
+- runtime response code is controlled by
+  `PROJECTBONK_SCHEDULE_SUCCESS_STATUS` (default `202`)
+- `api_contract_gate` expectation follows runtime by default
+- override gate expectation only with
+  `PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS=<code>` for external
+  compatibility checks (does not change runtime behavior)
 
 ---
 
@@ -281,6 +286,11 @@ classification:
 - `collision_threshold_km`
 - `narrow_tca_guard_km`
 - `effective_collision_threshold_km`
+
+and operational HTTP policy values:
+
+- `schedule_success_status`
+- `max_step_seconds`
 
 Visualization snapshot currently includes geodetic outputs (`lat/lon/alt`)
 computed from ECI state vectors.

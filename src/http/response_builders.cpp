@@ -51,7 +51,7 @@ void set_schedule_ack_json(httplib::Response& res,
     out += fmt_double(scheduled.projected_mass_remaining_kg, 3);
     out += "}}";
 
-    res.status = 202;
+    res.status = scheduled.http_status;
     res.set_content(out, "application/json");
 }
 

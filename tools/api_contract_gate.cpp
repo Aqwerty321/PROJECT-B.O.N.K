@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <utility>
 #include <thread>
 #include <sstream>
@@ -58,13 +59,51 @@ int parse_env_int_or_default(const char* key,
     return static_cast<int>(parsed);
 }
 
+std::int64_t parse_env_i64_or_default(const char* key,
+                                      std::int64_t default_value,
+                                      std::int64_t min_value,
+                                      std::int64_t max_value)
+{
+    const char* raw = std::getenv(key);
+    if (raw == nullptr || *raw == '\0') {
+        return default_value;
+    }
+
+    char* end = nullptr;
+    const long long parsed = std::strtoll(raw, &end, 10);
+    if (end == nullptr || *end != '\0') {
+        return default_value;
+    }
+    if (parsed < min_value || parsed > max_value) {
+        return default_value;
+    }
+    return static_cast<std::int64_t>(parsed);
+}
+
 int expected_schedule_success_status()
 {
-    return parse_env_int_or_default(
-        "PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS",
+    const int runtime_status = parse_env_int_or_default(
+        "PROJECTBONK_SCHEDULE_SUCCESS_STATUS",
         202,
         200,
         299
+    );
+
+    return parse_env_int_or_default(
+        "PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS",
+        runtime_status,
+        200,
+        299
+    );
+}
+
+std::int64_t expected_max_step_seconds()
+{
+    return parse_env_i64_or_default(
+        "PROJECTBONK_MAX_STEP_SECONDS",
+        86400,
+        1,
+        604800
     );
 }
 
@@ -144,6 +183,17 @@ std::string step_payload()
 std::string step_payload_invalid()
 {
     return R"JSON({"step_seconds": 0})JSON";
+}
+
+std::string step_payload_too_large(std::int64_t max_step_seconds)
+{
+    const std::int64_t too_large =
+        max_step_seconds < std::numeric_limits<std::int64_t>::max()
+            ? max_step_seconds + 1
+            : max_step_seconds;
+    return std::string("{\"step_seconds\": ")
+        + std::to_string(too_large)
+        + "}";
 }
 
 bool require_http(const httplib::Result& res,
@@ -308,7 +358,8 @@ GateResult run_queue_backpressure_check(std::string_view host,
 
 GateResult run_contract_checks(std::string_view host,
                                int port,
-                               int schedule_success_status)
+                               int schedule_success_status,
+                               std::int64_t max_step_seconds)
 {
     GateResult out;
     httplib::Client cli(std::string(host), port);
@@ -449,6 +500,25 @@ GateResult run_contract_checks(std::string_view host,
     }
 
     {
+        auto res = cli.Post(
+            "/api/simulate/step",
+            step_payload_too_large(max_step_seconds),
+            "application/json"
+        );
+        std::string reason;
+        if (!require_http(res, 422, "\"status\":\"ERROR\"", reason)) {
+            out.pass = false;
+            out.reason = "step exceeds-limit contract failed: " + reason;
+            return out;
+        }
+        if (!contains(res->body, "\"code\":\"STEP_SECONDS_EXCEEDS_LIMIT\"")) {
+            out.pass = false;
+            out.reason = "step exceeds-limit error code mismatch";
+            return out;
+        }
+    }
+
+    {
         auto res = cli.Get("/api/visualization/snapshot");
         std::string reason;
         if (!require_http(res, 200, "\"timestamp\"", reason)) {
@@ -543,6 +613,22 @@ GateResult run_contract_checks(std::string_view host,
             out.reason = "status details missing effective collision threshold metric";
             return out;
         }
+        const std::string schedule_status_token =
+            std::string("\"schedule_success_status\":")
+            + std::to_string(schedule_success_status);
+        if (!contains(res->body, schedule_status_token)) {
+            out.pass = false;
+            out.reason = "status details missing schedule success status policy value";
+            return out;
+        }
+        const std::string max_step_seconds_token =
+            std::string("\"max_step_seconds\":")
+            + std::to_string(max_step_seconds);
+        if (!contains(res->body, max_step_seconds_token)) {
+            out.pass = false;
+            out.reason = "status details missing max step seconds policy value";
+            return out;
+        }
     }
 
     {
@@ -582,12 +668,19 @@ int main(int argc, char** argv)
     }
 
     const int schedule_success_status = expected_schedule_success_status();
-    const GateResult result = run_contract_checks(host, port, schedule_success_status);
+    const std::int64_t max_step_seconds = expected_max_step_seconds();
+    const GateResult result = run_contract_checks(
+        host,
+        port,
+        schedule_success_status,
+        max_step_seconds
+    );
 
     std::cout << "api_contract_gate\n";
     std::cout << "host=" << host << "\n";
     std::cout << "port=" << port << "\n";
     std::cout << "schedule_success_expected_status=" << schedule_success_status << "\n";
+    std::cout << "max_step_seconds_expected=" << max_step_seconds << "\n";
     std::cout << "api_contract_gate_result=" << (result.pass ? "PASS" : "FAIL") << "\n";
     if (!result.pass) {
         std::cout << "api_contract_gate_reason=" << result.reason << "\n";

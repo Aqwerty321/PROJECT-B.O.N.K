@@ -227,6 +227,14 @@ Status: partial progress completed
 - schedule success expected HTTP status is now explicitly gate-configurable via
   `PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS` (default `202`) for
   compatibility checks without changing runtime defaults.
+- runtime now also supports controlled policy overrides:
+  - `PROJECTBONK_SCHEDULE_SUCCESS_STATUS` (default `202`, range `200..299`)
+  - `PROJECTBONK_MAX_STEP_SECONDS` (default `86400`)
+  and details mode exposes these active values in `GET /api/status?details=1`.
+- `api_contract_gate` now defaults its expected schedule success status to
+  runtime `PROJECTBONK_SCHEDULE_SUCCESS_STATUS` when present; explicit gate
+  override `PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS` still takes
+  precedence for external compatibility probes.
 
 ### P0.6 Documentation consistency sweep
 
