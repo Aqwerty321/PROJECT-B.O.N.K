@@ -60,11 +60,6 @@ inline int i_bin_of(double i_rad, double i_bin_width_rad) {
     return static_cast<int>(std::floor(i_rad / i_bin_width_rad));
 }
 
-inline std::int64_t make_bin_key(int a_bin, int i_bin) {
-    return (static_cast<std::int64_t>(a_bin) << 32)
-         ^ static_cast<std::uint32_t>(i_bin);
-}
-
 inline double dcriterion_simple(const StateStore& store,
                                 std::size_t i,
                                 std::size_t j)
@@ -97,25 +92,43 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
     const std::size_t n = store.size();
     const std::size_t sat_count = store.satellite_count();
     const std::size_t deb_count = store.debris_count();
-    out.candidates.reserve(sat_count * (deb_count + sat_count));
+    out.candidates.reserve(sat_count * deb_count);
 
-    std::vector<std::uint32_t> fail_open_indices;
-    fail_open_indices.reserve(n / 8 + 8);
+    std::vector<std::uint32_t> debris_indices;
+    debris_indices.reserve(deb_count);
 
-    std::unordered_map<std::int64_t, std::vector<std::uint32_t>> bands;
+    std::vector<std::uint32_t> fail_open_debris_indices;
+    fail_open_debris_indices.reserve(deb_count / 8 + 8);
+
+    std::uint64_t fail_open_objects = 0;
+
+    std::unordered_map<int, std::unordered_map<int, std::vector<std::uint32_t>>> bands;
     bands.reserve(n);
 
     for (std::size_t idx = 0; idx < n; ++idx) {
+        const bool is_debris = store.type(idx) == ObjectType::DEBRIS;
+        if (is_debris) {
+            debris_indices.push_back(static_cast<std::uint32_t>(idx));
+        }
+
         if (fail_open_object(store, idx, cfg)) {
-            fail_open_indices.push_back(static_cast<std::uint32_t>(idx));
+            ++fail_open_objects;
+            if (is_debris) {
+                fail_open_debris_indices.push_back(static_cast<std::uint32_t>(idx));
+            }
+            continue;
+        }
+
+        if (!is_debris) {
             continue;
         }
 
         const int a_bin = a_bin_of(store.a_km(idx), cfg.a_bin_width_km);
-        bands[make_bin_key(a_bin, 0)].push_back(static_cast<std::uint32_t>(idx));
+        const int i_bin = i_bin_of(store.i_rad(idx), cfg.i_bin_width_rad);
+        bands[a_bin][i_bin].push_back(static_cast<std::uint32_t>(idx));
     }
 
-    out.fail_open_objects = static_cast<std::uint64_t>(fail_open_indices.size());
+    out.fail_open_objects = fail_open_objects;
 
     std::vector<std::uint32_t> seen_stamp(n, 0);
     std::uint32_t stamp = 0;
@@ -123,8 +136,8 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
     for (std::size_t i = 0; i < n; ++i) {
         if (store.type(i) != ObjectType::SATELLITE) continue;
 
-        // For transparency, count full naive pair space per satellite.
-        out.pairs_considered += static_cast<std::uint64_t>(n - 1);
+        // For transparency, count full satellite-vs-debris pair space.
+        out.pairs_considered += static_cast<std::uint64_t>(debris_indices.size());
 
         double sat_min = 0.0;
         double sat_max = 0.0;
@@ -133,8 +146,8 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
         const bool sat_fail_open = fail_open_object(store, i, cfg);
         if (sat_fail_open) {
             ++out.fail_open_satellites;
-            for (std::size_t j = 0; j < n; ++j) {
-                if (j == i) continue;
+            for (std::uint32_t j_u32 : debris_indices) {
+                const std::size_t j = static_cast<std::size_t>(j_u32);
 
                 ++out.pairs_after_band_index;
 
@@ -177,25 +190,37 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
         }
 
         // Always include fail-open objects.
-        for (std::uint32_t idx : fail_open_indices) {
-            if (idx == i) continue;
+        for (std::uint32_t idx : fail_open_debris_indices) {
             seen_stamp[idx] = stamp;
         }
 
         const int sat_a_bin = a_bin_of(store.a_km(i), cfg.a_bin_width_km);
+        const int sat_i_bin = i_bin_of(store.i_rad(i), cfg.i_bin_width_rad);
 
         for (int da = -cfg.band_neighbor_bins; da <= cfg.band_neighbor_bins; ++da) {
-            const std::int64_t key = make_bin_key(sat_a_bin + da, 0);
-            auto it = bands.find(key);
-            if (it == bands.end()) continue;
-            for (std::uint32_t idx : it->second) {
-                if (idx == i) continue;
-                seen_stamp[idx] = stamp;
+            auto a_it = bands.find(sat_a_bin + da);
+            if (a_it == bands.end()) continue;
+
+            auto& i_band = a_it->second;
+            auto sat_i_it = i_band.find(sat_i_bin);
+            if (sat_i_it != i_band.end()) {
+                for (std::uint32_t idx : sat_i_it->second) {
+                    seen_stamp[idx] = stamp;
+                }
+            }
+
+            for (const auto& kv : i_band) {
+                if (kv.first == sat_i_bin) {
+                    continue;
+                }
+                for (std::uint32_t idx : kv.second) {
+                    seen_stamp[idx] = stamp;
+                }
             }
         }
 
-        for (std::size_t j = 0; j < n; ++j) {
-            if (j == i) continue;
+        for (std::uint32_t j_u32 : debris_indices) {
+            const std::size_t j = static_cast<std::size_t>(j_u32);
             if (seen_stamp[j] != stamp) continue;
 
             ++out.pairs_after_band_index;

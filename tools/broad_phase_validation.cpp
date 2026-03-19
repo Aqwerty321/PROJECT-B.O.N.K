@@ -120,7 +120,7 @@ std::unordered_set<std::uint64_t> baseline_shell_pairs(const cascade::StateStore
                                                        const cascade::BroadPhaseConfig& cfg)
 {
     std::unordered_set<std::uint64_t> out;
-    out.reserve(store.satellite_count() * (store.size() / 2 + 1));
+    out.reserve(store.satellite_count() * (store.debris_count() / 2 + 1));
 
     for (std::size_t i = 0; i < store.size(); ++i) {
         if (store.type(i) != cascade::ObjectType::SATELLITE) continue;
@@ -129,7 +129,7 @@ std::unordered_set<std::uint64_t> baseline_shell_pairs(const cascade::StateStore
         shell_bounds(store, i, cfg, sat_min, sat_max);
 
         for (std::size_t j = 0; j < store.size(); ++j) {
-            if (j == i) continue;
+            if (store.type(j) != cascade::ObjectType::DEBRIS) continue;
             double obj_min = 0.0, obj_max = 0.0;
             shell_bounds(store, j, cfg, obj_min, obj_max);
             if (!overlap(sat_min, sat_max, obj_min, obj_max)) continue;
