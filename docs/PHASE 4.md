@@ -144,6 +144,10 @@ Probe helper:
 ./scripts/narrow_phase_calibration_probe.sh ./build 50 10000 5 30
 ./scripts/narrow_phase_calibration_probe.sh ./build 50 10000 5 120 \
   5.5 0.25 96 16 320 0.35 0.14 0.03 24 0.7 3.0
+
+# fixture-heavy profile to force uncertainty promotion / budget pressure
+./scripts/narrow_phase_calibration_probe.sh ./build 50 10000 5 120 \
+  5.5 0.25 96 16 320 0.35 0.14 0.03 24 0.7 3.0 4 8.5 0.42 0.01
 ```
 
 Build target:
@@ -165,11 +169,26 @@ Current probe evidence snapshot:
   - `narrow_full_refined_pairs_total=0`
   - `narrow_full_refine_budget_exhausted_total=0`
 
+Fixture-heavy evidence snapshot (targeted near-threshold high-relative-speed):
+
+- baseline fixture profile (`step=30s`, defaults, `3` fixture pairs/sat):
+  - `fixture_pairs_injected=150`
+  - `narrow_pairs_checked_total=2500000`
+  - `narrow_uncertainty_promoted_pairs_total=150`
+  - `narrow_full_refined_pairs_total=32`
+  - `narrow_full_refine_budget_exhausted_total=118`
+- stress fixture profile (`step=120s`, tuned, `4` fixture pairs/sat):
+  - `fixture_pairs_injected=200`
+  - `narrow_pairs_checked_total=2500000`
+  - `narrow_uncertainty_promoted_pairs_total=200`
+  - `narrow_full_refined_pairs_total=48`
+  - `narrow_full_refine_budget_exhausted_total=152`
+
 Interpretation:
 
-- current synthetic distribution does not yet exercise uncertainty promotion or
-  full-window refinement budget pressure; targeted conjunction-heavy fixtures
-  are needed for the next narrow-phase calibration increment.
+- fixture injection now exercises uncertainty-promotion and full-window budget
+  pathways deterministically while keeping false-negative and contract gates
+  green.
 
 ## Promotion policy
 

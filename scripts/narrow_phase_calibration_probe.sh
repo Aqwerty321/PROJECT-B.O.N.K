@@ -20,6 +20,10 @@ TCA_GUARD_KM="${13:-0.02}"
 FULL_REFINE_SAMPLES="${14:-16}"
 FULL_REFINE_SUBSTEP_S="${15:-1.0}"
 MICRO_REFINE_MAX_STEP_S="${16:-5.0}"
+FIXTURE_PAIRS_PER_SAT="${17:-3}"
+FIXTURE_REL_SPEED_KM_S="${18:-9.0}"
+FIXTURE_OFFSET_KM="${19:-0.33}"
+FIXTURE_OFFSET_JITTER_KM="${20:-0.01}"
 
 cmake --build "$BUILD_DIR" --target narrow_phase_calibration_probe
 
@@ -38,6 +42,10 @@ cmake --build "$BUILD_DIR" --target narrow_phase_calibration_probe
   "$TCA_GUARD_KM" \
   "$FULL_REFINE_SAMPLES" \
   "$FULL_REFINE_SUBSTEP_S" \
-  "$MICRO_REFINE_MAX_STEP_S"
+  "$MICRO_REFINE_MAX_STEP_S" \
+  "$FIXTURE_PAIRS_PER_SAT" \
+  "$FIXTURE_REL_SPEED_KM_S" \
+  "$FIXTURE_OFFSET_KM" \
+  "$FIXTURE_OFFSET_JITTER_KM"
 
 echo "narrow-phase calibration probe: PASS"

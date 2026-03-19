@@ -29,6 +29,35 @@ double rad(double deg)
     return deg * cascade::PI / 180.0;
 }
 
+double vec_norm(const cascade::Vec3& v)
+{
+    return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+
+cascade::Vec3 cross(const cascade::Vec3& a, const cascade::Vec3& b)
+{
+    return cascade::Vec3{
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x
+    };
+}
+
+cascade::Vec3 normalize_or(const cascade::Vec3& v, const cascade::Vec3& fallback)
+{
+    const double n = vec_norm(v);
+    if (n > cascade::EPS_NUM) {
+        return cascade::Vec3{v.x / n, v.y / n, v.z / n};
+    }
+
+    const double f = vec_norm(fallback);
+    if (f > cascade::EPS_NUM) {
+        return cascade::Vec3{fallback.x / f, fallback.y / f, fallback.z / f};
+    }
+
+    return cascade::Vec3{1.0, 0.0, 0.0};
+}
+
 bool parse_int(const char* s, int& out)
 {
     if (s == nullptr) return false;
@@ -125,6 +154,69 @@ void seed_store(cascade::StateStore& store,
     }
 }
 
+int inject_high_rel_fixture_pairs(cascade::StateStore& store,
+                                  int sat_count,
+                                  int deb_count,
+                                  int pairs_per_sat,
+                                  double offset_km,
+                                  double offset_jitter_km,
+                                  double rel_speed_km_s)
+{
+    if (pairs_per_sat <= 0 || deb_count <= 0 || sat_count <= 0) {
+        return 0;
+    }
+
+    int injected = 0;
+    for (int s = 0; s < sat_count; ++s) {
+        const std::string sat_id = "SAT-" + std::to_string(s);
+        const std::size_t sat_idx = store.find(sat_id);
+        if (sat_idx >= store.size() || store.type(sat_idx) != cascade::ObjectType::SATELLITE) {
+            continue;
+        }
+
+        const cascade::Vec3 sat_r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+        const cascade::Vec3 sat_v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+
+        const cascade::Vec3 r_hat = normalize_or(sat_r, cascade::Vec3{1.0, 0.0, 0.0});
+        const cascade::Vec3 t_hat = normalize_or(sat_v, cascade::Vec3{0.0, 1.0, 0.0});
+        cascade::Vec3 n_hat = cross(r_hat, t_hat);
+        if (vec_norm(n_hat) <= cascade::EPS_NUM) {
+            n_hat = cross(r_hat, cascade::Vec3{0.0, 0.0, 1.0});
+        }
+        n_hat = normalize_or(n_hat, cascade::Vec3{0.0, 0.0, 1.0});
+
+        for (int k = 0; k < pairs_per_sat; ++k) {
+            const int deb_i = s * pairs_per_sat + k;
+            if (deb_i >= deb_count) {
+                break;
+            }
+
+            const std::string deb_id = "DEB-" + std::to_string(deb_i);
+            const std::size_t deb_idx = store.find(deb_id);
+            if (deb_idx >= store.size() || store.type(deb_idx) != cascade::ObjectType::DEBRIS) {
+                continue;
+            }
+
+            const double sign = ((s + k) % 2 == 0) ? 1.0 : -1.0;
+            const double offset = offset_km + offset_jitter_km * static_cast<double>(k % 3);
+
+            store.rx_mut(deb_idx) = sat_r.x + r_hat.x * offset;
+            store.ry_mut(deb_idx) = sat_r.y + r_hat.y * offset;
+            store.rz_mut(deb_idx) = sat_r.z + r_hat.z * offset;
+
+            store.vx_mut(deb_idx) = sat_v.x + n_hat.x * (sign * rel_speed_km_s);
+            store.vy_mut(deb_idx) = sat_v.y + n_hat.y * (sign * rel_speed_km_s);
+            store.vz_mut(deb_idx) = sat_v.z + n_hat.z * (sign * rel_speed_km_s);
+
+            // Force broad-phase fail-open path for deterministic coverage.
+            store.set_elements(deb_idx, cascade::OrbitalElements{}, false);
+            ++injected;
+        }
+    }
+
+    return injected;
+}
+
 void print_usage(const char* argv0)
 {
     std::cout
@@ -134,6 +226,8 @@ void print_usage(const char* argv0)
         << " [full_refine_budget_base] [full_refine_budget_min] [full_refine_budget_max]"
         << " [full_refine_band_km] [refine_band_km] [tca_guard_km]"
         << " [full_refine_samples] [full_refine_substep_s] [micro_refine_max_step_s]"
+        << " [fixture_pairs_per_sat] [fixture_rel_speed_km_s]"
+        << " [fixture_offset_km] [fixture_offset_jitter_km]"
         << "\n";
 }
 
@@ -145,6 +239,10 @@ int main(int argc, char** argv)
     int deb_count = 10000;
     int ticks = 5;
     double step_s = 30.0;
+    int fixture_pairs_per_sat = 3;
+    double fixture_rel_speed_km_s = -1.0;
+    double fixture_offset_km = -1.0;
+    double fixture_offset_jitter_km = 0.01;
 
     cascade::StepRunConfig cfg{};
     cfg.broad_phase.enable_dcriterion = false;
@@ -226,6 +324,22 @@ int main(int argc, char** argv)
         print_usage(argv[0]);
         return 2;
     }
+    if (argc >= 17 && !parse_int(argv[16], fixture_pairs_per_sat)) {
+        print_usage(argv[0]);
+        return 2;
+    }
+    if (argc >= 18 && !parse_double(argv[17], fixture_rel_speed_km_s)) {
+        print_usage(argv[0]);
+        return 2;
+    }
+    if (argc >= 19 && !parse_double(argv[18], fixture_offset_km)) {
+        print_usage(argv[0]);
+        return 2;
+    }
+    if (argc >= 20 && !parse_double(argv[19], fixture_offset_jitter_km)) {
+        print_usage(argv[0]);
+        return 2;
+    }
 
     if (cfg.narrow_phase.full_refine_budget_max < cfg.narrow_phase.full_refine_budget_min) {
         cfg.narrow_phase.full_refine_budget_max = cfg.narrow_phase.full_refine_budget_min;
@@ -235,6 +349,47 @@ int main(int argc, char** argv)
     cascade::SimClock clock;
     clock.set_epoch_s(1773292800.0);
     seed_store(store, clock, sat_count, deb_count, 2026031901ULL);
+
+    const double screening_threshold_km =
+        cascade::COLLISION_THRESHOLD_KM + std::max(0.0, cfg.narrow_phase.tca_guard_km);
+    const double full_refine_band_km = std::max(0.0, cfg.narrow_phase.full_refine_band_km);
+    const double high_rel_extra_band_km = std::max(0.0, cfg.narrow_phase.high_rel_speed_extra_band_km);
+
+    if (!(fixture_rel_speed_km_s > 0.0)) {
+        fixture_rel_speed_km_s = std::max(1.0, cfg.narrow_phase.high_rel_speed_km_s + 1.0);
+    }
+
+    if (!(fixture_offset_km > 0.0)) {
+        const double extra_for_offset = std::max(0.005, std::min(0.05, high_rel_extra_band_km * 0.5));
+        fixture_offset_km = screening_threshold_km + full_refine_band_km + extra_for_offset;
+    }
+
+    const double min_promoted_offset = screening_threshold_km + full_refine_band_km + 1e-3;
+    if (fixture_offset_km < min_promoted_offset) {
+        fixture_offset_km = min_promoted_offset;
+    }
+
+    if (high_rel_extra_band_km > 0.0) {
+        const double max_promoted_offset =
+            screening_threshold_km + full_refine_band_km + high_rel_extra_band_km - 1e-3;
+        if (fixture_offset_km > max_promoted_offset) {
+            fixture_offset_km = max_promoted_offset;
+        }
+    }
+
+    if (fixture_offset_jitter_km < 0.0) {
+        fixture_offset_jitter_km = 0.0;
+    }
+
+    const int fixture_pairs_injected = inject_high_rel_fixture_pairs(
+        store,
+        sat_count,
+        deb_count,
+        fixture_pairs_per_sat,
+        fixture_offset_km,
+        fixture_offset_jitter_km,
+        fixture_rel_speed_km_s
+    );
 
     std::uint64_t narrow_pairs_total = 0;
     std::uint64_t uncertainty_promoted_total = 0;
@@ -265,6 +420,11 @@ int main(int argc, char** argv)
     std::cout << "debris=" << deb_count << "\n";
     std::cout << "ticks=" << ticks << "\n";
     std::cout << "step_seconds=" << step_s << "\n";
+    std::cout << "fixture_pairs_per_sat=" << fixture_pairs_per_sat << "\n";
+    std::cout << "fixture_pairs_injected=" << fixture_pairs_injected << "\n";
+    std::cout << "fixture_rel_speed_km_s=" << fixture_rel_speed_km_s << "\n";
+    std::cout << "fixture_offset_km=" << fixture_offset_km << "\n";
+    std::cout << "fixture_offset_jitter_km=" << fixture_offset_jitter_km << "\n";
     std::cout << "narrow_tca_guard_km=" << cfg.narrow_phase.tca_guard_km << "\n";
     std::cout << "narrow_refine_band_km=" << cfg.narrow_phase.refine_band_km << "\n";
     std::cout << "narrow_full_refine_band_km=" << cfg.narrow_phase.full_refine_band_km << "\n";
