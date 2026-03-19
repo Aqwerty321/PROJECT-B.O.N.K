@@ -132,6 +132,8 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
 
     std::vector<std::uint32_t> seen_stamp(n, 0);
     std::uint32_t stamp = 0;
+    std::vector<std::uint32_t> selected_debris_indices;
+    selected_debris_indices.reserve(deb_count);
 
     for (std::size_t i = 0; i < n; ++i) {
         if (store.type(i) != ObjectType::SATELLITE) continue;
@@ -188,10 +190,14 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
             std::fill(seen_stamp.begin(), seen_stamp.end(), 0);
             stamp = 1;
         }
+        selected_debris_indices.clear();
 
         // Always include fail-open objects.
         for (std::uint32_t idx : fail_open_debris_indices) {
-            seen_stamp[idx] = stamp;
+            if (seen_stamp[idx] != stamp) {
+                seen_stamp[idx] = stamp;
+                selected_debris_indices.push_back(idx);
+            }
         }
 
         const int sat_a_bin = a_bin_of(store.a_km(i), cfg.a_bin_width_km);
@@ -202,26 +208,18 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
             if (a_it == bands.end()) continue;
 
             auto& i_band = a_it->second;
-            auto sat_i_it = i_band.find(sat_i_bin);
-            if (sat_i_it != i_band.end()) {
-                for (std::uint32_t idx : sat_i_it->second) {
-                    seen_stamp[idx] = stamp;
-                }
-            }
-
             for (const auto& kv : i_band) {
-                if (kv.first == sat_i_bin) {
-                    continue;
-                }
                 for (std::uint32_t idx : kv.second) {
-                    seen_stamp[idx] = stamp;
+                    if (seen_stamp[idx] != stamp) {
+                        seen_stamp[idx] = stamp;
+                        selected_debris_indices.push_back(idx);
+                    }
                 }
             }
         }
 
-        for (std::uint32_t j_u32 : debris_indices) {
+        for (std::uint32_t j_u32 : selected_debris_indices) {
             const std::size_t j = static_cast<std::size_t>(j_u32);
-            if (seen_stamp[j] != stamp) continue;
 
             ++out.pairs_after_band_index;
 
