@@ -106,8 +106,9 @@ Latest gate snapshot:
   `fuel_ratio_cap=1.10`) and artifacts are emitted at
   `build/recovery_slot_sweep_strict.json` or
   `build/recovery_slot_sweep_strict_expanded.json` by profile
-- latest strict sweep snapshot: deterministic `selection.status=FAIL` with
-  explicit reason `no candidate met strict scenario + fuel-ratio criteria`
+- historical strict sweep snapshot (superseded by later calibrated PASS in
+  this document): deterministic `selection.status=FAIL` with explicit reason
+  `no candidate met strict scenario + fuel-ratio criteria`
 
 Latest integration snapshot:
 

@@ -81,7 +81,7 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 | 15 m/s burn cap + 600s cooldown | DONE | parser cap + schedule cooldown + queue cooldown | no burn-combination policy yet | add combined-burn strategy only if needed |
 | 5% fuel EOL/graveyard behavior | DONE | fuel floor checks + graveyard planning/execution | graveyard transfer is heuristic (single impulse policy) | add stricter graveyard acceptance scenarios |
 | Station-keeping 10 km box and penalty | PARTIAL | box radius and exponential penalty metrics present | penalty is observed metric, not yet used in optimization objective | define policy for objective coupling |
-| Communication latency + LOS | PARTIAL | 10s latency + LOS window planning | station catalog hardcoded in code, not file-driven dataset | externalize ground stations from data file |
+| Communication latency + LOS | PARTIAL | 10s latency + LOS window planning | planner remains simplified for blackout/upload optimization | continue scheduler fidelity upgrades |
 | Deployment requirement (`Dockerfile`, Ubuntu, port 8000) | DONE | root Dockerfile, `ubuntu:22.04`, `EXPOSE 8000` | previously broken image due missing source copy, now fixed | keep image build in CI |
 | Frontend visualization modules | MISSING (deferred intentionally) | no frontend directory currently | not started by design per backend-first instruction | start only after backend exit criteria |
 
@@ -95,26 +95,24 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 | Broad-phase shell/indexing + fail-open policy | DONE | shell overlap + band indexing + fail-open behavior |
 | D-criterion rollout with shadow mode | PARTIAL | shadow and opt-in gate exist; runtime defaults keep hard filter disabled |
 | Narrow-phase analytic TCA + RK4 refinements | PARTIAL | conservative linearized TCA + micro/full RK4 refinement implemented |
-| Plane intersection / phase-torus gate | MISSING | not implemented yet |
-| MOID solver stage | MISSING | not implemented yet |
+| Plane intersection / phase-torus gate | PARTIAL | shadow-first plane/phase gate scaffolding implemented; hard reject remains opt-in |
+| MOID solver stage | PARTIAL | MOID-proxy shadow stage implemented; full HF evaluator remains pending |
 | Maneuver brain CW/ZEM solver | MISSING | current planner is heuristic slot-delta based |
 | Scheduler with blackout/upload semantics | PARTIAL | LOS + latency upload planning exists; static stations and simplified planner |
 | Offline tuner path | DONE | deterministic offline tuner scaffold and sweep tooling |
 | Frontend mission console | MISSING (deferred) | intentionally deferred |
-| CI deterministic safety gate stack | PARTIAL | strong gate coverage exists; aggregate phase4 gate not yet wired into CI workflow |
+| CI deterministic safety gate stack | DONE | aggregate phase4 gate and law-assertions gate are wired in CI with artifacts |
 
 ## 5) Critical gaps and risk register
 
 ### P0 risk (blockers before frontend)
 
-1. CI does not currently execute the aggregate phase 4 gate target/script.
-   - Risk: regressions can slip if individual gate composition diverges.
-2. False-negative evidence is strong but still synthetic-limited.
+1. False-negative evidence is strong but still synthetic-limited.
    - Risk: blind spots for adversarial geometry/time windows not represented.
-3. Maneuver planner is heuristic, not CW/ZEM or equivalent validated solver.
+2. Maneuver planner is heuristic, not CW/ZEM or equivalent validated solver.
    - Risk: may meet safety but underperform fuel/uptime objectives.
-4. Station dataset is hardcoded in source, not file-driven as provided by PS.
-   - Risk: dataset drift and operational maintenance friction.
+3. Full HF MOID evaluator is still pending behind placeholder fail-open mode.
+  - Risk: fidelity/performance ceiling for narrow-phase decisions.
 
 ### P1 risk (important, not immediate blocker)
 
@@ -137,16 +135,16 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 
 ## P0 - Backend hardening completion (frontend blocked)
 
-### P0.1 Wire aggregate phase4 gate into CI
+### P0.1 [COMPLETE] Wire aggregate phase4 gate into CI
 
 - Why:
   - enforce one authoritative end-to-end safety/calibration gate.
 - Deliverables:
-  - update `.github/workflows/ci.yml` to run `phase4_calibration_gate`
-  - upload `build/phase4_calibration_gate_summary.json` as CI artifact
+  - `.github/workflows/ci.yml` runs `phase4_calibration_gate`
+  - `build/phase4_calibration_gate_summary.json` uploaded as CI artifact
 - Acceptance:
   - CI fails if any phase4 step fails
-  - summary artifact always available on CI runs
+  - summary artifact available on CI runs
 - Verify:
   - `cmake --build build --target phase4_calibration_gate`
 
@@ -167,17 +165,17 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 - Verify:
   - `./scripts/narrow_phase_false_negative_gate.sh ./build`
 
-### P0.3 Data-source correctness for ground stations
+### P0.3 [COMPLETE] Data-source correctness for ground stations
 
 - Why:
   - PS provides dataset; hardcoded list is fragile.
 - Deliverables:
-  - add station loader from a CSV tracked in repo docs/data path
-  - keep defaults deterministic if file unavailable (fail clearly or fallback)
-  - add invariant test that loaded stations match expected count/IDs
+  - station loader from CSV tracked in repo docs/data path
+  - deterministic fallback when file unavailable
+  - invariants gate checks catalog source/count/IDs
 - Acceptance:
   - schedule/LOS behavior unchanged under default dataset
-  - startup clearly reports station data source in use
+  - station data source reported by invariants output
 - Verify:
   - `./scripts/maneuver_ops_invariants_gate.sh ./build`
   - `./scripts/api_contract_gate.sh ./build`
