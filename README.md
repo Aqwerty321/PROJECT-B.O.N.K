@@ -293,6 +293,12 @@ Optional: run recovery gain sweep helper (offline tuning, not runtime path).
 # optional explicit artifact path with profile
 ./scripts/recovery_slot_sweep.sh ./build 24 0.08 1.10 \
   ./build/recovery_slot_sweep_custom.json strict-expanded
+
+# deterministic repeat gate (strict + strict-expanded)
+./scripts/recovery_sweep_determinism_gate.sh ./build 3 24 0.08 1.10
+
+# narrow-phase calibration probe (phase 4 evidence)
+./scripts/narrow_phase_calibration_probe.sh ./build 50 10000 5 30
 ```
 
 `recovery_slot_gate --sweep` supports profiles:
@@ -310,7 +316,7 @@ Strict sweep criteria:
 
 Current deterministic sweep snapshot in this branch:
 
-- strict and strict-expanded profiles select `fallback_1e-4_ratio_0.05`
+- strict and strict-expanded profiles select `grid_t1.2_r0.8_n0.8`
 - see `docs/PHASE 4.md` for exact evidence and artifact paths
 
 Promotion policy for this milestone:

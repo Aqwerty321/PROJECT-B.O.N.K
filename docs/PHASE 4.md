@@ -88,18 +88,30 @@ Current deterministic outcome (with request-ratio candidate expansion):
 
 - strict profile: PASS
 - strict-expanded profile: PASS
-- selected candidate: `fallback_1e-4_ratio_0.05`
+- selected candidate: `grid_t1.2_r0.8_n0.8`
 - selected evidence (strict):
-  - mean delta slot error: `-0.036645`
-  - mean fuel used: `0.314965 kg`
-  - fuel ratio to default: `0.842672`
+  - mean delta slot error: `-0.074717`
+  - mean fuel used: `0.316844 kg`
+  - fuel ratio to default: `1.00597`
 
 Repeated-run stability snapshot:
 
 - strict runs (`run1`, `run2`, `run3`): same selected candidate
-  `fallback_1e-4_ratio_0.05`
+  `grid_t1.2_r0.8_n0.8`
 - strict-expanded runs (`run1`, `run2`): same selected candidate
-  `fallback_1e-4_ratio_0.05`
+  `grid_t1.2_r0.8_n0.8`
+
+Default-alignment note:
+
+- runtime recovery defaults now align with calibrated sweep-safe baseline:
+  - `fallback_norm_km_s = 1e-4`
+  - `max_request_ratio = 0.05`
+
+Determinism gate helper:
+
+- `./scripts/recovery_sweep_determinism_gate.sh ./build 3 24 0.08 1.10`
+- verifies both `strict` and `strict-expanded` profiles are PASS and choose the
+  same selected candidate across repeated runs
 
 Artifacts:
 
@@ -123,6 +135,35 @@ All PASS on this calibration step:
 - `./scripts/recovery_planner_invariants_gate.sh`
 - `./scripts/api_contract_gate.sh`
 - `ctest --test-dir build --output-on-failure`
+
+## Narrow-phase calibration probe (phase 4)
+
+Probe helper:
+
+```bash
+./scripts/narrow_phase_calibration_probe.sh ./build 50 10000 5 30
+./scripts/narrow_phase_calibration_probe.sh ./build 50 10000 5 120 \
+  5.5 0.25 96 16 320 0.35 0.14 0.03 24 0.7 3.0
+```
+
+Current probe evidence snapshot:
+
+- baseline profile (`step=30s`):
+  - `narrow_pairs_checked_total=2140274`
+  - `narrow_uncertainty_promoted_pairs_total=0`
+  - `narrow_full_refined_pairs_total=0`
+  - `narrow_full_refine_budget_exhausted_total=0`
+- stress profile (`step=120s`, wider bands/budget):
+  - `narrow_pairs_checked_total=2140711`
+  - `narrow_uncertainty_promoted_pairs_total=0`
+  - `narrow_full_refined_pairs_total=0`
+  - `narrow_full_refine_budget_exhausted_total=0`
+
+Interpretation:
+
+- current synthetic distribution does not yet exercise uncertainty promotion or
+  full-window refinement budget pressure; targeted conjunction-heavy fixtures
+  are needed for the next narrow-phase calibration increment.
 
 ## Promotion policy
 

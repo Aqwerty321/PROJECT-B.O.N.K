@@ -495,6 +495,28 @@ add_custom_target(narrow_phase_false_negative_regression_gate
 )
 
 # ===================================================================
+# Narrow-phase calibration probe harness (phase 4 evidence)
+# ===================================================================
+add_executable(narrow_phase_calibration_probe
+    tools/narrow_phase_calibration_probe.cpp
+    src/broad_phase.cpp
+    src/state_store.cpp
+    src/sim_clock.cpp
+    src/orbit_math.cpp
+    src/propagator.cpp
+    src/simulation_engine.cpp
+)
+
+target_include_directories(narrow_phase_calibration_probe PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+target_compile_options(narrow_phase_calibration_probe PRIVATE
+    -O3
+    -DNDEBUG
+)
+
+# ===================================================================
 # Phase 3 tick benchmark harness
 # ===================================================================
 add_executable(phase3_tick_benchmark
@@ -560,6 +582,12 @@ target_compile_options(recovery_slot_gate PRIVATE
 
 add_custom_target(recovery_slot_acceptance_gate
     COMMAND "$<TARGET_FILE:recovery_slot_gate>"
+    DEPENDS recovery_slot_gate
+    USES_TERMINAL
+)
+
+add_custom_target(recovery_sweep_determinism_gate
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/recovery_sweep_determinism_gate.sh" "${CMAKE_BINARY_DIR}" 3 24 0.08 1.10
     DEPENDS recovery_slot_gate
     USES_TERMINAL
 )
