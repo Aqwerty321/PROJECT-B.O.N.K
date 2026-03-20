@@ -5,8 +5,8 @@
 
 #include "state_store.hpp"
 
+#include <algorithm>
 #include <cmath>
-#include <unordered_map>
 
 namespace cascade {
 
@@ -34,7 +34,7 @@ inline void shell_bounds(const StateStore& store,
 }
 
 inline bool intervals_overlap(double a_min, double a_max,
-                              double b_min, double b_max) {
+                               double b_min, double b_max) {
     return !(a_max < b_min || b_max < a_min);
 }
 
@@ -77,6 +77,18 @@ inline double dcriterion_simple(const StateStore& store,
     return std::sqrt(da * da + de * de + di * di);
 }
 
+// Flat band-index entry, sorted by (a_bin, i_bin) for binary search.
+struct BandEntry {
+    int      a_bin;
+    int      i_bin;
+    std::uint32_t debris_idx;
+
+    bool operator<(const BandEntry& o) const noexcept {
+        if (a_bin != o.a_bin) return a_bin < o.a_bin;
+        return i_bin < o.i_bin;
+    }
+};
+
 } // namespace
 
 BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
@@ -102,8 +114,10 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
 
     std::uint64_t fail_open_objects = 0;
 
-    std::unordered_map<int, std::unordered_map<int, std::vector<std::uint32_t>>> bands;
-    bands.reserve(n);
+    // Flat sorted band index replaces the nested unordered_map for better
+    // cache locality and lower per-lookup overhead.
+    std::vector<BandEntry> band_entries;
+    band_entries.reserve(deb_count);
 
     for (std::size_t idx = 0; idx < n; ++idx) {
         const bool is_debris = store.type(idx) == ObjectType::DEBRIS;
@@ -125,8 +139,10 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
 
         const int a_bin = a_bin_of(store.a_km(idx), cfg.a_bin_width_km);
         const int i_bin = i_bin_of(store.i_rad(idx), cfg.i_bin_width_rad);
-        bands[a_bin][i_bin].push_back(static_cast<std::uint32_t>(idx));
+        band_entries.push_back(BandEntry{a_bin, i_bin, static_cast<std::uint32_t>(idx)});
     }
+
+    std::sort(band_entries.begin(), band_entries.end());
 
     out.fail_open_objects = fail_open_objects;
 
@@ -203,21 +219,30 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
         const int sat_a_bin = a_bin_of(store.a_km(i), cfg.a_bin_width_km);
         const int sat_i_bin = i_bin_of(store.i_rad(i), cfg.i_bin_width_rad);
 
+        // For each neighbor a-bin, binary-search the sorted flat band
+        // index for the contiguous range of matching entries, then filter
+        // by i-bin proximity.
         for (int da = -cfg.band_neighbor_bins; da <= cfg.band_neighbor_bins; ++da) {
-            auto a_it = bands.find(sat_a_bin + da);
-            if (a_it == bands.end()) continue;
+            const int target_a = sat_a_bin + da;
 
-            auto& i_band = a_it->second;
-            for (const auto& kv : i_band) {
+            // Find the first entry with a_bin >= target_a
+            auto lo = std::lower_bound(
+                band_entries.begin(), band_entries.end(),
+                BandEntry{target_a, std::numeric_limits<int>::min(), 0});
+            // Find the first entry with a_bin > target_a
+            auto hi = std::lower_bound(
+                band_entries.begin(), band_entries.end(),
+                BandEntry{target_a + 1, std::numeric_limits<int>::min(), 0});
+
+            for (auto it = lo; it != hi; ++it) {
                 if (cfg.enable_i_neighbor_filter
-                    && std::abs(kv.first - sat_i_bin) > cfg.band_neighbor_bins) {
+                    && std::abs(it->i_bin - sat_i_bin) > cfg.band_neighbor_bins) {
                     continue;
                 }
-                for (std::uint32_t idx : kv.second) {
-                    if (seen_stamp[idx] != stamp) {
-                        seen_stamp[idx] = stamp;
-                        selected_debris_indices.push_back(idx);
-                    }
+                const std::uint32_t idx = it->debris_idx;
+                if (seen_stamp[idx] != stamp) {
+                    seen_stamp[idx] = stamp;
+                    selected_debris_indices.push_back(idx);
                 }
             }
         }

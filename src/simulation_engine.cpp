@@ -50,77 +50,47 @@ struct MoidProxyGateResult {
     } reason = Reason::NONE;
 };
 
+// Per-object data precomputed once per tick for the MOID and plane/phase
+// gates.  Avoids redundant StateStore reads, J2 secular propagation, and
+// angular-momentum-vector computation on every pair that shares the object.
+struct PerObjectPrecomp {
+    OrbitalElements el{};      // J2-secularly propagated to target epoch
+    Vec3  h_unit{};            // angular momentum unit vector
+    double h_norm = 0.0;       // magnitude of h (should be ~1 for valid)
+    double phase  = 0.0;       // argp + M (wrapped 0..2pi) for plane/phase gate
+    bool  elements_valid = false;   // elements present and finite
+    bool  moid_eligible  = false;   // elements_valid && e <= moid_max_e
+    bool  plane_phase_eligible = false; // elements_valid && e <= phase_max_e
+};
+
 inline double norm2(double x, double y, double z) noexcept
 {
     return x * x + y * y + z * z;
 }
 
-inline bool populate_moid_elements(const StateStore& store,
-                                   std::size_t sat_idx,
-                                   std::size_t obj_idx,
-                                   double epoch_s,
-                                   const NarrowPhaseConfig& cfg,
+// populate_moid_elements — fast path using precomputed per-object data.
+// The J2 secular propagation, element copies, validity checks, and
+// eccentricity guards were already done once per tick in the precomp pass.
+inline bool populate_moid_elements(const PerObjectPrecomp& sat_pre,
+                                   const PerObjectPrecomp& obj_pre,
                                    OrbitalElements& sat_el,
                                    OrbitalElements& obj_el,
                                    MoidProxyGateResult& out) noexcept
 {
-    const bool sat_valid = store.elements_valid(sat_idx);
-    const bool obj_valid = store.elements_valid(obj_idx);
-    if (!sat_valid || !obj_valid) {
+    if (!sat_pre.elements_valid || !obj_pre.elements_valid) {
         out.fail_open = true;
         out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_ELEMENTS_INVALID;
         return false;
     }
-
-    sat_el.a_km = store.a_km(sat_idx);
-    sat_el.e = store.e(sat_idx);
-    sat_el.i_rad = store.i_rad(sat_idx);
-    sat_el.raan_rad = store.raan_rad(sat_idx);
-    sat_el.argp_rad = store.argp_rad(sat_idx);
-    sat_el.M_rad = store.M_rad(sat_idx);
-    sat_el.n_rad_s = store.n_rad_s(sat_idx);
-    sat_el.p_km = store.p_km(sat_idx);
-    sat_el.rp_km = store.rp_km(sat_idx);
-    sat_el.ra_km = store.ra_km(sat_idx);
-
-    obj_el.a_km = store.a_km(obj_idx);
-    obj_el.e = store.e(obj_idx);
-    obj_el.i_rad = store.i_rad(obj_idx);
-    obj_el.raan_rad = store.raan_rad(obj_idx);
-    obj_el.argp_rad = store.argp_rad(obj_idx);
-    obj_el.M_rad = store.M_rad(obj_idx);
-    obj_el.n_rad_s = store.n_rad_s(obj_idx);
-    obj_el.p_km = store.p_km(obj_idx);
-    obj_el.rp_km = store.rp_km(obj_idx);
-    obj_el.ra_km = store.ra_km(obj_idx);
-
-    if (!std::isfinite(sat_el.a_km)
-        || !std::isfinite(sat_el.e)
-        || !std::isfinite(obj_el.a_km)
-        || !std::isfinite(obj_el.e)) {
+    if (!sat_pre.moid_eligible || !obj_pre.moid_eligible) {
         out.fail_open = true;
-        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
+        out.reason = sat_pre.elements_valid && obj_pre.elements_valid
+            ? MoidProxyGateResult::Reason::FAIL_OPEN_ECCENTRICITY_GUARD
+            : MoidProxyGateResult::Reason::FAIL_OPEN_ELEMENTS_INVALID;
         return false;
     }
-
-    if (sat_el.e > cfg.moid_max_e || obj_el.e > cfg.moid_max_e) {
-        out.fail_open = true;
-        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_ECCENTRICITY_GUARD;
-        return false;
-    }
-
-    const double sat_epoch = store.telemetry_epoch_s(sat_idx);
-    const double obj_epoch = store.telemetry_epoch_s(obj_idx);
-    const double sat_dt = std::max(0.0, epoch_s - sat_epoch);
-    const double obj_dt = std::max(0.0, epoch_s - obj_epoch);
-    if (!std::isfinite(sat_dt) || !std::isfinite(obj_dt)) {
-        out.fail_open = true;
-        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
-        return false;
-    }
-
-    apply_j2_secular(sat_el, sat_dt);
-    apply_j2_secular(obj_el, obj_dt);
+    sat_el = sat_pre.el;
+    obj_el = obj_pre.el;
     return true;
 }
 
@@ -134,79 +104,37 @@ inline bool eci_position_at_mean_anomaly(const OrbitalElements& base,
     return elements_to_eci(sample, r_out, v_dummy);
 }
 
-inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
-                                                      std::size_t sat_idx,
-                                                      std::size_t obj_idx,
-                                                      const NarrowPhaseConfig& cfg) noexcept
+// evaluate_plane_phase_gate — uses precomputed angular momentum unit vectors
+// and phase angles to avoid redundant trig + StateStore reads.
+inline PlanePhaseGateResult evaluate_plane_phase_gate(const PerObjectPrecomp& sat_pre,
+                                                       const PerObjectPrecomp& obj_pre,
+                                                       const NarrowPhaseConfig& cfg) noexcept
 {
     PlanePhaseGateResult out{};
     out.evaluated = true;
 
-    const bool sat_valid = store.elements_valid(sat_idx);
-    const bool obj_valid = store.elements_valid(obj_idx);
-    if (!sat_valid || !obj_valid) {
+    if (!sat_pre.elements_valid || !obj_pre.elements_valid) {
         out.fail_open = true;
         out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_ELEMENTS_INVALID;
         return out;
     }
-
-    const double sat_e = store.e(sat_idx);
-    const double obj_e = store.e(obj_idx);
-    if (!std::isfinite(sat_e) || !std::isfinite(obj_e)) {
-        out.fail_open = true;
-        out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
-        return out;
-    }
-    if (sat_e > cfg.phase_max_e || obj_e > cfg.phase_max_e) {
+    if (!sat_pre.plane_phase_eligible || !obj_pre.plane_phase_eligible) {
         out.fail_open = true;
         out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_ECCENTRICITY_GUARD;
         return out;
     }
 
-    const double sat_i = store.i_rad(sat_idx);
-    const double sat_raan = store.raan_rad(sat_idx);
-    const double obj_i = store.i_rad(obj_idx);
-    const double obj_raan = store.raan_rad(obj_idx);
-    const double sat_argp = store.argp_rad(sat_idx);
-    const double sat_M = store.M_rad(sat_idx);
-    const double obj_argp = store.argp_rad(obj_idx);
-    const double obj_M = store.M_rad(obj_idx);
-
-    if (!std::isfinite(sat_i)
-        || !std::isfinite(sat_raan)
-        || !std::isfinite(obj_i)
-        || !std::isfinite(obj_raan)
-        || !std::isfinite(sat_argp)
-        || !std::isfinite(sat_M)
-        || !std::isfinite(obj_argp)
-        || !std::isfinite(obj_M)) {
-        out.fail_open = true;
-        out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
-        return out;
-    }
-
-    const Vec3 sat_h{
-        std::sin(sat_i) * std::sin(sat_raan),
-        -std::sin(sat_i) * std::cos(sat_raan),
-        std::cos(sat_i)
-    };
-    const Vec3 obj_h{
-        std::sin(obj_i) * std::sin(obj_raan),
-        -std::sin(obj_i) * std::cos(obj_raan),
-        std::cos(obj_i)
-    };
-
-    const double sat_h_norm = std::sqrt(norm2(sat_h.x, sat_h.y, sat_h.z));
-    const double obj_h_norm = std::sqrt(norm2(obj_h.x, obj_h.y, obj_h.z));
-    if (!(sat_h_norm > EPS_NUM) || !(obj_h_norm > EPS_NUM)) {
+    if (!(sat_pre.h_norm > EPS_NUM) || !(obj_pre.h_norm > EPS_NUM)) {
         out.fail_open = true;
         out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_ANGULAR_MOMENTUM_DEGENERATE;
         return out;
     }
 
     const double cos_plane = std::clamp(
-        (sat_h.x * obj_h.x + sat_h.y * obj_h.y + sat_h.z * obj_h.z)
-            / (sat_h_norm * obj_h_norm),
+        (sat_pre.h_unit.x * obj_pre.h_unit.x
+         + sat_pre.h_unit.y * obj_pre.h_unit.y
+         + sat_pre.h_unit.z * obj_pre.h_unit.z)
+            / (sat_pre.h_norm * obj_pre.h_norm),
         -1.0,
         1.0
     );
@@ -223,10 +151,8 @@ inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
         return out;
     }
 
-    const double sat_phase = wrap_0_2pi(sat_argp + sat_M);
-    const double obj_phase = wrap_0_2pi(obj_argp + obj_M);
     const double phase_delta =
-        std::abs(wrap_0_2pi(sat_phase - obj_phase + PI) - PI);
+        std::abs(wrap_0_2pi(sat_pre.phase - obj_pre.phase + PI) - PI);
     if (!std::isfinite(phase_delta)) {
         out.fail_open = true;
         out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_PHASE_ANGLE_NON_FINITE;
@@ -240,18 +166,16 @@ inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
     return out;
 }
 
-inline MoidProxyGateResult evaluate_moid_proxy_gate(const StateStore& store,
-                                                    std::size_t sat_idx,
-                                                    std::size_t obj_idx,
-                                                    double epoch_s,
-                                                    const NarrowPhaseConfig& cfg) noexcept
+inline MoidProxyGateResult evaluate_moid_proxy_gate(const PerObjectPrecomp& sat_pre,
+                                                     const PerObjectPrecomp& obj_pre,
+                                                     const NarrowPhaseConfig& cfg) noexcept
 {
     MoidProxyGateResult out{};
     out.evaluated = true;
 
     OrbitalElements sat_el{};
     OrbitalElements obj_el{};
-    if (!populate_moid_elements(store, sat_idx, obj_idx, epoch_s, cfg, sat_el, obj_el, out)) {
+    if (!populate_moid_elements(sat_pre, obj_pre, sat_el, obj_el, out)) {
         return out;
     }
 
@@ -301,11 +225,9 @@ inline MoidProxyGateResult evaluate_moid_proxy_gate(const StateStore& store,
     return out;
 }
 
-inline MoidProxyGateResult evaluate_moid_hf_gate(const StateStore& store,
-                                                 std::size_t sat_idx,
-                                                 std::size_t obj_idx,
-                                                 double epoch_s,
-                                                 const NarrowPhaseConfig& cfg) noexcept
+inline MoidProxyGateResult evaluate_moid_hf_gate(const PerObjectPrecomp& sat_pre,
+                                                  const PerObjectPrecomp& obj_pre,
+                                                  const NarrowPhaseConfig& cfg) noexcept
 {
     MoidProxyGateResult out{};
     out.evaluated = true;
@@ -314,7 +236,7 @@ inline MoidProxyGateResult evaluate_moid_hf_gate(const StateStore& store,
     // the best coarse cell. Any numeric issue stays fail-open.
     OrbitalElements sat_el{};
     OrbitalElements obj_el{};
-    if (!populate_moid_elements(store, sat_idx, obj_idx, epoch_s, cfg, sat_el, obj_el, out)) {
+    if (!populate_moid_elements(sat_pre, obj_pre, sat_el, obj_el, out)) {
         return out;
     }
 
@@ -534,7 +456,14 @@ bool run_simulation_step(StateStore& store,
     out.target_epoch_s = target_epoch;
 
     const std::size_t n = store.size();
-    std::vector<double> rx0(n), ry0(n), rz0(n), vx0(n), vy0(n), vz0(n);
+
+    // Persistent scratch buffers for pre-step state snapshots.  Using static
+    // vectors avoids heap allocation on every tick — resize() is a no-op
+    // once capacity has been reached.  Safe because this function is called
+    // from a single thread (the engine runtime loop).
+    static std::vector<double> rx0, ry0, rz0, vx0, vy0, vz0;
+    rx0.resize(n); ry0.resize(n); rz0.resize(n);
+    vx0.resize(n); vy0.resize(n); vz0.resize(n);
     for (std::size_t i = 0; i < n; ++i) {
         rx0[i] = store.rx(i);
         ry0[i] = store.ry(i);
@@ -615,7 +544,59 @@ bool run_simulation_step(StateStore& store,
     out.broad_a_bin_width_km = cfg.broad_phase.a_bin_width_km;
     out.broad_band_neighbor_bins = cfg.broad_phase.band_neighbor_bins;
 
-    std::vector<std::uint8_t> sat_collision_mark(n, 0);
+    static std::vector<std::uint8_t> sat_collision_mark;
+    sat_collision_mark.assign(n, 0);
+
+    // -----------------------------------------------------------------------
+    // Per-object precomputation for MOID and plane/phase gates.  Each object's
+    // J2-secularly-propagated orbital elements, angular-momentum unit vector,
+    // and phase angle are computed once here rather than redundantly per pair.
+    // -----------------------------------------------------------------------
+    static std::vector<PerObjectPrecomp> obj_precomp;
+    obj_precomp.resize(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        auto& p = obj_precomp[i];
+        p = PerObjectPrecomp{}; // reset from prior tick
+        if (!store.elements_valid(i)) continue;
+
+        p.el.a_km     = store.a_km(i);
+        p.el.e        = store.e(i);
+        p.el.i_rad    = store.i_rad(i);
+        p.el.raan_rad = store.raan_rad(i);
+        p.el.argp_rad = store.argp_rad(i);
+        p.el.M_rad    = store.M_rad(i);
+        p.el.n_rad_s  = store.n_rad_s(i);
+        p.el.p_km     = store.p_km(i);
+        p.el.rp_km    = store.rp_km(i);
+        p.el.ra_km    = store.ra_km(i);
+
+        if (!std::isfinite(p.el.a_km) || !std::isfinite(p.el.e)
+            || !std::isfinite(p.el.i_rad) || !std::isfinite(p.el.raan_rad)
+            || !std::isfinite(p.el.argp_rad) || !std::isfinite(p.el.M_rad)) {
+            continue; // elements_valid stays false
+        }
+
+        // J2 secular propagation to target epoch
+        const double obj_epoch = store.telemetry_epoch_s(i);
+        const double dt = std::max(0.0, target_epoch - obj_epoch);
+        if (!std::isfinite(dt)) continue;
+        apply_j2_secular(p.el, dt);
+
+        p.elements_valid = true;
+        p.moid_eligible = (p.el.e <= cfg.narrow_phase.moid_max_e);
+        p.plane_phase_eligible = (p.el.e <= cfg.narrow_phase.phase_max_e);
+
+        // Angular momentum unit vector from (i, RAAN)
+        const double si = std::sin(p.el.i_rad);
+        const double ci = std::cos(p.el.i_rad);
+        const double sr = std::sin(p.el.raan_rad);
+        const double cr = std::cos(p.el.raan_rad);
+        p.h_unit = Vec3{ si * sr, -si * cr, ci };
+        p.h_norm = std::sqrt(norm2(p.h_unit.x, p.h_unit.y, p.h_unit.z));
+
+        // Phase angle (argp + M)
+        p.phase = wrap_0_2pi(p.el.argp_rad + p.el.M_rad);
+    }
 
     // Conservative narrow-phase sweep over [t0, t1] using multiple linear
     // TCA approximations derived from step endpoints.
@@ -784,7 +765,7 @@ bool run_simulation_step(StateStore& store,
              || (d2 > collision_threshold_sq
                  && (d2 <= full_refine_band_sq + 1e-9 || uncertainty_promoted)));
         if (near_refine_window) {
-            plane_phase = evaluate_plane_phase_gate(store, sat_idx, obj_idx, cfg.narrow_phase);
+            plane_phase = evaluate_plane_phase_gate(obj_precomp[sat_idx], obj_precomp[obj_idx], cfg.narrow_phase);
             if (plane_phase.evaluated) {
                 ++out.narrow_plane_phase_evaluated_pairs;
             }
@@ -833,9 +814,9 @@ bool run_simulation_step(StateStore& store,
 
             MoidProxyGateResult moid{};
             if (resolved_moid_mode == NarrowPhaseConfig::MoidMode::HF) {
-                moid = evaluate_moid_hf_gate(store, sat_idx, obj_idx, target_epoch, cfg.narrow_phase);
+                moid = evaluate_moid_hf_gate(obj_precomp[sat_idx], obj_precomp[obj_idx], cfg.narrow_phase);
             } else {
-                moid = evaluate_moid_proxy_gate(store, sat_idx, obj_idx, target_epoch, cfg.narrow_phase);
+                moid = evaluate_moid_proxy_gate(obj_precomp[sat_idx], obj_precomp[obj_idx], cfg.narrow_phase);
             }
             if (moid.evaluated) {
                 ++out.narrow_moid_evaluated_pairs;
