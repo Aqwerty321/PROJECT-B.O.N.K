@@ -266,12 +266,21 @@ ScenarioOutcome run_scenario(int scenario_id,
                               bool moid_edge_bias,
                               bool moid_threshold_edge_bias,
                               bool moid_high_e_guard_bias,
-                              bool moid_stale_epoch_bias)
+                              bool moid_stale_epoch_bias,
+                              bool plane_boundary_bias,
+                              bool phase_boundary_bias,
+                              bool moid_boundary_bias)
 {
     ScenarioOutcome out;
     out.step_seconds = step_seconds;
     out.scenario_seed = static_cast<int>(seed % 1000000000ULL);
-    if (plane_edge_bias) {
+    if (plane_boundary_bias) {
+        out.family = "plane_boundary";
+    } else if (phase_boundary_bias) {
+        out.family = "phase_boundary";
+    } else if (moid_boundary_bias) {
+        out.family = "moid_boundary";
+    } else if (plane_edge_bias) {
         out.family = "plane_edge";
     } else if (phase_edge_bias) {
         out.family = "phase_edge";
@@ -691,6 +700,157 @@ ScenarioOutcome run_scenario(int scenario_id,
         }
     }
 
+    // ---------------------------------------------------------------
+    // Boundary stress: plane angle exactly at threshold (±0.005 rad)
+    // Pairs placed in near-collision so reference finds them; the
+    // question is whether the plane gate rejects them.
+    // ---------------------------------------------------------------
+    if (plane_boundary_bias) {
+        const int pair_begin = std::min(sat_count, 3);
+        const int pair_end = std::min(sat_count, std::min(deb_count, 9));
+        for (int k = pair_begin; k < pair_end; ++k) {
+            const std::size_t sat_idx = store_ref.find("SAT-" + std::to_string(k));
+            const std::size_t deb_idx = store_ref.find("DEB-" + std::to_string(k));
+            if (sat_idx >= store_ref.size() || deb_idx >= store_ref.size()) {
+                continue;
+            }
+            if (!store_ref.elements_valid(sat_idx)) {
+                continue;
+            }
+
+            // Place debris at same position as satellite (near-collision)
+            // but with inclination offset exactly at the plane threshold.
+            // Even-index pairs: offset = threshold - 0.005 (just inside)
+            // Odd-index pairs:  offset = threshold + 0.005 (just outside)
+            const double margin = ((k - pair_begin) % 2 == 0) ? -0.005 : 0.005;
+            cascade::OrbitalElements el{};
+            el.a_km = store_ref.a_km(sat_idx);
+            el.e = std::max(0.001, std::min(0.08, store_ref.e(sat_idx)));
+            el.i_rad = std::max(0.01, std::min(cascade::PI - 0.01,
+                    store_ref.i_rad(sat_idx) + (plane_angle_threshold_rad + margin)));
+            el.raan_rad = store_ref.raan_rad(sat_idx);
+            el.argp_rad = store_ref.argp_rad(sat_idx);
+            el.M_rad = store_ref.M_rad(sat_idx);
+            el.n_rad_s = std::sqrt(cascade::MU_KM3_S2 / (el.a_km * el.a_km * el.a_km));
+            el.p_km = el.a_km * (1.0 - el.e * el.e);
+            el.rp_km = el.a_km * (1.0 - el.e);
+            el.ra_km = el.a_km * (1.0 + el.e);
+
+            cascade::Vec3 r{};
+            cascade::Vec3 v{};
+            if (!cascade::elements_to_eci(el, r, v)) {
+                continue;
+            }
+            // Also place debris near satellite position for collision reference
+            const double offset_km = 0.03 + 0.005 * static_cast<double>(k - pair_begin);
+            store_ref.rx_mut(deb_idx) = store_ref.rx(sat_idx) + offset_km;
+            store_ref.ry_mut(deb_idx) = store_ref.ry(sat_idx);
+            store_ref.rz_mut(deb_idx) = store_ref.rz(sat_idx);
+            store_ref.vx_mut(deb_idx) = v.x;
+            store_ref.vy_mut(deb_idx) = v.y;
+            store_ref.vz_mut(deb_idx) = v.z;
+            store_ref.set_elements(deb_idx, el, true);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Boundary stress: phase angle exactly at threshold (±0.005 rad)
+    // ---------------------------------------------------------------
+    if (phase_boundary_bias) {
+        const int pair_begin = std::min(sat_count, 3);
+        const int pair_end = std::min(sat_count, std::min(deb_count, 9));
+        for (int k = pair_begin; k < pair_end; ++k) {
+            const std::size_t sat_idx = store_ref.find("SAT-" + std::to_string(k));
+            const std::size_t deb_idx = store_ref.find("DEB-" + std::to_string(k));
+            if (sat_idx >= store_ref.size() || deb_idx >= store_ref.size()) {
+                continue;
+            }
+            if (!store_ref.elements_valid(sat_idx)) {
+                continue;
+            }
+
+            const double margin = ((k - pair_begin) % 2 == 0) ? -0.005 : 0.005;
+            cascade::OrbitalElements el{};
+            el.a_km = store_ref.a_km(sat_idx);
+            el.e = std::max(0.001, std::min(0.08, store_ref.e(sat_idx)));
+            el.i_rad = store_ref.i_rad(sat_idx);
+            el.raan_rad = store_ref.raan_rad(sat_idx);
+            el.argp_rad = store_ref.argp_rad(sat_idx);
+            el.M_rad = std::fmod(store_ref.M_rad(sat_idx) + (phase_angle_threshold_rad + margin), cascade::TWO_PI);
+            if (el.M_rad < 0.0) {
+                el.M_rad += cascade::TWO_PI;
+            }
+            el.n_rad_s = std::sqrt(cascade::MU_KM3_S2 / (el.a_km * el.a_km * el.a_km));
+            el.p_km = el.a_km * (1.0 - el.e * el.e);
+            el.rp_km = el.a_km * (1.0 - el.e);
+            el.ra_km = el.a_km * (1.0 + el.e);
+
+            cascade::Vec3 r{};
+            cascade::Vec3 v{};
+            if (!cascade::elements_to_eci(el, r, v)) {
+                continue;
+            }
+            const double offset_km = 0.03 + 0.005 * static_cast<double>(k - pair_begin);
+            store_ref.rx_mut(deb_idx) = store_ref.rx(sat_idx) + offset_km;
+            store_ref.ry_mut(deb_idx) = store_ref.ry(sat_idx);
+            store_ref.rz_mut(deb_idx) = store_ref.rz(sat_idx);
+            store_ref.vx_mut(deb_idx) = v.x;
+            store_ref.vy_mut(deb_idx) = v.y;
+            store_ref.vz_mut(deb_idx) = v.z;
+            store_ref.set_elements(deb_idx, el, true);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Boundary stress: MOID exactly at reject threshold (±0.02 km)
+    // ---------------------------------------------------------------
+    if (moid_boundary_bias) {
+        const int pair_begin = std::min(sat_count, 3);
+        const int pair_end = std::min(sat_count, std::min(deb_count, 9));
+        for (int k = pair_begin; k < pair_end; ++k) {
+            const std::size_t sat_idx = store_ref.find("SAT-" + std::to_string(k));
+            const std::size_t deb_idx = store_ref.find("DEB-" + std::to_string(k));
+            if (sat_idx >= store_ref.size() || deb_idx >= store_ref.size()) {
+                continue;
+            }
+            if (!store_ref.elements_valid(sat_idx)) {
+                continue;
+            }
+
+            // SMA offset to place MOID near threshold:
+            // even pairs: threshold - 0.02 km (just inside, should not reject)
+            // odd pairs:  threshold + 0.02 km (just outside, would reject if filter ON)
+            const double margin = ((k - pair_begin) % 2 == 0) ? -0.02 : 0.02;
+            const double edge_delta_km = std::max(0.01, moid_reject_threshold_km + margin);
+            cascade::OrbitalElements el{};
+            el.a_km = store_ref.a_km(sat_idx) + edge_delta_km;
+            el.e = std::max(0.001, std::min(0.12, store_ref.e(sat_idx)));
+            el.i_rad = store_ref.i_rad(sat_idx);
+            el.raan_rad = store_ref.raan_rad(sat_idx);
+            el.argp_rad = store_ref.argp_rad(sat_idx);
+            el.M_rad = store_ref.M_rad(sat_idx);
+            el.n_rad_s = std::sqrt(cascade::MU_KM3_S2 / (el.a_km * el.a_km * el.a_km));
+            el.p_km = el.a_km * (1.0 - el.e * el.e);
+            el.rp_km = el.a_km * (1.0 - el.e);
+            el.ra_km = el.a_km * (1.0 + el.e);
+
+            cascade::Vec3 r{};
+            cascade::Vec3 v{};
+            if (!cascade::elements_to_eci(el, r, v)) {
+                continue;
+            }
+            // Place debris near satellite for collision reference
+            const double offset_km = 0.03 + 0.005 * static_cast<double>(k - pair_begin);
+            store_ref.rx_mut(deb_idx) = store_ref.rx(sat_idx) + offset_km;
+            store_ref.ry_mut(deb_idx) = store_ref.ry(sat_idx);
+            store_ref.rz_mut(deb_idx) = store_ref.rz(sat_idx);
+            store_ref.vx_mut(deb_idx) = v.x;
+            store_ref.vy_mut(deb_idx) = v.y;
+            store_ref.vz_mut(deb_idx) = v.z;
+            store_ref.set_elements(deb_idx, el, true);
+        }
+    }
+
     cascade::StateStore store_prod = store_ref;
     cascade::SimClock clock_prod = clock_ref;
 
@@ -807,8 +967,8 @@ int main(int argc, char** argv)
     if (argc >= 3) sat_count = std::max(1, std::atoi(argv[2]));
     if (argc >= 4) deb_count = std::max(1, std::atoi(argv[3]));
 
-    const std::array<double, 13> steps{{30.0, 600.0, 1200.0, 3600.0, 43200.0, 172800.0, 900.0, 5400.0, 10800.0, 120.0, 1800.0, 7200.0, 14400.0}};
-    const std::array<const char*, 13> family{{
+    const std::array<double, 16> steps{{30.0, 600.0, 1200.0, 3600.0, 43200.0, 172800.0, 900.0, 5400.0, 10800.0, 120.0, 1800.0, 7200.0, 14400.0, 60.0, 300.0, 2400.0}};
+    const std::array<const char*, 16> family{{
         "baseline",
         "high_e",
         "coorbital",
@@ -821,6 +981,9 @@ int main(int argc, char** argv)
         "moid_threshold_edge",
         "moid_high_e_guard",
         "moid_stale_epoch",
+        "plane_boundary",
+        "phase_boundary",
+        "moid_boundary",
         "baseline"
     }};
 
@@ -870,6 +1033,9 @@ int main(int argc, char** argv)
         const bool moid_threshold_edge_bias = (family_tag == "moid_threshold_edge");
         const bool moid_high_e_guard_bias = (family_tag == "moid_high_e_guard");
         const bool moid_stale_epoch_bias = (family_tag == "moid_stale_epoch");
+        const bool plane_boundary_bias = (family_tag == "plane_boundary");
+        const bool phase_boundary_bias = (family_tag == "phase_boundary");
+        const bool moid_boundary_bias = (family_tag == "moid_boundary");
         const std::uint64_t seed = 2026031800ULL + static_cast<std::uint64_t>(s) * 131ULL;
 
         const ScenarioOutcome outcome = run_scenario(
@@ -888,7 +1054,10 @@ int main(int argc, char** argv)
             moid_edge_bias,
             moid_threshold_edge_bias,
             moid_high_e_guard_bias,
-            moid_stale_epoch_bias
+            moid_stale_epoch_bias,
+            plane_boundary_bias,
+            phase_boundary_bias,
+            moid_boundary_bias
         );
 
         if (!outcome.ok) {
@@ -935,7 +1104,7 @@ int main(int argc, char** argv)
     std::cout << "narrow_moid_hard_rejected_pairs_total=" << total_moid_hard_rejected << "\n";
     std::cout << "narrow_moid_fail_open_pairs_total=" << total_moid_fail_open << "\n";
 
-    const std::array<const char*, 12> family_order{{
+    const std::array<const char*, 15> family_order{{
         "baseline",
         "high_e",
         "coorbital",
@@ -947,7 +1116,10 @@ int main(int argc, char** argv)
         "moid_edge",
         "moid_threshold_edge",
         "moid_high_e_guard",
-        "moid_stale_epoch"
+        "moid_stale_epoch",
+        "plane_boundary",
+        "phase_boundary",
+        "moid_boundary"
     }};
     for (const char* fam : family_order) {
         const auto it = family_summary.find(fam);
