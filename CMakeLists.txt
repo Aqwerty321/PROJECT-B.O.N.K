@@ -370,42 +370,43 @@ if(PROJECTBONK_PREFETCH_ONLY)
 endif()
 
 # ===================================================================
+# Core static library — shared across all tool/gate/benchmark targets
+# (eliminates redundant compilation of engine sources)
+# ===================================================================
+add_library(bonk_core STATIC
+    src/broad_phase.cpp
+    src/earth_frame.cpp
+    src/maneuver_common.cpp
+    src/maneuver_recovery_planner.cpp
+    src/orbit_math.cpp
+    src/propagator.cpp
+    src/sim_clock.cpp
+    src/simulation_engine.cpp
+    src/state_store.cpp
+)
+
+target_include_directories(bonk_core PUBLIC
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
+# ===================================================================
 # Main executable
 # ===================================================================
 add_executable(ProjectBONK
     main.cpp
-    src/broad_phase.cpp
     src/engine_runtime.cpp
-    src/earth_frame.cpp
+    src/telemetry.cpp
     src/http/api_server.cpp
     src/http/request_parsers.cpp
     src/http/response_builders.cpp
-    src/maneuver_common.cpp
-    src/maneuver_recovery_planner.cpp
-    src/state_store.cpp
-    src/telemetry.cpp
-    src/sim_clock.cpp
-    src/orbit_math.cpp
-    src/propagator.cpp
-    src/simulation_engine.cpp
 )
 
 set_target_properties(ProjectBONK PROPERTIES
     BUILD_RPATH "${CMAKE_INSTALL_PREFIX}"
 )
 
-# Include src/ so headers can be included without path prefix
-target_include_directories(ProjectBONK PRIVATE
-    "${CMAKE_SOURCE_DIR}/src"
-)
-
-# Aggressive optimisation flags (no -march=native for cross-CPU compat)
-target_compile_options(ProjectBONK PRIVATE
-    -O3
-    -DNDEBUG
-)
-
 target_link_libraries(ProjectBONK PRIVATE
+    bonk_core
     simdjson::simdjson
     Boost::headers
     httplib
@@ -423,18 +424,9 @@ endif()
 # ===================================================================
 add_executable(phase2_regression
     tools/phase2_regression.cpp
-    src/orbit_math.cpp
-    src/propagator.cpp
 )
 
-target_include_directories(phase2_regression PRIVATE
-    "${CMAKE_SOURCE_DIR}/src"
-)
-
-target_compile_options(phase2_regression PRIVATE
-    -O3
-    -DNDEBUG
-)
+target_link_libraries(phase2_regression PRIVATE bonk_core)
 
 add_custom_target(phase2_regression_gate
     COMMAND "$<TARGET_FILE:phase2_regression>" 3000 300 86400 --strict-adaptive
@@ -445,20 +437,9 @@ add_custom_target(phase2_regression_gate
 
 add_executable(broad_phase_validation
     tools/broad_phase_validation.cpp
-    src/broad_phase.cpp
-    src/state_store.cpp
-    src/sim_clock.cpp
-    src/orbit_math.cpp
 )
 
-target_include_directories(broad_phase_validation PRIVATE
-    "${CMAKE_SOURCE_DIR}/src"
-)
-
-target_compile_options(broad_phase_validation PRIVATE
-    -O3
-    -DNDEBUG
-)
+target_link_libraries(broad_phase_validation PRIVATE bonk_core)
 
 add_custom_target(broad_phase_sanity_gate
     COMMAND "$<TARGET_FILE:broad_phase_validation>" 3 50 10000 1
@@ -471,22 +452,9 @@ add_custom_target(broad_phase_sanity_gate
 # ===================================================================
 add_executable(narrow_phase_false_negative_gate
     tools/narrow_phase_false_negative_gate.cpp
-    src/broad_phase.cpp
-    src/state_store.cpp
-    src/sim_clock.cpp
-    src/orbit_math.cpp
-    src/propagator.cpp
-    src/simulation_engine.cpp
 )
 
-target_include_directories(narrow_phase_false_negative_gate PRIVATE
-    "${CMAKE_SOURCE_DIR}/src"
-)
-
-target_compile_options(narrow_phase_false_negative_gate PRIVATE
-    -O3
-    -DNDEBUG
-)
+target_link_libraries(narrow_phase_false_negative_gate PRIVATE bonk_core)
 
 add_custom_target(narrow_phase_false_negative_regression_gate
     COMMAND "$<TARGET_FILE:narrow_phase_false_negative_gate>" 6 6 80
@@ -508,22 +476,9 @@ add_custom_target(narrow_phase_false_negative_canary_gate
 # ===================================================================
 add_executable(narrow_phase_calibration_probe
     tools/narrow_phase_calibration_probe.cpp
-    src/broad_phase.cpp
-    src/state_store.cpp
-    src/sim_clock.cpp
-    src/orbit_math.cpp
-    src/propagator.cpp
-    src/simulation_engine.cpp
 )
 
-target_include_directories(narrow_phase_calibration_probe PRIVATE
-    "${CMAKE_SOURCE_DIR}/src"
-)
-
-target_compile_options(narrow_phase_calibration_probe PRIVATE
-    -O3
-    -DNDEBUG
-)
+target_link_libraries(narrow_phase_calibration_probe PRIVATE bonk_core)
 
 add_custom_target(narrow_phase_uncertainty_observability_gate
     COMMAND "${CMAKE_SOURCE_DIR}/scripts/narrow_phase_uncertainty_observability_gate.sh" "${CMAKE_BINARY_DIR}"
@@ -536,64 +491,27 @@ add_custom_target(narrow_phase_uncertainty_observability_gate
 # ===================================================================
 add_executable(phase3_tick_benchmark
     tools/phase3_tick_benchmark.cpp
-    src/broad_phase.cpp
-    src/state_store.cpp
-    src/sim_clock.cpp
-    src/orbit_math.cpp
-    src/propagator.cpp
-    src/simulation_engine.cpp
 )
 
-target_include_directories(phase3_tick_benchmark PRIVATE
-    "${CMAKE_SOURCE_DIR}/src"
-)
-
-target_compile_options(phase3_tick_benchmark PRIVATE
-    -O3
-    -DNDEBUG
-)
+target_link_libraries(phase3_tick_benchmark PRIVATE bonk_core)
 
 # ===================================================================
 # Offline multi-objective tuner scaffold (separate from runtime path)
 # ===================================================================
 add_executable(offline_multiobjective_tuner
     tuner/offline_multiobjective_tuner.cpp
-    src/broad_phase.cpp
-    src/state_store.cpp
-    src/sim_clock.cpp
-    src/orbit_math.cpp
 )
 
-target_include_directories(offline_multiobjective_tuner PRIVATE
-    "${CMAKE_SOURCE_DIR}/src"
-)
-
-target_compile_options(offline_multiobjective_tuner PRIVATE
-    -O3
-    -DNDEBUG
-)
+target_link_libraries(offline_multiobjective_tuner PRIVATE bonk_core)
 
 # ===================================================================
 # Recovery slot gate harness
 # ===================================================================
 add_executable(recovery_slot_gate
     tools/recovery_slot_gate.cpp
-    src/broad_phase.cpp
-    src/state_store.cpp
-    src/sim_clock.cpp
-    src/orbit_math.cpp
-    src/propagator.cpp
-    src/simulation_engine.cpp
 )
 
-target_include_directories(recovery_slot_gate PRIVATE
-    "${CMAKE_SOURCE_DIR}/src"
-)
-
-target_compile_options(recovery_slot_gate PRIVATE
-    -O3
-    -DNDEBUG
-)
+target_link_libraries(recovery_slot_gate PRIVATE bonk_core)
 
 add_custom_target(recovery_slot_acceptance_gate
     COMMAND "$<TARGET_FILE:recovery_slot_gate>"
@@ -624,22 +542,9 @@ add_custom_target(phase4_law_assertions_gate
 # ===================================================================
 add_executable(recovery_planner_invariants
     tools/recovery_planner_invariants.cpp
-    src/broad_phase.cpp
-    src/state_store.cpp
-    src/sim_clock.cpp
-    src/orbit_math.cpp
-    src/propagator.cpp
-    src/simulation_engine.cpp
 )
 
-target_include_directories(recovery_planner_invariants PRIVATE
-    "${CMAKE_SOURCE_DIR}/src"
-)
-
-target_compile_options(recovery_planner_invariants PRIVATE
-    -O3
-    -DNDEBUG
-)
+target_link_libraries(recovery_planner_invariants PRIVATE bonk_core)
 
 add_custom_target(recovery_planner_invariants_gate
     COMMAND "$<TARGET_FILE:recovery_planner_invariants>"
@@ -652,21 +557,9 @@ add_custom_target(recovery_planner_invariants_gate
 # ===================================================================
 add_executable(maneuver_ops_invariants_gate
     tools/maneuver_ops_invariants_gate.cpp
-    src/state_store.cpp
-    src/orbit_math.cpp
-    src/earth_frame.cpp
-    src/maneuver_common.cpp
-    src/maneuver_recovery_planner.cpp
 )
 
-target_include_directories(maneuver_ops_invariants_gate PRIVATE
-    "${CMAKE_SOURCE_DIR}/src"
-)
-
-target_compile_options(maneuver_ops_invariants_gate PRIVATE
-    -O3
-    -DNDEBUG
-)
+target_link_libraries(maneuver_ops_invariants_gate PRIVATE bonk_core)
 
 add_custom_target(maneuver_ops_invariants_regression_gate
     COMMAND "$<TARGET_FILE:maneuver_ops_invariants_gate>"
@@ -683,11 +576,6 @@ add_executable(api_contract_gate
 
 target_include_directories(api_contract_gate PRIVATE
     "${CMAKE_SOURCE_DIR}/src"
-)
-
-target_compile_options(api_contract_gate PRIVATE
-    -O3
-    -DNDEBUG
 )
 
 target_link_libraries(api_contract_gate PRIVATE
