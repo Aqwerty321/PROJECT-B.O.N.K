@@ -16,6 +16,7 @@ struct NarrowPhaseConfig {
     enum class MoidMode : std::uint8_t {
         PROXY = 0,
         HF = 1,
+        ANALYTICAL = 2,
     };
 
     // Conservative linear-TCA screening guard.
@@ -119,6 +120,12 @@ struct StepRunStats {
     int broad_band_neighbor_bins = 0;
 
     double target_epoch_s = 0.0;
+
+    // Per-phase wall-clock timing (microseconds)
+    double propagation_us = 0.0;
+    double broad_phase_us = 0.0;
+    double narrow_precomp_us = 0.0;
+    double narrow_sweep_us = 0.0;
 };
 
 struct StepRunConfig {

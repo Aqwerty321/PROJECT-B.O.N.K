@@ -24,9 +24,7 @@ namespace cascade {
 
 namespace {
 
-constexpr double k_signal_latency_s = SIGNAL_LATENCY_S;
-constexpr double k_stationkeeping_box_radius_km = STATIONKEEPING_BOX_RADIUS_KM;
-constexpr double k_auto_upload_horizon_s = AUTO_UPLOAD_HORIZON_S;
+// Legacy constexpr aliases removed; runtime code uses ops_*() functions directly.
 constexpr std::chrono::seconds k_command_timeout{15};
 
 double env_double(std::string_view key,
@@ -111,6 +109,30 @@ int env_int(std::string_view key,
     );
 }
 
+// CDM scanner thresholds — env-overridable once on first call.
+struct CdmParams {
+    double horizon_s;
+    double substep_s;
+    double rk4_max_step_s;
+};
+
+static const CdmParams& cdm_params() noexcept
+{
+    static const CdmParams p{
+        env_double("PROJECTBONK_CDM_HORIZON_S", 86400.0, 3600.0, 604800.0),
+        env_double("PROJECTBONK_CDM_SUBSTEP_S", 600.0, 10.0, 7200.0),
+        env_double("PROJECTBONK_CDM_RK4_MAX_STEP_S", 30.0, 1.0, 300.0),
+    };
+    return p;
+}
+
+// COLA auto-impulse magnitude — env-overridable once on first call.
+static double cola_auto_dv_km_s() noexcept
+{
+    static const double v = env_double("PROJECTBONK_AUTO_DV_KM_S", 0.001, 1e-6, 0.01);
+    return v;
+}
+
 std::uint64_t plan_collision_avoidance_burns(
     StateStore& store,
     const StepRunStats& step_stats,
@@ -174,7 +196,7 @@ std::uint64_t plan_collision_avoidance_burns(
             continue;
         }
 
-        constexpr double k_auto_dv_km_s = 0.001; // 1 m/s conservative impulse
+        const double k_auto_dv_km_s = cola_auto_dv_km_s();
         // Prograde (T-hat) burn in RTN frame
         const Vec3 dv{
             t_hat.x * k_auto_dv_km_s,
@@ -192,7 +214,7 @@ std::uint64_t plan_collision_avoidance_burns(
             continue;
         }
 
-        double earliest_burn_epoch = epoch_s + k_signal_latency_s;
+        double earliest_burn_epoch = epoch_s + ops_signal_latency_s();
         if (last_it != last_burn_epoch_by_sat.end()) {
             earliest_burn_epoch = std::max(earliest_burn_epoch, last_it->second + SAT_COOLDOWN_S);
         }
@@ -207,7 +229,7 @@ std::uint64_t plan_collision_avoidance_burns(
                 sat_idx,
                 epoch_s,
                 earliest_burn_epoch,
-                earliest_burn_epoch + k_auto_upload_horizon_s,
+                earliest_burn_epoch + ops_auto_upload_horizon_s(),
                 burn_epoch,
                 upload_epoch,
                 upload_station)) {
@@ -251,9 +273,9 @@ std::uint64_t compute_cdm_warnings_24h(
     const StateStore& store,
     const BroadPhaseConfig& broad_cfg) noexcept
 {
-    constexpr double k_cdm_horizon_s = 86400.0;        // 24 hours
-    constexpr double k_cdm_substep_s = 600.0;          // 10-minute coarse steps
-    constexpr double k_rk4_max_step_s = 30.0;          // RK4 substep bound
+    const double k_cdm_horizon_s = cdm_params().horizon_s;
+    const double k_cdm_substep_s = cdm_params().substep_s;
+    const double k_rk4_max_step_s = cdm_params().rk4_max_step_s;
     const double collision_threshold_sq =
         COLLISION_THRESHOLD_KM * COLLISION_THRESHOLD_KM;
 
@@ -1415,7 +1437,7 @@ ScheduleCommandResult EngineRuntime::execute_schedule_maneuver(std::string_view 
     std::vector<std::string> parsed_upload_stations(burns.size(), std::string{});
     for (std::size_t bi = 0; bi < burns.size(); ++bi) {
         const ScheduledBurn& b = burns[bi];
-        if (b.burn_epoch_s <= clock_epoch_s + k_signal_latency_s + EPS_NUM) {
+        if (b.burn_epoch_s <= clock_epoch_s + ops_signal_latency_s() + EPS_NUM) {
             upload_window_ok = false;
             break;
         }
@@ -1592,7 +1614,7 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
             recovery_requests_by_sat_,
             graveyard_requested_by_sat_,
             slot_reference_by_sat_,
-            k_auto_upload_horizon_s,
+            ops_auto_upload_horizon_s(),
             recovery_cfg_
         );
 
@@ -1826,15 +1848,15 @@ std::uint64_t EngineRuntime::enforce_stationkeeping_recovery(double epoch_s,
         ++slot_radius_err_samples_tick;
 
         double penalty = 0.0;
-        if (radius_err_km > k_stationkeeping_box_radius_km) {
+        if (radius_err_km > ops_stationkeeping_box_radius_km()) {
             ++stationkeeping_outside_box_tick;
-            penalty = std::exp((radius_err_km - k_stationkeeping_box_radius_km)
-                             / k_stationkeeping_box_radius_km) - 1.0;
+            penalty = std::exp((radius_err_km - ops_stationkeeping_box_radius_km())
+                             / ops_stationkeeping_box_radius_km()) - 1.0;
         }
         stationkeeping_uptime_penalty_sum_tick += penalty;
         ++stationkeeping_uptime_penalty_samples_tick;
 
-        if (radius_err_km <= k_stationkeeping_box_radius_km) {
+        if (radius_err_km <= ops_stationkeeping_box_radius_km()) {
             continue;
         }
 
@@ -1908,7 +1930,7 @@ std::uint64_t EngineRuntime::enforce_stationkeeping_recovery(double epoch_s,
                 i,
                 epoch_s,
                 earliest_burn,
-                earliest_burn + k_auto_upload_horizon_s,
+                earliest_burn + ops_auto_upload_horizon_s(),
                 burn_epoch,
                 upload_epoch,
                 upload_station)) {

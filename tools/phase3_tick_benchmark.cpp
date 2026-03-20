@@ -170,6 +170,12 @@ int main(int argc, char** argv)
     std::uint64_t sum_broad_candidates = 0;
     std::uint64_t sum_broad_overlap = 0;
 
+    // Per-phase timing accumulators (microseconds)
+    double sum_propagation_us = 0.0;
+    double sum_broad_phase_us = 0.0;
+    double sum_narrow_precomp_us = 0.0;
+    double sum_narrow_sweep_us = 0.0;
+
     cascade::StepRunConfig cfg{};
     cfg.broad_phase.enable_i_neighbor_filter =
         env_flag_enabled("PROJECTBONK_BROAD_I_NEIGHBOR_FILTER", false);
@@ -208,6 +214,10 @@ int main(int argc, char** argv)
             sum_broad_pairs += stats.broad_pairs_considered;
             sum_broad_candidates += stats.broad_candidates;
             sum_broad_overlap += stats.broad_shell_overlap_pass;
+            sum_propagation_us += stats.propagation_us;
+            sum_broad_phase_us += stats.broad_phase_us;
+            sum_narrow_precomp_us += stats.narrow_precomp_us;
+            sum_narrow_sweep_us += stats.narrow_sweep_us;
         }
     }
 
@@ -247,6 +257,17 @@ int main(int argc, char** argv)
     std::cout << "broad_pairs_considered_total=" << sum_broad_pairs << "\n";
     std::cout << "broad_candidates_total=" << sum_broad_candidates << "\n";
     std::cout << "broad_shell_overlap_pass_total=" << sum_broad_overlap << "\n";
+
+    // Per-phase timing breakdown (mean per tick, in milliseconds)
+    const double n_ticks = static_cast<double>(tick_ms.size());
+    if (n_ticks > 0.0) {
+        std::cout << "phase_propagation_ms_mean=" << (sum_propagation_us / n_ticks / 1000.0) << "\n";
+        std::cout << "phase_broad_ms_mean=" << (sum_broad_phase_us / n_ticks / 1000.0) << "\n";
+        std::cout << "phase_narrow_precomp_ms_mean=" << (sum_narrow_precomp_us / n_ticks / 1000.0) << "\n";
+        std::cout << "phase_narrow_sweep_ms_mean=" << (sum_narrow_sweep_us / n_ticks / 1000.0) << "\n";
+        const double accounted = (sum_propagation_us + sum_broad_phase_us + sum_narrow_precomp_us + sum_narrow_sweep_us) / n_ticks / 1000.0;
+        std::cout << "phase_other_ms_mean=" << (mean_ms - accounted) << "\n";
+    }
 
     return 0;
 }

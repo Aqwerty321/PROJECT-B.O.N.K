@@ -375,6 +375,8 @@ endif()
 # Core static library — shared across all tool/gate/benchmark targets
 # (eliminates redundant compilation of engine sources)
 # ===================================================================
+find_package(OpenMP)
+
 add_library(bonk_core STATIC
     src/broad_phase.cpp
     src/earth_frame.cpp
@@ -390,6 +392,13 @@ add_library(bonk_core STATIC
 target_include_directories(bonk_core PUBLIC
     "${CMAKE_SOURCE_DIR}/src"
 )
+
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(bonk_core PUBLIC OpenMP::OpenMP_CXX)
+    target_compile_definitions(bonk_core PUBLIC PROJECTBONK_HAVE_OPENMP=1)
+else()
+    target_compile_definitions(bonk_core PUBLIC PROJECTBONK_HAVE_OPENMP=0)
+endif()
 
 # ===================================================================
 # Main executable

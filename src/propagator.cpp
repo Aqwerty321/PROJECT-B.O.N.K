@@ -6,22 +6,51 @@
 #include "orbit_math.hpp"
 
 #include <cmath>
+#include <cstdlib>
 
 namespace cascade {
 
 namespace {
 
-inline constexpr double FAST_LANE_MAX_DT_S = 30.0;
-inline constexpr double FAST_LANE_MAX_E = 0.02;
-inline constexpr double FAST_LANE_MIN_PERIGEE_ALT_KM = 500.0;
+// Read an env var as a double, returning `fallback` if not set or invalid.
+inline double env_double(const char* name, double fallback) noexcept
+{
+    const char* v = std::getenv(name);
+    if (!v) return fallback;
+    char* end = nullptr;
+    const double d = std::strtod(v, &end);
+    if (end == v || !std::isfinite(d)) return fallback;
+    return d;
+}
 
-inline constexpr double FAST_LANE_EXT_MAX_DT_S = 45.0;
-inline constexpr double FAST_LANE_EXT_MAX_E = 0.003;
-inline constexpr double FAST_LANE_EXT_MIN_PERIGEE_ALT_KM = 650.0;
+// Propagator fast-lane thresholds — env-overridable once on first call.
+struct FastLaneParams {
+    double max_dt_s;
+    double max_e;
+    double min_perigee_alt_km;
+    double ext_max_dt_s;
+    double ext_max_e;
+    double ext_min_perigee_alt_km;
+    double probe_max_step_s;
+    double probe_pos_thresh_km;
+    double probe_vel_thresh_ms;
+};
 
-inline constexpr double PROBE_MAX_STEP_S = 120.0;
-inline constexpr double PROBE_POS_THRESH_KM = 0.5;
-inline constexpr double PROBE_VEL_THRESH_MS = 0.5;
+static const FastLaneParams& fast_lane_params() noexcept
+{
+    static const FastLaneParams p{
+        env_double("PROJECTBONK_FAST_LANE_MAX_DT_S", 30.0),
+        env_double("PROJECTBONK_FAST_LANE_MAX_E", 0.02),
+        env_double("PROJECTBONK_FAST_LANE_MIN_PERIGEE_ALT_KM", 500.0),
+        env_double("PROJECTBONK_FAST_LANE_EXT_MAX_DT_S", 45.0),
+        env_double("PROJECTBONK_FAST_LANE_EXT_MAX_E", 0.003),
+        env_double("PROJECTBONK_FAST_LANE_EXT_MIN_PERIGEE_ALT_KM", 650.0),
+        env_double("PROJECTBONK_PROBE_MAX_STEP_S", 120.0),
+        env_double("PROJECTBONK_PROBE_POS_THRESH_KM", 0.5),
+        env_double("PROJECTBONK_PROBE_VEL_THRESH_MS", 0.5),
+    };
+    return p;
+}
 
 } // namespace
 
@@ -115,14 +144,15 @@ AdaptivePropagationResult propagate_adaptive(Vec3& r,
     // Low-risk fast lane: very small dt, low eccentricity, and comfortably
     // above drag-sensitive altitudes.
     const double perigee_alt_km = el.rp_km - R_EARTH_KM;
+    const auto& fl = fast_lane_params();
     const bool low_risk_fast_lane =
-        (dt_s <= FAST_LANE_MAX_DT_S
-         && el.e <= FAST_LANE_MAX_E
-         && perigee_alt_km >= FAST_LANE_MIN_PERIGEE_ALT_KM)
+        (dt_s <= fl.max_dt_s
+         && el.e <= fl.max_e
+         && perigee_alt_km >= fl.min_perigee_alt_km)
         ||
-        (dt_s <= FAST_LANE_EXT_MAX_DT_S
-         && el.e <= FAST_LANE_EXT_MAX_E
-         && perigee_alt_km >= FAST_LANE_EXT_MIN_PERIGEE_ALT_KM);
+        (dt_s <= fl.ext_max_dt_s
+         && el.e <= fl.ext_max_e
+         && perigee_alt_km >= fl.ext_min_perigee_alt_km);
 
     if (low_risk_fast_lane) {
         if (propagate_fast_j2_kepler(r, v, el, dt_s)) {
@@ -157,7 +187,7 @@ AdaptivePropagationResult propagate_adaptive(Vec3& r,
 
     Vec3 r_probe = r;
     Vec3 v_probe = v;
-    if (!propagate_rk4_j2_substep(r_probe, v_probe, dt_s, PROBE_MAX_STEP_S)) {
+    if (!propagate_rk4_j2_substep(r_probe, v_probe, dt_s, fl.probe_max_step_s)) {
         // Probe failed; accept fast path to avoid throwing away progress.
         r = r_fast;
         v = v_fast;
@@ -177,7 +207,7 @@ AdaptivePropagationResult propagate_adaptive(Vec3& r,
     const double drift_kms = std::sqrt(dvx * dvx + dvy * dvy + dvz * dvz);
     const double drift_ms = drift_kms * 1000.0;
 
-    if (drift_km < PROBE_POS_THRESH_KM && drift_ms < PROBE_VEL_THRESH_MS) {
+    if (drift_km < fl.probe_pos_thresh_km && drift_ms < fl.probe_vel_thresh_ms) {
         r = r_fast;
         v = v_fast;
         el = el_fast;

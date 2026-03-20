@@ -193,6 +193,298 @@ double j2_M_dot(const OrbitalElements& el) noexcept
     return el.n_rad_s + fac * (3.0 * std::cos(el.i_rad) * std::cos(el.i_rad) - 1.0);
 }
 
+// ---------------------------------------------------------------------------
+// Analytical MOID — orbital frame approach with Newton-Raphson refinement
+// ---------------------------------------------------------------------------
+
+// Orbital frame vectors for a Keplerian orbit:
+//   P = direction of periapsis in ECI
+//   Q = 90 deg ahead of P in the orbital plane
+struct OrbitalFrame {
+    Vec3 P;  // periapsis direction
+    Vec3 Q;  // in-plane, 90 deg ahead
+};
+
+static inline OrbitalFrame compute_orbital_frame(const OrbitalElements& el) noexcept
+{
+    const double cO = std::cos(el.raan_rad);
+    const double sO = std::sin(el.raan_rad);
+    const double ci = std::cos(el.i_rad);
+    const double si = std::sin(el.i_rad);
+    const double cw = std::cos(el.argp_rad);
+    const double sw = std::sin(el.argp_rad);
+
+    OrbitalFrame fr{};
+    // P = R_z(-Omega) * R_x(-i) * R_z(-omega) * [1,0,0]
+    fr.P.x = cO * cw - sO * sw * ci;
+    fr.P.y = sO * cw + cO * sw * ci;
+    fr.P.z = sw * si;
+
+    // Q = R_z(-Omega) * R_x(-i) * R_z(-omega) * [0,1,0]
+    fr.Q.x = -cO * sw - sO * cw * ci;
+    fr.Q.y = -sO * sw + cO * cw * ci;
+    fr.Q.z = cw * si;
+
+    return fr;
+}
+
+// Position on orbit at true anomaly f:
+//   r(f) = (p / (1 + e*cos(f))) * (cos(f)*P + sin(f)*Q)
+static inline Vec3 orbit_pos(double f, double p, double e,
+                             const OrbitalFrame& fr) noexcept
+{
+    const double cf = std::cos(f);
+    const double sf = std::sin(f);
+    const double r_scalar = p / (1.0 + e * cf);
+    return Vec3{
+        r_scalar * (cf * fr.P.x + sf * fr.Q.x),
+        r_scalar * (cf * fr.P.y + sf * fr.Q.y),
+        r_scalar * (cf * fr.P.z + sf * fr.Q.z)
+    };
+}
+
+// First derivative of position w.r.t. true anomaly f:
+//   dr/df = (p * h^2) * (-sin(f)*P + (e + cos(f))*Q)
+// where h = 1/(1 + e*cos(f))
+static inline Vec3 orbit_dpos(double f, double p, double e,
+                              const OrbitalFrame& fr) noexcept
+{
+    const double cf = std::cos(f);
+    const double sf = std::sin(f);
+    const double h = 1.0 / (1.0 + e * cf);
+    const double ph2 = p * h * h;
+    const double a_coeff = -sf;
+    const double b_coeff = e + cf;
+    return Vec3{
+        ph2 * (a_coeff * fr.P.x + b_coeff * fr.Q.x),
+        ph2 * (a_coeff * fr.P.y + b_coeff * fr.Q.y),
+        ph2 * (a_coeff * fr.P.z + b_coeff * fr.Q.z)
+    };
+}
+
+// Second derivative of position w.r.t. true anomaly f:
+//   d²r/df² = p*h^2 * [(-2*e*sin²f*h - cos f)*P
+//                     + (2*e*sinf*(e+cosf)*h - sinf)*Q]
+static inline Vec3 orbit_d2pos(double f, double p, double e,
+                               const OrbitalFrame& fr) noexcept
+{
+    const double cf = std::cos(f);
+    const double sf = std::sin(f);
+    const double h = 1.0 / (1.0 + e * cf);
+    const double ph2 = p * h * h;
+    const double esf = e * sf;
+    const double a_coeff = -2.0 * esf * sf * h - cf;
+    const double b_coeff = 2.0 * esf * (e + cf) * h - sf;
+    return Vec3{
+        ph2 * (a_coeff * fr.P.x + b_coeff * fr.Q.x),
+        ph2 * (a_coeff * fr.P.y + b_coeff * fr.Q.y),
+        ph2 * (a_coeff * fr.P.z + b_coeff * fr.Q.z)
+    };
+}
+
+static inline double vec3_dot(const Vec3& a, const Vec3& b) noexcept
+{
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+double compute_moid_analytical(const OrbitalElements& el1,
+                               const OrbitalElements& el2) noexcept
+{
+    constexpr double INF = std::numeric_limits<double>::infinity();
+
+    // Validate both orbits are elliptic
+    if (!(el1.a_km > 0.0) || !(el1.e >= 0.0 && el1.e < 1.0)) return INF;
+    if (!(el2.a_km > 0.0) || !(el2.e >= 0.0 && el2.e < 1.0)) return INF;
+
+    const double p1 = el1.a_km * (1.0 - el1.e * el1.e);
+    const double p2 = el2.a_km * (1.0 - el2.e * el2.e);
+    if (!(p1 > 0.0) || !(p2 > 0.0)) return INF;
+
+    const OrbitalFrame fr1 = compute_orbital_frame(el1);
+    const OrbitalFrame fr2 = compute_orbital_frame(el2);
+
+    // Phase 1: Coarse grid scan.
+    // Use 72 samples per orbit (5-deg resolution) = 5184 evaluations.
+    // Track the top-K local minima for Newton refinement.
+    constexpr int N_COARSE = 72;
+    constexpr double COARSE_STEP = TWO_PI / static_cast<double>(N_COARSE);
+
+    // Precompute positions on both orbits at coarse grid points.
+    Vec3 pos1[N_COARSE];
+    Vec3 pos2[N_COARSE];
+    for (int i = 0; i < N_COARSE; ++i) {
+        const double f = COARSE_STEP * static_cast<double>(i);
+        pos1[i] = orbit_pos(f, p1, el1.e, fr1);
+        pos2[i] = orbit_pos(f, p2, el2.e, fr2);
+    }
+
+    // Find best D² at each (i,j) and identify local minima.
+    // A point is a local minimum if D²(i,j) <= all 8 neighbors on the torus.
+    // We keep up to MAX_SEEDS best candidates for Newton refinement.
+    constexpr int MAX_SEEDS = 16;
+    struct Seed {
+        double d2;
+        int i, j;
+    };
+    Seed seeds[MAX_SEEDS];
+    int n_seeds = 0;
+
+    // Full grid D² computation + local minimum detection in one pass.
+    // We need D² at (i,j) and its 8 neighbors; store the full grid.
+    // 72*72 = 5184 doubles = ~41 KB on stack — fine.
+    double grid[N_COARSE][N_COARSE];
+    for (int i = 0; i < N_COARSE; ++i) {
+        for (int j = 0; j < N_COARSE; ++j) {
+            const double dx = pos1[i].x - pos2[j].x;
+            const double dy = pos1[i].y - pos2[j].y;
+            const double dz = pos1[i].z - pos2[j].z;
+            grid[i][j] = dx * dx + dy * dy + dz * dz;
+        }
+    }
+
+    // Identify local minima on the torus (wrapping at boundaries).
+    for (int i = 0; i < N_COARSE; ++i) {
+        for (int j = 0; j < N_COARSE; ++j) {
+            const double val = grid[i][j];
+            bool is_min = true;
+            for (int di = -1; di <= 1 && is_min; ++di) {
+                for (int dj = -1; dj <= 1 && is_min; ++dj) {
+                    if (di == 0 && dj == 0) continue;
+                    const int ni = (i + di + N_COARSE) % N_COARSE;
+                    const int nj = (j + dj + N_COARSE) % N_COARSE;
+                    if (grid[ni][nj] < val) {
+                        is_min = false;
+                    }
+                }
+            }
+            if (is_min) {
+                if (n_seeds < MAX_SEEDS) {
+                    seeds[n_seeds++] = {val, i, j};
+                } else {
+                    // Replace the worst seed if this one is better.
+                    int worst = 0;
+                    for (int k = 1; k < MAX_SEEDS; ++k) {
+                        if (seeds[k].d2 > seeds[worst].d2) worst = k;
+                    }
+                    if (val < seeds[worst].d2) {
+                        seeds[worst] = {val, i, j};
+                    }
+                }
+            }
+        }
+    }
+
+    // If no seeds found (shouldn't happen for valid orbits), use global best.
+    if (n_seeds == 0) {
+        double best = INF;
+        int bi = 0, bj = 0;
+        for (int i = 0; i < N_COARSE; ++i) {
+            for (int j = 0; j < N_COARSE; ++j) {
+                if (grid[i][j] < best) {
+                    best = grid[i][j];
+                    bi = i;
+                    bj = j;
+                }
+            }
+        }
+        seeds[0] = {best, bi, bj};
+        n_seeds = 1;
+    }
+
+    // Phase 2: Newton-Raphson refinement of each seed.
+    // We minimize D²(f1, f2) = |r1(f1) - r2(f2)|² using analytical
+    // gradient and Hessian.
+    //
+    // Gradient:
+    //   g1 = ∂D²/∂f1 = 2*(r1-r2) · dr1/df1
+    //   g2 = ∂D²/∂f2 = -2*(r1-r2) · dr2/df2
+    //
+    // Hessian:
+    //   H11 = 2*(dr1·dr1) + 2*(r1-r2)·d²r1/df1²
+    //   H12 = -2*(dr1·dr2)
+    //   H22 = 2*(dr2·dr2) - 2*(r1-r2)·d²r2/df2²
+
+    double global_min_d2 = INF;
+    constexpr int MAX_NEWTON = 20;
+    constexpr double NEWTON_TOL = 1e-14;   // tolerance on |grad|² for D²
+    constexpr double STEP_TOL = 1e-12;     // tolerance on step size
+
+    for (int s = 0; s < n_seeds; ++s) {
+        double f1 = COARSE_STEP * static_cast<double>(seeds[s].i);
+        double f2 = COARSE_STEP * static_cast<double>(seeds[s].j);
+
+        for (int iter = 0; iter < MAX_NEWTON; ++iter) {
+            const Vec3 r1 = orbit_pos(f1, p1, el1.e, fr1);
+            const Vec3 r2 = orbit_pos(f2, p2, el2.e, fr2);
+            const Vec3 dr1 = orbit_dpos(f1, p1, el1.e, fr1);
+            const Vec3 dr2 = orbit_dpos(f2, p2, el2.e, fr2);
+            const Vec3 d2r1 = orbit_d2pos(f1, p1, el1.e, fr1);
+            const Vec3 d2r2 = orbit_d2pos(f2, p2, el2.e, fr2);
+
+            const Vec3 delta{r1.x - r2.x, r1.y - r2.y, r1.z - r2.z};
+
+            // Gradient
+            const double g1 = 2.0 * vec3_dot(delta, dr1);
+            const double g2 = -2.0 * vec3_dot(delta, dr2);
+
+            const double grad_norm2 = g1 * g1 + g2 * g2;
+            if (grad_norm2 < NEWTON_TOL) break;
+
+            // Hessian
+            const double H11 = 2.0 * (vec3_dot(dr1, dr1) + vec3_dot(delta, d2r1));
+            const double H12 = -2.0 * vec3_dot(dr1, dr2);
+            const double H22 = 2.0 * (vec3_dot(dr2, dr2) - vec3_dot(delta, d2r2));
+
+            // Solve 2x2 system: H * [df1, df2]^T = -[g1, g2]^T
+            const double det = H11 * H22 - H12 * H12;
+            if (std::abs(det) < 1e-30) {
+                // Degenerate Hessian — try gradient descent step instead.
+                const double alpha = 1e-6;
+                f1 -= alpha * g1;
+                f2 -= alpha * g2;
+                f1 = wrap_0_2pi(f1);
+                f2 = wrap_0_2pi(f2);
+                continue;
+            }
+
+            const double inv_det = 1.0 / det;
+            double df1 = -inv_det * (H22 * g1 - H12 * g2);
+            double df2 = -inv_det * (-H12 * g1 + H11 * g2);
+
+            // Damping: limit Newton step to pi radians max to avoid
+            // overshooting into a different basin.
+            const double step_norm = std::sqrt(df1 * df1 + df2 * df2);
+            if (step_norm > PI) {
+                const double scale = PI / step_norm;
+                df1 *= scale;
+                df2 *= scale;
+            }
+
+            f1 += df1;
+            f2 += df2;
+            f1 = wrap_0_2pi(f1);
+            f2 = wrap_0_2pi(f2);
+
+            if (df1 * df1 + df2 * df2 < STEP_TOL) break;
+        }
+
+        // Evaluate final D² at the converged point.
+        const Vec3 r1 = orbit_pos(f1, p1, el1.e, fr1);
+        const Vec3 r2 = orbit_pos(f2, p2, el2.e, fr2);
+        const double dx = r1.x - r2.x;
+        const double dy = r1.y - r2.y;
+        const double dz = r1.z - r2.z;
+        const double d2 = dx * dx + dy * dy + dz * dz;
+
+        if (d2 < global_min_d2) {
+            global_min_d2 = d2;
+        }
+    }
+
+    if (!std::isfinite(global_min_d2) || global_min_d2 < 0.0) return INF;
+    return std::sqrt(global_min_d2);
+}
+
 void apply_j2_secular(OrbitalElements& el, double dt_s) noexcept
 {
     if (el.p_km <= EPS_NUM) {

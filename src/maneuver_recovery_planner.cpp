@@ -55,6 +55,31 @@ RecoverySolverMode env_solver_mode(RecoverySolverMode default_value) noexcept
     return default_value;
 }
 
+// CW solver tunable bounds — env-overridable once on first call.
+struct CwSolverParams {
+    double horizon_fraction;   // fraction of orbit period for CW horizon
+    double horizon_min_s;      // minimum CW horizon [s]
+    double horizon_max_s;      // maximum CW horizon [s]
+    double pos_blend;          // position correction weight in blend
+    double vel_blend;          // velocity error weight in blend
+    double rem_error_cap;      // cap on correction as ratio of remaining dv
+    double heur_norm_cap;      // cap on correction as ratio of heuristic norm
+};
+
+static const CwSolverParams& cw_solver_params() noexcept
+{
+    static const CwSolverParams p{
+        env_double("PROJECTBONK_CW_HORIZON_FRACTION", 0.25, 0.01, 1.0),
+        env_double("PROJECTBONK_CW_HORIZON_MIN_S", 300.0, 10.0, 3600.0),
+        env_double("PROJECTBONK_CW_HORIZON_MAX_S", 5400.0, 300.0, 86400.0),
+        env_double("PROJECTBONK_CW_POS_BLEND", 0.7, 0.0, 1.0),
+        env_double("PROJECTBONK_CW_VEL_BLEND", 0.3, 0.0, 1.0),
+        env_double("PROJECTBONK_CW_REM_ERROR_CAP", 0.15, 0.0, 1.0),
+        env_double("PROJECTBONK_CW_HEUR_NORM_CAP", 0.4, 0.0, 2.0),
+    };
+    return p;
+}
+
 // Compute RTN frame from ECI position and velocity.
 // r_hat = r / |r|
 // n_hat = (r x v) / |r x v|   (orbit-normal)
@@ -168,7 +193,8 @@ Vec3 compute_slot_target_recovery_dv_cw_zem_equivalent(const StateStore& store,
     }
     const double mean_motion = std::sqrt(MU_KM3_S2 / (a_km * a_km * a_km));
     const double orbit_period_s = TWO_PI / std::max(mean_motion, EPS_NUM);
-    const double horizon_s = std::clamp(orbit_period_s * 0.25, 300.0, 5400.0);
+    const auto& cwp = cw_solver_params();
+    const double horizon_s = std::clamp(orbit_period_s * cwp.horizon_fraction, cwp.horizon_min_s, cwp.horizon_max_s);
 
     // Heuristic RTN correction keeps gain calibration behavior and provides a
     // stable baseline when linearized CW terms are ill-conditioned.
@@ -227,9 +253,9 @@ Vec3 compute_slot_target_recovery_dv_cw_zem_equivalent(const StateStore& store,
         // Blend: 70% position correction + 30% velocity error correction
         // Position correction drives the satellite toward the slot;
         // velocity error correction damps residual drift.
-        cw_r = 0.7 * pos_dv_r + 0.3 * dv_r_err;
-        cw_t = 0.7 * pos_dv_t + 0.3 * dv_t_err;
-        cw_n = 0.7 * pos_dv_n + 0.3 * dv_n_err;
+        cw_r = cwp.pos_blend * pos_dv_r + cwp.vel_blend * dv_r_err;
+        cw_t = cwp.pos_blend * pos_dv_t + cwp.vel_blend * dv_t_err;
+        cw_n = cwp.pos_blend * pos_dv_n + cwp.vel_blend * dv_n_err;
     } else {
         // Degenerate case: fall back to velocity-matching only
         cw_r = dv_r_err;
@@ -259,7 +285,7 @@ Vec3 compute_slot_target_recovery_dv_cw_zem_equivalent(const StateStore& store,
     const double rem_norm = dv_norm_km_s(req.remaining_delta_v_km_s);
     const double corr_norm = dv_norm_km_s(correction);
 
-    const double correction_cap = std::max(rem_norm * 0.15, heur_norm * 0.4);
+    const double correction_cap = std::max(rem_norm * cwp.rem_error_cap, heur_norm * cwp.heur_norm_cap);
     if (corr_norm > correction_cap + EPS_NUM && corr_norm > EPS_NUM) {
         const double scale = correction_cap / corr_norm;
         correction.x *= scale;

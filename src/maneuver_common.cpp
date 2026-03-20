@@ -245,12 +245,12 @@ bool choose_burn_epoch_with_upload_impl(const StateStore& store,
                                         double& out_upload_epoch_s,
                                         std::string& out_station_id) noexcept
 {
-    const double start = std::max(earliest_burn_epoch_s, now_epoch_s + SIGNAL_LATENCY_S);
+    const double start = std::max(earliest_burn_epoch_s, now_epoch_s + ops_signal_latency_s());
     if (latest_burn_epoch_s + EPS_NUM < start) {
         return false;
     }
 
-    for (double t = start; t <= latest_burn_epoch_s + EPS_NUM; t += UPLOAD_SCAN_STEP_S) {
+    for (double t = start; t <= latest_burn_epoch_s + EPS_NUM; t += ops_upload_scan_step_s()) {
         if (!can_schedule_burn_now(store, burn_queue, last_burn_epoch_by_sat, sat_idx, t)) {
             continue;
         }
@@ -396,6 +396,29 @@ bool slot_radius_error_km_at_epoch(const StateStore& store,
     return true;
 }
 
+namespace {
+
+// Slot error normalization scales — env-overridable once on first call.
+struct SlotErrorScales {
+    double a_km;
+    double e;
+    double i_rad;
+    double raan_rad;
+};
+
+static const SlotErrorScales& slot_error_scales() noexcept
+{
+    static const SlotErrorScales s{
+        detail::ops_env_double("PROJECTBONK_SLOT_NORM_A_KM", 10.0),
+        detail::ops_env_double("PROJECTBONK_SLOT_NORM_E", 1e-3),
+        detail::ops_env_double("PROJECTBONK_SLOT_NORM_I_RAD", 1e-3),
+        detail::ops_env_double("PROJECTBONK_SLOT_NORM_RAAN_RAD", 1e-3),
+    };
+    return s;
+}
+
+} // namespace
+
 double slot_error_score(const OrbitalElements& slot,
                         const OrbitalElements& cur) noexcept
 {
@@ -411,8 +434,9 @@ double slot_error_score(const OrbitalElements& slot,
     const double d_M = std::abs(wrap_0_2pi(slot.M_rad - cur.M_rad + PI) - PI);
     const double along_track_km = d_M * cur.a_km;
 
-    return (da / 10.0) + (de / 1e-3) + (di / 1e-3) + (d_raan / 1e-3)
-         + (along_track_km / STATIONKEEPING_BOX_RADIUS_KM);
+    const auto& ses = slot_error_scales();
+    return (da / ses.a_km) + (de / ses.e) + (di / ses.i_rad) + (d_raan / ses.raan_rad)
+         + (along_track_km / ops_stationkeeping_box_radius_km());
 }
 
 double dv_norm_km_s(const Vec3& dv) noexcept
@@ -526,7 +550,7 @@ bool find_latest_upload_slot_epoch(const StateStore& store,
                                    double& out_upload_epoch_s,
                                    std::string& out_station_id) noexcept
 {
-    const double latest_upload = burn_epoch_s - SIGNAL_LATENCY_S;
+    const double latest_upload = burn_epoch_s - ops_signal_latency_s();
     if (latest_upload < now_epoch_s + EPS_NUM) {
         return false;
     }
@@ -535,7 +559,7 @@ bool find_latest_upload_slot_epoch(const StateStore& store,
     double best_epoch = now_epoch_s;
     std::string best_station;
 
-    for (double t = now_epoch_s; t <= latest_upload + EPS_NUM; t += UPLOAD_SCAN_STEP_S) {
+    for (double t = now_epoch_s; t <= latest_upload + EPS_NUM; t += ops_upload_scan_step_s()) {
         std::string station;
         if (has_ground_station_los_for_sat_epoch(store, sat_idx, t, &station)) {
             found = true;
@@ -571,7 +595,7 @@ bool find_earliest_upload_slot_epoch(const StateStore& store,
         return false;
     }
 
-    for (double t = start_epoch_s; t <= end_epoch_s + EPS_NUM; t += UPLOAD_SCAN_STEP_S) {
+    for (double t = start_epoch_s; t <= end_epoch_s + EPS_NUM; t += ops_upload_scan_step_s()) {
         std::string station;
         if (has_ground_station_los_for_sat_epoch(store, sat_idx, t, &station)) {
             out_upload_epoch_s = t;
@@ -606,7 +630,7 @@ bool upload_window_ready_for_execution(const ScheduledBurn& burn,
     if (burn.upload_epoch_s <= 0.0) {
         return false;
     }
-    if (burn.upload_epoch_s > burn.burn_epoch_s - SIGNAL_LATENCY_S + EPS_NUM) {
+    if (burn.upload_epoch_s > burn.burn_epoch_s - ops_signal_latency_s() + EPS_NUM) {
         return false;
     }
     if (burn.upload_epoch_s > current_epoch_s + EPS_NUM) {
@@ -689,16 +713,17 @@ GraveyardPlanStats plan_graveyard_burns(StateStore& store,
             continue;
         }
 
+        const double graveyard_dv = ops_graveyard_target_dv_km_s();
         const Vec3 dv{
-            (v.x / v_norm) * GRAVEYARD_TARGET_DV_KM_S,
-            (v.y / v_norm) * GRAVEYARD_TARGET_DV_KM_S,
-            (v.z / v_norm) * GRAVEYARD_TARGET_DV_KM_S
+            (v.x / v_norm) * graveyard_dv,
+            (v.y / v_norm) * graveyard_dv,
+            (v.z / v_norm) * graveyard_dv
         };
 
         // P2.2: Verify satellite has enough fuel for the graveyard burn.
         const double mass_before = store.mass_kg(sat_idx);
         const double fuel_before = store.fuel_kg(sat_idx);
-        const double fuel_needed = propellant_used_kg(mass_before, GRAVEYARD_TARGET_DV_KM_S);
+        const double fuel_needed = propellant_used_kg(mass_before, graveyard_dv);
         if (fuel_before < fuel_needed + EPS_NUM) {
             // Not enough fuel even for graveyard — mark as fuel-low and skip.
             store.set_sat_status(sat_idx, SatStatus::FUEL_LOW);
@@ -727,7 +752,7 @@ GraveyardPlanStats plan_graveyard_burns(StateStore& store,
         burn.upload_epoch_s = upload_epoch;
         burn.burn_epoch_s = burn_epoch;
         burn.delta_v_km_s = dv;
-        burn.delta_v_norm_km_s = GRAVEYARD_TARGET_DV_KM_S;
+        burn.delta_v_norm_km_s = graveyard_dv;
         burn.auto_generated = true;
         burn.recovery_burn = false;
         burn.graveyard_burn = true;

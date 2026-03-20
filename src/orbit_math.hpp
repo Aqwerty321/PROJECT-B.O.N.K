@@ -27,4 +27,17 @@ double j2_M_dot(const OrbitalElements& el) noexcept;
 // Apply secular drift in place and keep angles wrapped.
 void apply_j2_secular(OrbitalElements& el, double dt_s) noexcept;
 
+// ---------------------------------------------------------------------------
+// Analytical MOID (Minimum Orbit Intersection Distance)
+// ---------------------------------------------------------------------------
+// Computes the minimum distance between two Keplerian orbits using:
+//   1. Orbital frame vectors (P, Q) for closed-form position on orbit
+//   2. Coarse grid scan over true anomaly pairs to locate basins
+//   3. Newton-Raphson refinement with analytical gradient/Hessian of D²
+//
+// Returns the MOID in km.  On failure (degenerate orbits), returns +infinity.
+// Both orbits must be elliptic (0 <= e < 1) with a > 0.
+double compute_moid_analytical(const OrbitalElements& el1,
+                               const OrbitalElements& el2) noexcept;
+
 } // namespace cascade

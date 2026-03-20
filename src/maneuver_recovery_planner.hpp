@@ -31,8 +31,8 @@ struct RecoveryPlannerConfig {
     // 1.0 means do not command more norm than remaining request.
     double max_request_ratio = 0.05;
 
-    // Recovery DV solver selection. Heuristic remains default for safe rollout.
-    RecoverySolverMode solver_mode = RecoverySolverMode::HEURISTIC;
+    // Recovery DV solver selection. CW solver is default — validated in P0.
+    RecoverySolverMode solver_mode = RecoverySolverMode::CW_ZEM_EQUIVALENT;
 };
 
 RecoveryPlannerConfig recovery_planner_config_from_env();

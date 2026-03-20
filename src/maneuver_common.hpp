@@ -6,6 +6,7 @@
 #include "state_store.hpp"
 #include "types.hpp"
 
+#include <cstdlib>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -68,6 +69,48 @@ std::size_t active_ground_station_count() noexcept;
 bool active_ground_station_has_id(std::string_view station_id) noexcept;
 std::string active_ground_station_source();
 
+// Operational constants — env-overridable via PROJECTBONK_* env vars.
+// Initialized once on first call (thread-safe via C++11 static init).
+namespace detail {
+inline double ops_env_double(const char* name, double fallback) noexcept
+{
+    const char* v = std::getenv(name);
+    if (!v) return fallback;
+    char* end = nullptr;
+    const double d = std::strtod(v, &end);
+    if (end == v || d != d) return fallback;  // NaN guard
+    return d;
+}
+} // namespace detail
+
+inline double ops_signal_latency_s() noexcept
+{
+    static const double v = detail::ops_env_double("PROJECTBONK_SIGNAL_LATENCY_S", 10.0);
+    return v;
+}
+inline double ops_stationkeeping_box_radius_km() noexcept
+{
+    static const double v = detail::ops_env_double("PROJECTBONK_STATIONKEEPING_BOX_RADIUS_KM", 10.0);
+    return v;
+}
+inline double ops_upload_scan_step_s() noexcept
+{
+    static const double v = detail::ops_env_double("PROJECTBONK_UPLOAD_SCAN_STEP_S", 20.0);
+    return v;
+}
+inline double ops_auto_upload_horizon_s() noexcept
+{
+    static const double v = detail::ops_env_double("PROJECTBONK_AUTO_UPLOAD_HORIZON_S", 1800.0);
+    return v;
+}
+inline double ops_graveyard_target_dv_km_s() noexcept
+{
+    static const double v = detail::ops_env_double("PROJECTBONK_GRAVEYARD_TARGET_DV_KM_S", 0.003);
+    return v;
+}
+
+// Legacy aliases — kept as inline constexpr for compile-time usage where needed.
+// Runtime code should prefer the ops_*() functions above.
 inline constexpr double SIGNAL_LATENCY_S = 10.0;
 inline constexpr double STATIONKEEPING_BOX_RADIUS_KM = 10.0;
 inline constexpr double UPLOAD_SCAN_STEP_S = 20.0;
