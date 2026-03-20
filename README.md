@@ -115,6 +115,9 @@ Optional CORS controls:
   threshold (default `2.0`; smaller values reject more)
 - `PROJECTBONK_NARROW_MOID_MAX_E` max eccentricity for MOID-proxy evaluation
   (default `0.2`; higher-e pairs fail-open)
+- `PROJECTBONK_BROAD_I_NEIGHBOR_FILTER` opt-in inclination-neighbor band
+  filtering in broad phase (default `0` for conservative full-i-band behavior).
+  Keep disabled unless calibrated with broad-phase and false-negative gates.
 
 The backend echoes `Access-Control-Allow-Origin` only for matching allowed
 origins and sets `Vary: Origin` for cache safety.

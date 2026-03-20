@@ -226,6 +226,9 @@ Strict sweep interpretation:
 - Broad-phase D-criterion rollout:
   - `enable_dcriterion` remains opt-in; `shadow_dcriterion` defaults on
   - shadow rejections are counted and exposed without filtering candidates when disabled
+  - `PROJECTBONK_BROAD_I_NEIGHBOR_FILTER` is now available as an opt-in
+    efficiency toggle; default remains conservative (`0`) until calibrated
+    with broad-phase sanity and no-FN gates
 
 ## Latest acceptance outputs
 

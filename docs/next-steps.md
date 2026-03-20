@@ -261,6 +261,18 @@ Status: partial progress completed
   - `./scripts/narrow_phase_false_negative_gate.sh ./build`
   - `./build/phase3_tick_benchmark 50 10000 5 10 30`
 
+Status update (current branch):
+
+- broad-phase indexed path now avoids full debris scans by iterating a
+  per-satellite selected candidate list built from fail-open debris + indexed
+  bands
+- optional inclination-neighbor filtering toggle added:
+  `PROJECTBONK_BROAD_I_NEIGHBOR_FILTER` (default `0`)
+- safety validation results after this change set:
+  - `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`)
+  - `narrow_phase_false_negative_gate`: PASS (`false_negative_sats_total=0`)
+  - broad-phase sanity also PASS with `PROJECTBONK_BROAD_I_NEIGHBOR_FILTER=1`
+
 ### P1.2 Narrow-phase architecture completion path
 
 - Deliverables:
