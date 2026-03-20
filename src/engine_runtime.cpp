@@ -870,7 +870,7 @@ EngineRuntime::EngineRuntime()
     step_cfg_.narrow_phase.phase_max_e = 0.2;
     step_cfg_.narrow_phase.moid_shadow = true;
     step_cfg_.narrow_phase.moid_filter = false;
-    step_cfg_.narrow_phase.moid_samples = 24;
+    step_cfg_.narrow_phase.moid_samples = 72;
     step_cfg_.narrow_phase.moid_reject_threshold_km = 2.0;
     step_cfg_.narrow_phase.moid_max_e = 0.2;
 
@@ -915,7 +915,7 @@ EngineRuntime::EngineRuntime()
     step_cfg_.narrow_phase.moid_filter =
         env_u64("PROJECTBONK_NARROW_MOID_FILTER", 0, 0, 1) == 1;
     step_cfg_.narrow_phase.moid_samples = static_cast<std::uint32_t>(
-        env_u64("PROJECTBONK_NARROW_MOID_SAMPLES", 24, 6, 128)
+        env_u64("PROJECTBONK_NARROW_MOID_SAMPLES", 72, 6, 256)
     );
     step_cfg_.narrow_phase.moid_reject_threshold_km =
         env_double("PROJECTBONK_NARROW_MOID_REJECT_THRESHOLD_KM", 2.0, 0.0, 50.0);
@@ -1298,6 +1298,7 @@ TelemetryCommandResult EngineRuntime::execute_ingest_telemetry(const TelemetryPa
                 SlotReference ref;
                 ref.elements = slot_ref;
                 ref.reference_epoch_s = store_.telemetry_epoch_s(idx);
+                ref.bootstrapped_from_telemetry = true;
                 slot_reference_by_sat_[obj.id] = ref;
             }
         }
@@ -1379,6 +1380,7 @@ ScheduleCommandResult EngineRuntime::execute_schedule_maneuver(std::string_view 
             SlotReference ref;
             ref.elements = slot_ref;
             ref.reference_epoch_s = clock_.epoch_s();
+            ref.bootstrapped_from_telemetry = false; // manual schedule path
             slot_reference_by_sat_[sat_id] = ref;
         }
     }

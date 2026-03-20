@@ -57,8 +57,10 @@ Vec3 acceleration_j2(const Vec3& r) noexcept
     Vec3 a{-mu_over_r3 * x, -mu_over_r3 * y, -mu_over_r3 * z};
 
     const double z2 = z * z;
+    const double r2r2 = r2 * r2;
+    const double r5 = r2r2 * rmag;
     const double factor = 1.5 * J2 * MU_KM3_S2 * (R_EARTH_KM * R_EARTH_KM)
-        / (std::pow(rmag, 5.0));
+        / r5;
     const double common = 5.0 * z2 / r2;
 
     a.x += factor * x * (common - 1.0);

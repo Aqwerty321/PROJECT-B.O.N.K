@@ -55,6 +55,45 @@ RecoverySolverMode env_solver_mode(RecoverySolverMode default_value) noexcept
     return default_value;
 }
 
+// Compute RTN frame from ECI position and velocity.
+// r_hat = r / |r|
+// n_hat = (r x v) / |r x v|   (orbit-normal)
+// t_hat = n_hat x r_hat        (true tangential, NOT velocity direction)
+struct RTNFrame {
+    Vec3 r_hat{};
+    Vec3 t_hat{};
+    Vec3 n_hat{};
+    bool valid = false;
+};
+
+RTNFrame compute_rtn_frame(const Vec3& r, const Vec3& v) noexcept
+{
+    RTNFrame frame;
+    const double r_norm = std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z);
+    if (r_norm < EPS_NUM) return frame;
+
+    frame.r_hat = Vec3{r.x / r_norm, r.y / r_norm, r.z / r_norm};
+
+    // h = r x v  (angular momentum)
+    const double hx = r.y * v.z - r.z * v.y;
+    const double hy = r.z * v.x - r.x * v.z;
+    const double hz = r.x * v.y - r.y * v.x;
+    const double h_norm = std::sqrt(hx * hx + hy * hy + hz * hz);
+    if (h_norm < EPS_NUM) return frame;
+
+    frame.n_hat = Vec3{hx / h_norm, hy / h_norm, hz / h_norm};
+
+    // t_hat = n_hat x r_hat  (true tangential in orbit plane)
+    frame.t_hat = Vec3{
+        frame.n_hat.y * frame.r_hat.z - frame.n_hat.z * frame.r_hat.y,
+        frame.n_hat.z * frame.r_hat.x - frame.n_hat.x * frame.r_hat.z,
+        frame.n_hat.x * frame.r_hat.y - frame.n_hat.y * frame.r_hat.x
+    };
+
+    frame.valid = true;
+    return frame;
+}
+
 Vec3 compute_slot_target_recovery_dv_heuristic(const StateStore& store,
                                                std::size_t sat_idx,
                                                const OrbitalElements& slot,
@@ -65,34 +104,11 @@ Vec3 compute_slot_target_recovery_dv_heuristic(const StateStore& store,
     const Vec3 r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
     const Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
 
-    const double vx = v.x;
-    const double vy = v.y;
-    const double vz = v.z;
-    const double v_norm = std::sqrt(vx * vx + vy * vy + vz * vz);
-    if (v_norm < EPS_NUM) {
+    // P0.3: Use true tangential t_hat = n_hat x r_hat, not v/|v|
+    const RTNFrame frame = compute_rtn_frame(r, v);
+    if (!frame.valid) {
         return req.remaining_delta_v_km_s;
     }
-
-    const double rx = r.x;
-    const double ry = r.y;
-    const double rz = r.z;
-    const double r_norm = std::sqrt(rx * rx + ry * ry + rz * rz);
-    if (r_norm < EPS_NUM) {
-        return req.remaining_delta_v_km_s;
-    }
-
-    const Vec3 t_hat{vx / v_norm, vy / v_norm, vz / v_norm};
-    const Vec3 r_hat{rx / r_norm, ry / r_norm, rz / r_norm};
-
-    const double hx = ry * vz - rz * vy;
-    const double hy = rz * vx - rx * vz;
-    const double hz = rx * vy - ry * vx;
-    const double h_norm = std::sqrt(hx * hx + hy * hy + hz * hz);
-    if (h_norm < EPS_NUM) {
-        return req.remaining_delta_v_km_s;
-    }
-
-    const Vec3 n_hat{hx / h_norm, hy / h_norm, hz / h_norm};
 
     const double da = slot.a_km - cur.a_km;
     const double de = slot.e - cur.e;
@@ -104,9 +120,9 @@ Vec3 compute_slot_target_recovery_dv_heuristic(const StateStore& store,
     const double dv_n = (di + d_raan) * cfg.scale_n;
 
     return Vec3{
-        t_hat.x * dv_t + r_hat.x * dv_r + n_hat.x * dv_n,
-        t_hat.y * dv_t + r_hat.y * dv_r + n_hat.y * dv_n,
-        t_hat.z * dv_t + r_hat.z * dv_r + n_hat.z * dv_n
+        frame.t_hat.x * dv_t + frame.r_hat.x * dv_r + frame.n_hat.x * dv_n,
+        frame.t_hat.y * dv_t + frame.r_hat.y * dv_r + frame.n_hat.y * dv_n,
+        frame.t_hat.z * dv_t + frame.r_hat.z * dv_r + frame.n_hat.z * dv_n
     };
 }
 
@@ -120,9 +136,9 @@ Vec3 compute_slot_target_recovery_dv_cw_zem_equivalent(const StateStore& store,
     const Vec3 r_cur{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
     const Vec3 v_cur{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
 
-    const double r_norm = std::sqrt(r_cur.x * r_cur.x + r_cur.y * r_cur.y + r_cur.z * r_cur.z);
-    const double v_norm = std::sqrt(v_cur.x * v_cur.x + v_cur.y * v_cur.y + v_cur.z * v_cur.z);
-    if (r_norm < EPS_NUM || v_norm < EPS_NUM) {
+    // P0.3: Use true RTN frame (t_hat = n_hat x r_hat, not v/|v|)
+    const RTNFrame frame = compute_rtn_frame(r_cur, v_cur);
+    if (!frame.valid) {
         return req.remaining_delta_v_km_s;
     }
 
@@ -132,36 +148,30 @@ Vec3 compute_slot_target_recovery_dv_cw_zem_equivalent(const StateStore& store,
         return req.remaining_delta_v_km_s;
     }
 
-    const Vec3 r_hat{r_cur.x / r_norm, r_cur.y / r_norm, r_cur.z / r_norm};
-    const Vec3 t_hat{v_cur.x / v_norm, v_cur.y / v_norm, v_cur.z / v_norm};
-    const Vec3 h_vec{
-        r_cur.y * v_cur.z - r_cur.z * v_cur.y,
-        r_cur.z * v_cur.x - r_cur.x * v_cur.z,
-        r_cur.x * v_cur.y - r_cur.y * v_cur.x
-    };
-    const double h_norm = std::sqrt(h_vec.x * h_vec.x + h_vec.y * h_vec.y + h_vec.z * h_vec.z);
-    if (h_norm < EPS_NUM) {
-        return req.remaining_delta_v_km_s;
-    }
-    const Vec3 n_hat{h_vec.x / h_norm, h_vec.y / h_norm, h_vec.z / h_norm};
-
+    // Position and velocity errors in ECI
     const Vec3 dr{r_slot.x - r_cur.x, r_slot.y - r_cur.y, r_slot.z - r_cur.z};
     const Vec3 dv{v_slot.x - v_cur.x, v_slot.y - v_cur.y, v_slot.z - v_cur.z};
 
-    const double dr_r = dr.x * r_hat.x + dr.y * r_hat.y + dr.z * r_hat.z;
-    const double dr_t = dr.x * t_hat.x + dr.y * t_hat.y + dr.z * t_hat.z;
-    const double dr_n = dr.x * n_hat.x + dr.y * n_hat.y + dr.z * n_hat.z;
+    // Project errors into RTN frame
+    const double dr_r = dr.x * frame.r_hat.x + dr.y * frame.r_hat.y + dr.z * frame.r_hat.z;
+    const double dr_t = dr.x * frame.t_hat.x + dr.y * frame.t_hat.y + dr.z * frame.t_hat.z;
+    const double dr_n = dr.x * frame.n_hat.x + dr.y * frame.n_hat.y + dr.z * frame.n_hat.z;
 
-    const double dv_r_err = dv.x * r_hat.x + dv.y * r_hat.y + dv.z * r_hat.z;
-    const double dv_t_err = dv.x * t_hat.x + dv.y * t_hat.y + dv.z * t_hat.z;
-    const double dv_n_err = dv.x * n_hat.x + dv.y * n_hat.y + dv.z * n_hat.z;
+    const double dv_r_err = dv.x * frame.r_hat.x + dv.y * frame.r_hat.y + dv.z * frame.r_hat.z;
+    const double dv_t_err = dv.x * frame.t_hat.x + dv.y * frame.t_hat.y + dv.z * frame.t_hat.z;
+    const double dv_n_err = dv.x * frame.n_hat.x + dv.y * frame.n_hat.y + dv.z * frame.n_hat.z;
 
-    const double mean_motion = std::sqrt(MU_KM3_S2 / (r_norm * r_norm * r_norm));
+    // P0.2: Use semi-major axis a for mean motion, not instantaneous r
+    const double a_km = cur.a_km;
+    if (a_km < EPS_NUM) {
+        return req.remaining_delta_v_km_s;
+    }
+    const double mean_motion = std::sqrt(MU_KM3_S2 / (a_km * a_km * a_km));
     const double orbit_period_s = TWO_PI / std::max(mean_motion, EPS_NUM);
     const double horizon_s = std::clamp(orbit_period_s * 0.25, 300.0, 5400.0);
 
     // Heuristic RTN correction keeps gain calibration behavior and provides a
-    // stable baseline when linearized CW/ZEM terms are noisy.
+    // stable baseline when linearized CW terms are ill-conditioned.
     const double da = slot.a_km - cur.a_km;
     const double de = slot.e - cur.e;
     const double di = slot.i_rad - cur.i_rad;
@@ -170,21 +180,73 @@ Vec3 compute_slot_target_recovery_dv_cw_zem_equivalent(const StateStore& store,
     const double heur_r = de * (cfg.radial_share * cfg.scale_r);
     const double heur_n = (di + d_raan) * cfg.scale_n;
 
-    // CW/ZEM-equivalent single-burn approximation in RTN.
-    const double cw_r = (2.0 / horizon_s) * dr_r + 0.5 * dv_r_err;
-    const double cw_t = (2.0 / horizon_s) * dr_t + 0.5 * dv_t_err + 0.5 * mean_motion * dr_r;
-    const double cw_n = (2.0 / horizon_s) * dr_n + 0.5 * dv_n_err;
+    // ---------- P0.1: True CW state-transition matrix inverse ----------
+    // CW (Hill/Clohessy-Wiltshire) velocity-to-position submatrix Phi_rv:
+    //
+    //   Phi_rv = [ sin(nt)/n,         2(1-cos(nt))/n,   0          ]
+    //            [ -2(1-cos(nt))/n,    (4sin(nt)-3nt)/n, 0          ]
+    //            [ 0,                  0,                 sin(nt)/n  ]
+    //
+    // We need dv0 = Phi_rv^{-1} * dr_target to correct position error.
+    // The in-plane 2x2 block has determinant:
+    //   det = [sin(nt)*(4sin(nt)-3nt) + 4*(1-cos(nt))^2] / n^2
+    //
+    // Out-of-plane is decoupled: dv_n = dr_n * n / sin(nt)
+
+    const double n = mean_motion;
+    const double tau = horizon_s;
+    const double nt = n * tau;
+
+    const double sin_nt = std::sin(nt);
+    const double cos_nt = std::cos(nt);
+    const double one_minus_cos = 1.0 - cos_nt;
+
+    // Phi_rv elements (divided by 1/n factor)
+    const double phi11 = sin_nt / n;                     // R->R
+    const double phi12 = 2.0 * one_minus_cos / n;        // T->R
+    const double phi21 = -2.0 * one_minus_cos / n;       // R->T
+    const double phi22 = (4.0 * sin_nt - 3.0 * nt) / n;  // T->T
+    const double phi33 = sin_nt / n;                     // N->N
+
+    // In-plane 2x2 determinant
+    const double det_ip = phi11 * phi22 - phi12 * phi21;
+
+    // Guard against near-singular CW matrix (near nt = k*2*pi where
+    // in-plane transfer is degenerate). Fall back to heuristic if singular.
+    double cw_r = 0.0;
+    double cw_t = 0.0;
+    double cw_n = 0.0;
+
+    if (std::fabs(det_ip) > EPS_NUM && std::fabs(sin_nt) > EPS_NUM) {
+        // Invert in-plane 2x2: inv = [phi22, -phi12; -phi21, phi11] / det
+        const double inv_det = 1.0 / det_ip;
+        const double pos_dv_r = inv_det * ( phi22 * dr_r - phi12 * dr_t);
+        const double pos_dv_t = inv_det * (-phi21 * dr_r + phi11 * dr_t);
+        const double pos_dv_n = dr_n * n / sin_nt;
+
+        // Blend: 70% position correction + 30% velocity error correction
+        // Position correction drives the satellite toward the slot;
+        // velocity error correction damps residual drift.
+        cw_r = 0.7 * pos_dv_r + 0.3 * dv_r_err;
+        cw_t = 0.7 * pos_dv_t + 0.3 * dv_t_err;
+        cw_n = 0.7 * pos_dv_n + 0.3 * dv_n_err;
+    } else {
+        // Degenerate case: fall back to velocity-matching only
+        cw_r = dv_r_err;
+        cw_t = dv_t_err;
+        cw_n = dv_n_err;
+    }
 
     Vec3 heuristic_dv{
-        t_hat.x * heur_t + r_hat.x * heur_r + n_hat.x * heur_n,
-        t_hat.y * heur_t + r_hat.y * heur_r + n_hat.y * heur_n,
-        t_hat.z * heur_t + r_hat.z * heur_r + n_hat.z * heur_n
+        frame.t_hat.x * heur_t + frame.r_hat.x * heur_r + frame.n_hat.x * heur_n,
+        frame.t_hat.y * heur_t + frame.r_hat.y * heur_r + frame.n_hat.y * heur_n,
+        frame.t_hat.z * heur_t + frame.r_hat.z * heur_r + frame.n_hat.z * heur_n
     };
 
     Vec3 cw_raw_dv{
-        t_hat.x * cw_t + r_hat.x * cw_r + n_hat.x * cw_n,
-        t_hat.y * cw_t + r_hat.y * cw_r + n_hat.y * cw_n,
-        t_hat.z * cw_t + r_hat.z * cw_r + n_hat.z * cw_n
+        frame.t_hat.x * cw_t + frame.r_hat.x * cw_r + frame.n_hat.x * cw_n,
+        frame.t_hat.y * cw_t + frame.r_hat.y * cw_r + frame.n_hat.y * cw_n,
+        frame.t_hat.z * cw_t + frame.r_hat.z * cw_r + frame.n_hat.z * cw_n
     };
 
     Vec3 correction{

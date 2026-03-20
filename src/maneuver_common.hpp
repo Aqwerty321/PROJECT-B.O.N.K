@@ -53,6 +53,7 @@ struct RecoveryRequest {
 struct SlotReference {
     OrbitalElements elements{};
     double reference_epoch_s = 0.0;
+    bool bootstrapped_from_telemetry = false; // true if set at first telemetry ingestion
 };
 
 struct GroundStation {

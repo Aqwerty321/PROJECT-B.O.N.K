@@ -330,11 +330,16 @@ OrbitalElements derive_slot_elements_if_needed(const StateStore& store,
         return it->second.elements;
     }
 
+    // P3.2: Late bootstrapping fallback. If we reach here, the slot was not
+    // established during telemetry ingestion (unusual). We still create one
+    // from current state but mark it as a non-telemetry bootstrap so callers
+    // can distinguish.
     OrbitalElements cur{};
     if (get_current_elements(store, sat_idx, cur)) {
         SlotReference ref;
         ref.elements = cur;
         ref.reference_epoch_s = store.telemetry_epoch_s(sat_idx);
+        ref.bootstrapped_from_telemetry = false;
         slot_reference_by_sat[sat_id] = ref;
         return cur;
     }
@@ -399,7 +404,15 @@ double slot_error_score(const OrbitalElements& slot,
     const double di = std::abs(slot.i_rad - cur.i_rad);
     const double d_raan = std::abs(wrap_0_2pi(slot.raan_rad - cur.raan_rad + PI) - PI);
 
-    return (da / 10.0) + (de / 1e-3) + (di / 1e-3) + (d_raan / 1e-3);
+    // P3.1: Include mean anomaly to capture along-track (phasing) drift.
+    // Mean anomaly difference is wrapped to [-pi, pi] and normalized by the
+    // along-track position error: dM (rad) * a (km) gives approximate arc-km,
+    // then normalized by the stationkeeping box radius for unit consistency.
+    const double d_M = std::abs(wrap_0_2pi(slot.M_rad - cur.M_rad + PI) - PI);
+    const double along_track_km = d_M * cur.a_km;
+
+    return (da / 10.0) + (de / 1e-3) + (di / 1e-3) + (d_raan / 1e-3)
+         + (along_track_km / STATIONKEEPING_BOX_RADIUS_KM);
 }
 
 double dv_norm_km_s(const Vec3& dv) noexcept
@@ -681,6 +694,17 @@ GraveyardPlanStats plan_graveyard_burns(StateStore& store,
             (v.y / v_norm) * GRAVEYARD_TARGET_DV_KM_S,
             (v.z / v_norm) * GRAVEYARD_TARGET_DV_KM_S
         };
+
+        // P2.2: Verify satellite has enough fuel for the graveyard burn.
+        const double mass_before = store.mass_kg(sat_idx);
+        const double fuel_before = store.fuel_kg(sat_idx);
+        const double fuel_needed = propellant_used_kg(mass_before, GRAVEYARD_TARGET_DV_KM_S);
+        if (fuel_before < fuel_needed + EPS_NUM) {
+            // Not enough fuel even for graveyard — mark as fuel-low and skip.
+            store.set_sat_status(sat_idx, SatStatus::FUEL_LOW);
+            ++stats.deferred;
+            continue;
+        }
 
         const double burn_epoch = current_epoch_s + SAT_COOLDOWN_S;
         double upload_epoch = 0.0;

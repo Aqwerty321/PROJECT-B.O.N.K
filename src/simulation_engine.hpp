@@ -50,7 +50,7 @@ struct NarrowPhaseConfig {
     MoidMode moid_mode = MoidMode::PROXY;
     bool moid_shadow = true;
     bool moid_filter = false;
-    std::uint32_t moid_samples = 24;
+    std::uint32_t moid_samples = 72;
     double moid_reject_threshold_km = 2.0;
     double moid_max_e = 0.2;
 };

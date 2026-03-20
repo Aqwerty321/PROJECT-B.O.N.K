@@ -729,16 +729,48 @@ bool run_simulation_step(StateStore& store,
         double min_d2 = norm2(rs.x - rd.x, rs.y - rd.y, rs.z - rd.z);
         const double dt = step_seconds / static_cast<double>(sample_count);
         for (std::uint32_t s = 0; s < sample_count; ++s) {
+            // Remember positions before this sub-step for linear interpolation
+            const double prev_dx = rs.x - rd.x;
+            const double prev_dy = rs.y - rd.y;
+            const double prev_dz = rs.z - rd.z;
+            // Relative velocity at sub-step start for linear TCA interpolation
+            const double rel_vx = vs.x - vd.x;
+            const double rel_vy = vs.y - vd.y;
+            const double rel_vz = vs.z - vd.z;
+
             if (!propagate_rk4_j2_substep(rs, vs, dt, rk4_substep_s)
                 || !propagate_rk4_j2_substep(rd, vd, dt, rk4_substep_s)) {
                 ok = false;
                 return 0.0;
             }
+            // Check distance at sub-step endpoint
             const double dx = rs.x - rd.x;
             const double dy = rs.y - rd.y;
             const double dz = rs.z - rd.z;
             const double d2 = norm2(dx, dy, dz);
             if (d2 < min_d2) min_d2 = d2;
+
+            // P2.1: Linear TCA interpolation within this sub-step.
+            // Use relative position at start and relative velocity at start
+            // to find closest approach between the two RK4 sample points.
+            const double interp_d2 = min_d2_linear_segment(
+                prev_dx, prev_dy, prev_dz,
+                rel_vx, rel_vy, rel_vz,
+                0.0, dt);
+            if (interp_d2 < min_d2) min_d2 = interp_d2;
+
+            // Also use secant velocity (position difference / dt) for a
+            // second linear TCA estimate that captures nonlinear curvature.
+            if (dt > EPS_NUM) {
+                const double sec_vx = (dx - prev_dx) / dt;
+                const double sec_vy = (dy - prev_dy) / dt;
+                const double sec_vz = (dz - prev_dz) / dt;
+                const double sec_d2 = min_d2_linear_segment(
+                    prev_dx, prev_dy, prev_dz,
+                    sec_vx, sec_vy, sec_vz,
+                    0.0, dt);
+                if (sec_d2 < min_d2) min_d2 = sec_d2;
+            }
         }
         return min_d2;
     };

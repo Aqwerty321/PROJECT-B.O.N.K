@@ -54,3 +54,8 @@ tmp-*/
 
 # Local scratch
 .tmp-jluna/
+
+# Large data files from Space-Track.org (not needed for grading)
+data.txt
+tle2025.txt
+ps.txt

@@ -68,6 +68,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# P2.3: Enable CORS by default for frontend integration.
+# The allow-origin defaults to http://localhost:5173 when CORS is enabled
+# but no specific origin is set.  Override PROJECTBONK_CORS_ALLOW_ORIGIN
+# at runtime for production deployments.
+ENV PROJECTBONK_CORS_ENABLE=1
+
 # Copy the server binary from the builder stage
 COPY --from=builder /workspace/build/ProjectBONK /app/ProjectBONK
 
