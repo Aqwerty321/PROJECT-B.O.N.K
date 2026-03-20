@@ -209,6 +209,10 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
 
             auto& i_band = a_it->second;
             for (const auto& kv : i_band) {
+                if (cfg.enable_i_neighbor_filter
+                    && std::abs(kv.first - sat_i_bin) > cfg.band_neighbor_bins) {
+                    continue;
+                }
                 for (std::uint32_t idx : kv.second) {
                     if (seen_stamp[idx] != stamp) {
                         seen_stamp[idx] = stamp;

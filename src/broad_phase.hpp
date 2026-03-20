@@ -24,6 +24,7 @@ struct BroadPhaseConfig {
     double a_bin_width_km = 500.0;
     double i_bin_width_rad = 0.3490658503988659; // 20 deg
     int band_neighbor_bins = 2;
+    bool enable_i_neighbor_filter = false;
 
     // Objects above this eccentricity are routed to fail-open path.
     double high_e_fail_open = 0.2;

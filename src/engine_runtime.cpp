@@ -708,6 +708,8 @@ std::string build_propagation_json(const StateStore& store,
     out += fmt_double(cfg.broad_phase.i_bin_width_rad, 6);
     out += ",\"broad_band_neighbor_bins\":";
     out += std::to_string(cfg.broad_phase.band_neighbor_bins);
+    out += ",\"broad_i_neighbor_filter\":";
+    out += (cfg.broad_phase.enable_i_neighbor_filter ? "true" : "false");
     out += ",\"broad_high_e_fail_open\":";
     out += fmt_double(cfg.broad_phase.high_e_fail_open, 3);
     out += ",\"broad_dcriterion_enabled\":";
@@ -731,6 +733,7 @@ EngineRuntime::EngineRuntime()
     step_cfg_.broad_phase.a_bin_width_km = 500.0;
     step_cfg_.broad_phase.i_bin_width_rad = 0.3490658503988659;
     step_cfg_.broad_phase.band_neighbor_bins = 2;
+    step_cfg_.broad_phase.enable_i_neighbor_filter = false;
     step_cfg_.broad_phase.high_e_fail_open = 0.2;
     step_cfg_.broad_phase.dcriterion_threshold = 2.0;
 
@@ -749,6 +752,8 @@ EngineRuntime::EngineRuntime()
     step_cfg_.broad_phase.band_neighbor_bins = static_cast<int>(
         env_u64("PROJECTBONK_BROAD_BAND_NEIGHBOR_BINS", 2, 0, 12)
     );
+    step_cfg_.broad_phase.enable_i_neighbor_filter =
+        env_u64("PROJECTBONK_BROAD_I_NEIGHBOR_FILTER", 0, 0, 1) == 1;
     step_cfg_.broad_phase.high_e_fail_open =
         env_double("PROJECTBONK_BROAD_HIGH_E_FAIL_OPEN", 0.2, 0.0, 0.99);
     step_cfg_.broad_phase.dcriterion_threshold =
