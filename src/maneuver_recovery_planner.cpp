@@ -160,25 +160,55 @@ Vec3 compute_slot_target_recovery_dv_cw_zem_equivalent(const StateStore& store,
     const double orbit_period_s = TWO_PI / std::max(mean_motion, EPS_NUM);
     const double horizon_s = std::clamp(orbit_period_s * 0.25, 300.0, 5400.0);
 
-    // CW/ZEM-equivalent single-burn approximation in RTN.
-    double dv_r = (2.0 / horizon_s) * dr_r + 0.5 * dv_r_err;
-    double dv_t = (2.0 / horizon_s) * dr_t + 0.5 * dv_t_err + 0.5 * mean_motion * dr_r;
-    double dv_n = (2.0 / horizon_s) * dr_n + 0.5 * dv_n_err;
-
-    // Blend in low-order element correction to keep behavior robust across
-    // imperfect orbital-state linearization.
+    // Heuristic RTN correction keeps gain calibration behavior and provides a
+    // stable baseline when linearized CW/ZEM terms are noisy.
     const double da = slot.a_km - cur.a_km;
     const double de = slot.e - cur.e;
     const double di = slot.i_rad - cur.i_rad;
     const double d_raan = wrap_0_2pi(slot.raan_rad - cur.raan_rad + PI) - PI;
-    dv_t += (da * cfg.scale_t) + (de * cfg.scale_r);
-    dv_r += de * (cfg.radial_share * cfg.scale_r);
-    dv_n += (di + d_raan) * cfg.scale_n;
+    const double heur_t = (da * cfg.scale_t) + (de * cfg.scale_r);
+    const double heur_r = de * (cfg.radial_share * cfg.scale_r);
+    const double heur_n = (di + d_raan) * cfg.scale_n;
+
+    // CW/ZEM-equivalent single-burn approximation in RTN.
+    const double cw_r = (2.0 / horizon_s) * dr_r + 0.5 * dv_r_err;
+    const double cw_t = (2.0 / horizon_s) * dr_t + 0.5 * dv_t_err + 0.5 * mean_motion * dr_r;
+    const double cw_n = (2.0 / horizon_s) * dr_n + 0.5 * dv_n_err;
+
+    Vec3 heuristic_dv{
+        t_hat.x * heur_t + r_hat.x * heur_r + n_hat.x * heur_n,
+        t_hat.y * heur_t + r_hat.y * heur_r + n_hat.y * heur_n,
+        t_hat.z * heur_t + r_hat.z * heur_r + n_hat.z * heur_n
+    };
+
+    Vec3 cw_raw_dv{
+        t_hat.x * cw_t + r_hat.x * cw_r + n_hat.x * cw_n,
+        t_hat.y * cw_t + r_hat.y * cw_r + n_hat.y * cw_n,
+        t_hat.z * cw_t + r_hat.z * cw_r + n_hat.z * cw_n
+    };
+
+    Vec3 correction{
+        cw_raw_dv.x - heuristic_dv.x,
+        cw_raw_dv.y - heuristic_dv.y,
+        cw_raw_dv.z - heuristic_dv.z
+    };
+
+    const double heur_norm = dv_norm_km_s(heuristic_dv);
+    const double rem_norm = dv_norm_km_s(req.remaining_delta_v_km_s);
+    const double corr_norm = dv_norm_km_s(correction);
+
+    const double correction_cap = std::max(rem_norm * 0.15, heur_norm * 0.4);
+    if (corr_norm > correction_cap + EPS_NUM && corr_norm > EPS_NUM) {
+        const double scale = correction_cap / corr_norm;
+        correction.x *= scale;
+        correction.y *= scale;
+        correction.z *= scale;
+    }
 
     return Vec3{
-        t_hat.x * dv_t + r_hat.x * dv_r + n_hat.x * dv_n,
-        t_hat.y * dv_t + r_hat.y * dv_r + n_hat.y * dv_n,
-        t_hat.z * dv_t + r_hat.z * dv_r + n_hat.z * dv_n
+        heuristic_dv.x + correction.x,
+        heuristic_dv.y + correction.y,
+        heuristic_dv.z + correction.z
     };
 }
 

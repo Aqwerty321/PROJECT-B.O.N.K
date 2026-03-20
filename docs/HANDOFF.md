@@ -182,9 +182,11 @@ Solver comparison artifacts:
 Latest strict side-by-side evidence snapshot:
 
 - heuristic sweep: `PASS`, selected candidate `grid_t1.2_r0.8_n0.8`
-- cw_zem sweep: `FAIL` (`no candidate met strict scenario + fuel-ratio criteria`)
-- promotion verdict: keep runtime default `heuristic`; do not promote `cw_zem`
-  until strict profile passes under deterministic comparison
+- cw_zem sweep: `PASS`, selected candidate `grid_t1.2_r1.2_n0.8`
+- comparison summary status: `PASS`
+- rollout verdict: keep runtime default `heuristic` for now because strict
+  evidence shows better slot-error recovery, while `cw_zem` remains an opt-in
+  calibrated alternative with lower selected fuel usage
 
 Strict sweep interpretation:
 

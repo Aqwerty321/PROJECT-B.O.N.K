@@ -144,14 +144,20 @@ Latest strict comparison snapshot:
 - heuristic: `PASS` with selected candidate `grid_t1.2_r0.8_n0.8`
   - selected mean delta slot error: `-0.074717079732`
   - selected mean fuel used: `0.316844417448 kg`
-- cw_zem: `FAIL` (no strict-safe selected candidate)
-- status: `FAIL` in summary artifact because both modes must pass selection
+- cw_zem: `PASS` with selected candidate `grid_t1.2_r1.2_n0.8`
+  - selected mean delta slot error: `0.030774690954`
+  - selected mean fuel used: `0.301655008988 kg`
+- status: `PASS` in summary artifact (both modes pass strict selection)
+- deltas (`cw_zem - heuristic`):
+  - selected mean delta slot error: `+0.105491770686`
+  - selected mean fuel used: `-0.015189408460 kg`
 
 Rollout decision:
 
 - keep runtime default `PROJECTBONK_RECOVERY_SOLVER_MODE=heuristic`
-- retain `cw_zem` as opt-in calibration mode only until strict comparison
-  reaches deterministic PASS with a valid selected candidate
+- retain `cw_zem` as opt-in calibration mode while strict evidence shows
+  lower selected fuel use but weaker selected slot-error recovery than
+  heuristic default
 
 ## Mandatory gate snapshot
 

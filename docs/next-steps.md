@@ -367,8 +367,10 @@ Status update (current branch):
     - `build/recovery_slot_sweep_strict_cw_zem.json`
 - Latest strict comparison evidence (`24`, `margin=0.08`, `fuel_ratio_cap=1.10`):
   - heuristic: `PASS`, selected `grid_t1.2_r0.8_n0.8`
-  - cw_zem: `FAIL` (`no candidate met strict scenario + fuel-ratio criteria`)
-  - summary status: `FAIL` (expected until cw_zem closure)
+  - cw_zem: `PASS`, selected `grid_t1.2_r1.2_n0.8`
+  - summary status: `PASS` (both modes pass strict selection)
+  - objective tradeoff: cw_zem selected candidate uses less fuel, but has
+    worse selected mean slot-error recovery than heuristic
 
 ## P2 - Operational polish and pre-frontend staging
 

@@ -383,14 +383,51 @@ Vec3 slot_target_recovery_dv(const StateStore& store,
         const double orbit_period_s = cascade::TWO_PI / std::max(mean_motion, cascade::EPS_NUM);
         const double horizon_s = std::clamp(orbit_period_s * 0.25, 300.0, 5400.0);
 
-        dv_r = (2.0 / horizon_s) * dr_r + 0.5 * dv_r_err;
-        dv_t = (2.0 / horizon_s) * dr_t + 0.5 * dv_t_err + 0.5 * mean_motion * dr_r;
-        dv_n = (2.0 / horizon_s) * dr_n + 0.5 * dv_n_err;
+        const double heur_t = (da * gains.scale_t) + (de * gains.scale_r);
+        const double heur_r = de * (gains.radial_share * gains.scale_r);
+        const double heur_n = (di + d_raan) * gains.scale_n;
 
-        // Blend legacy element correction for robustness.
-        dv_t += (da * gains.scale_t) + (de * gains.scale_r);
-        dv_r += de * (gains.radial_share * gains.scale_r);
-        dv_n += (di + d_raan) * gains.scale_n;
+        const double cw_r = (2.0 / horizon_s) * dr_r + 0.5 * dv_r_err;
+        const double cw_t = (2.0 / horizon_s) * dr_t + 0.5 * dv_t_err + 0.5 * mean_motion * dr_r;
+        const double cw_n = (2.0 / horizon_s) * dr_n + 0.5 * dv_n_err;
+
+        Vec3 heuristic_dv{
+            t_hat.x * heur_t + r_hat.x * heur_r + n_hat.x * heur_n,
+            t_hat.y * heur_t + r_hat.y * heur_r + n_hat.y * heur_n,
+            t_hat.z * heur_t + r_hat.z * heur_r + n_hat.z * heur_n
+        };
+
+        Vec3 cw_raw_dv{
+            t_hat.x * cw_t + r_hat.x * cw_r + n_hat.x * cw_n,
+            t_hat.y * cw_t + r_hat.y * cw_r + n_hat.y * cw_n,
+            t_hat.z * cw_t + r_hat.z * cw_r + n_hat.z * cw_n
+        };
+
+        Vec3 correction{
+            cw_raw_dv.x - heuristic_dv.x,
+            cw_raw_dv.y - heuristic_dv.y,
+            cw_raw_dv.z - heuristic_dv.z
+        };
+
+        const double heur_norm = vec_norm(heuristic_dv);
+        const double rem_norm = vec_norm(req.rem);
+        const double corr_norm = vec_norm(correction);
+        const double correction_cap = std::max(rem_norm * 0.15, heur_norm * 0.4);
+        if (corr_norm > correction_cap + cascade::EPS_NUM && corr_norm > cascade::EPS_NUM) {
+            const double scale = correction_cap / corr_norm;
+            correction.x *= scale;
+            correction.y *= scale;
+            correction.z *= scale;
+        }
+
+        const Vec3 blended{
+            heuristic_dv.x + correction.x,
+            heuristic_dv.y + correction.y,
+            heuristic_dv.z + correction.z
+        };
+        dv_t = blended.x * t_hat.x + blended.y * t_hat.y + blended.z * t_hat.z;
+        dv_r = blended.x * r_hat.x + blended.y * r_hat.y + blended.z * r_hat.z;
+        dv_n = blended.x * n_hat.x + blended.y * n_hat.y + blended.z * n_hat.z;
     } else {
         dv_t = (da * gains.scale_t) + (de * gains.scale_r);
         dv_r = de * (gains.radial_share * gains.scale_r);
