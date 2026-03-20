@@ -107,6 +107,7 @@ FetchContent_Declare(
     simdjson
     GIT_REPOSITORY https://github.com/simdjson/simdjson.git
     GIT_TAG        v3.9.4
+    GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(simdjson)
 
@@ -128,6 +129,7 @@ if(NOT EXISTS "${HTTPLIB_HEADER}")
         "https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.15.3/httplib.h"
         "${HTTPLIB_HEADER}"
         TLS_VERIFY ON
+        EXPECTED_HASH SHA256=a3347656c71c81c3fe510fdb1ff229d7db52eb7df04d3342d340eba0b6ad50ea
         STATUS HTTPLIB_DL_STATUS
     )
     list(GET HTTPLIB_DL_STATUS 0 HTTPLIB_DL_RC)

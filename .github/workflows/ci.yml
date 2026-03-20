@@ -23,7 +23,15 @@ jobs:
             cmake \
             gcc-12 g++-12 \
             libboost-all-dev \
-            git curl wget
+            git curl wget \
+            python3
+
+      - name: Cache build dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-
 
       - name: Configure
         env:
@@ -73,6 +81,12 @@ jobs:
       - name: Run API contract gate script
         run: ./scripts/api_contract_gate.sh
 
+      - name: Run MOID filter validation
+        run: ./scripts/moid_filter_validation.sh ./build
+
+      - name: Run recovery solver comparison
+        run: ./scripts/recovery_solver_compare.sh ./build ./build/recovery_solver_compare_summary.json 24 0.08 1.10 strict
+
       - name: Run phase4 aggregate calibration gate
         run: ./scripts/phase4_calibration_gate.sh ./build
 
@@ -93,6 +107,14 @@ jobs:
         with:
           name: narrow-phase-false-negative-canary-summary
           path: build/narrow_phase_false_negative_canary_summary.json
+          if-no-files-found: warn
+
+      - name: Upload recovery solver comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-solver-compare-summary
+          path: build/recovery_solver_compare_summary.json
           if-no-files-found: warn
 
       - name: Run CTest safety suite
