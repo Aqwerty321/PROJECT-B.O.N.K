@@ -45,8 +45,10 @@ void set_schedule_ack_json(httplib::Response& res,
     std::string out;
     out.reserve(192);
     out += "{\"status\":\"SCHEDULED\",\"validation\":{";
-    out += "\"ground_station_los\":true,";
-    out += "\"sufficient_fuel\":true";
+    out += "\"ground_station_los\":";
+    out += (scheduled.ground_station_los ? "true" : "false");
+    out += ",\"sufficient_fuel\":";
+    out += (scheduled.sufficient_fuel ? "true" : "false");
     out += ",\"projected_mass_remaining_kg\":";
     out += fmt_double(scheduled.projected_mass_remaining_kg, 3);
     out += "}}";

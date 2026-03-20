@@ -43,6 +43,8 @@ struct ScheduleCommandResult {
     std::string error_code;
     std::string error_message;
     double projected_mass_remaining_kg = 0.0;
+    bool ground_station_los = false;
+    bool sufficient_fuel = false;
 };
 
 struct StepCommandResult {
@@ -325,6 +327,9 @@ private:
     std::unordered_map<std::string, SlotReference> slot_reference_by_sat_;
     std::unordered_map<std::string, bool> graveyard_completed_by_sat_;
     std::unordered_map<std::string, bool> graveyard_requested_by_sat_;
+
+    // 24-hour predictive CDM count (updated each simulation step).
+    std::uint64_t cdm_warnings_count_ = 0;
 };
 
 } // namespace cascade

@@ -4,10 +4,12 @@
 
 #include "engine_runtime.hpp"
 
+#include "broad_phase.hpp"
 #include "earth_frame.hpp"
 #include "json_util.hpp"
 #include "maneuver_recovery_planner.hpp"
 #include "orbit_math.hpp"
+#include "propagator.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -147,17 +149,37 @@ std::uint64_t plan_collision_avoidance_burns(
             continue;
         }
 
+        const Vec3 r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
         const Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+        const double r_norm = std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z);
         const double v_norm = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-        if (v_norm < EPS_NUM) {
+        if (v_norm < EPS_NUM || r_norm < EPS_NUM) {
+            continue;
+        }
+
+        // Compute RTN frame unit vectors:
+        //   T-hat = velocity direction (tangential / prograde)
+        //   N-hat = h / |h| where h = r × v  (orbit-normal)
+        //   R-hat = r / |r|  (radial, not directly used for prograde burn)
+        // For auto-COLA, apply 1 m/s impulse along T-hat (prograde).
+        const Vec3 t_hat{v.x / v_norm, v.y / v_norm, v.z / v_norm};
+
+        // Cross product h = r × v for orbit-normal validation
+        const double hx = r.y * v.z - r.z * v.y;
+        const double hy = r.z * v.x - r.x * v.z;
+        const double hz = r.x * v.y - r.y * v.x;
+        const double h_norm = std::sqrt(hx * hx + hy * hy + hz * hz);
+        if (h_norm < EPS_NUM) {
+            // Degenerate orbit (r and v are parallel) — skip
             continue;
         }
 
         constexpr double k_auto_dv_km_s = 0.001; // 1 m/s conservative impulse
+        // Prograde (T-hat) burn in RTN frame
         const Vec3 dv{
-            (v.x / v_norm) * k_auto_dv_km_s,
-            (v.y / v_norm) * k_auto_dv_km_s,
-            (v.z / v_norm) * k_auto_dv_km_s
+            t_hat.x * k_auto_dv_km_s,
+            t_hat.y * k_auto_dv_km_s,
+            t_hat.z * k_auto_dv_km_s
         };
 
         const double mass_before = store.mass_kg(sat_idx);
@@ -209,6 +231,83 @@ std::uint64_t plan_collision_avoidance_burns(
     }
 
     return planned;
+}
+
+// ---------------------------------------------------------------------------
+// 24-hour predictive Conjunction Data Message (CDM) scanner.
+//
+// After each simulation step, forward-propagates all broad-phase candidate
+// pairs in coarse sub-steps (default ~600 s) over a 24-hour horizon.  Any
+// pair whose minimum separation drops below COLLISION_THRESHOLD_KM is counted
+// as an active CDM warning.
+//
+// Design notes:
+//   - Uses the *current* post-step states from the StateStore (not clones).
+//   - Each pair is independently propagated via RK4+J2 in a temporary copy.
+//   - The broad-phase is re-used to avoid O(N²) pair enumeration.
+//   - Fail-open: if propagation fails for a pair, it counts as a warning.
+// ---------------------------------------------------------------------------
+std::uint64_t compute_cdm_warnings_24h(
+    const StateStore& store,
+    const BroadPhaseConfig& broad_cfg) noexcept
+{
+    constexpr double k_cdm_horizon_s = 86400.0;        // 24 hours
+    constexpr double k_cdm_substep_s = 600.0;          // 10-minute coarse steps
+    constexpr double k_rk4_max_step_s = 30.0;          // RK4 substep bound
+    const double collision_threshold_sq =
+        COLLISION_THRESHOLD_KM * COLLISION_THRESHOLD_KM;
+
+    // Broad-phase candidate generation uses the *current* state snapshot.
+    const BroadPhaseResult broad = generate_broad_phase_candidates(store, broad_cfg);
+
+    std::uint64_t warnings = 0;
+
+    for (const BroadPhasePair& pair : broad.candidates) {
+        const std::size_t sat_idx = static_cast<std::size_t>(pair.sat_idx);
+        const std::size_t obj_idx = static_cast<std::size_t>(pair.obj_idx);
+        if (sat_idx >= store.size() || obj_idx >= store.size()) continue;
+        if (store.type(sat_idx) != ObjectType::SATELLITE) continue;
+        if (store.type(obj_idx) != ObjectType::DEBRIS) continue;
+
+        // Take copies of current state for forward propagation.
+        Vec3 rs{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+        Vec3 vs{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+        Vec3 rd{store.rx(obj_idx), store.ry(obj_idx), store.rz(obj_idx)};
+        Vec3 vd{store.vx(obj_idx), store.vy(obj_idx), store.vz(obj_idx)};
+
+        bool conjunction_found = false;
+        double remaining_s = k_cdm_horizon_s;
+
+        while (remaining_s > EPS_NUM) {
+            const double dt = std::min(k_cdm_substep_s, remaining_s);
+            const bool ok_s = propagate_rk4_j2_substep(rs, vs, dt, k_rk4_max_step_s);
+            const bool ok_d = propagate_rk4_j2_substep(rd, vd, dt, k_rk4_max_step_s);
+
+            if (!ok_s || !ok_d) {
+                // Fail-open: propagation failure => count as warning.
+                conjunction_found = true;
+                break;
+            }
+
+            const double dx = rs.x - rd.x;
+            const double dy = rs.y - rd.y;
+            const double dz = rs.z - rd.z;
+            const double d2 = dx * dx + dy * dy + dz * dz;
+
+            if (d2 < collision_threshold_sq) {
+                conjunction_found = true;
+                break;
+            }
+
+            remaining_s -= dt;
+        }
+
+        if (conjunction_found) {
+            ++warnings;
+        }
+    }
+
+    return warnings;
 }
 
 std::string build_snapshot(const StateStore& store,
@@ -1211,7 +1310,7 @@ TelemetryCommandResult EngineRuntime::execute_ingest_telemetry(const TelemetryPa
     result.ok = true;
     result.http_status = 200;
     result.processed_count = ingest.processed_count;
-    result.active_cdm_warnings = prop_stats_.collisions_last_tick;
+    result.active_cdm_warnings = cdm_warnings_count_;
     return result;
 }
 
@@ -1378,6 +1477,8 @@ ScheduleCommandResult EngineRuntime::execute_schedule_maneuver(std::string_view 
     result.ok = true;
     result.http_status = http_policy_.schedule_success_status;
     result.projected_mass_remaining_kg = projected_mass_remaining;
+    result.ground_station_los = true;
+    result.sufficient_fuel = true;
     return result;
 }
 
@@ -1652,6 +1753,10 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         prop_stats_.broad_dcriterion_shadow_rejected_total += stats.broad_dcriterion_shadow_rejected;
         prop_stats_.broad_fail_open_objects_total += stats.broad_fail_open_objects;
         prop_stats_.broad_fail_open_satellites_total += stats.broad_fail_open_satellites;
+
+        // 24-hour predictive CDM scan (PS.md §3: "forecast potential
+        // collisions up to 24 hours in the future").
+        cdm_warnings_count_ = compute_cdm_warnings_24h(store_, step_cfg_.broad_phase);
 
         new_ts = clock_.to_iso();
     }
