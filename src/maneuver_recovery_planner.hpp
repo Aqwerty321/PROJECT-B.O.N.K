@@ -12,6 +12,11 @@
 
 namespace cascade {
 
+enum class RecoverySolverMode : std::uint8_t {
+    HEURISTIC = 0,
+    CW_ZEM_EQUIVALENT = 1,
+};
+
 struct RecoveryPlannerConfig {
     // Slot-targeted proportional correction gains.
     double scale_t = 6e-5;
@@ -25,6 +30,9 @@ struct RecoveryPlannerConfig {
     // Prevent over-correction beyond remaining requested recovery budget.
     // 1.0 means do not command more norm than remaining request.
     double max_request_ratio = 0.05;
+
+    // Recovery DV solver selection. Heuristic remains default for safe rollout.
+    RecoverySolverMode solver_mode = RecoverySolverMode::HEURISTIC;
 };
 
 RecoveryPlannerConfig recovery_planner_config_from_env();

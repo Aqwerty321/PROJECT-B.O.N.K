@@ -115,6 +115,9 @@ Optional CORS controls:
   threshold (default `2.0`; smaller values reject more)
 - `PROJECTBONK_NARROW_MOID_MAX_E` max eccentricity for MOID-proxy evaluation
   (default `0.2`; higher-e pairs fail-open)
+- `PROJECTBONK_RECOVERY_SOLVER_MODE` select recovery solver mode:
+  `heuristic` (default) or `cw_zem` (single-burn CW/ZEM-equivalent path,
+  rollout candidate)
 - `PROJECTBONK_BROAD_I_NEIGHBOR_FILTER` opt-in inclination-neighbor band
   filtering in broad phase (default `0` for conservative full-i-band behavior).
   Enable only for targeted workloads after broad-phase and false-negative gate validation.

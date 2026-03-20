@@ -697,6 +697,11 @@ std::string build_propagation_json(const StateStore& store,
     out += fmt_double(recovery_cfg.fallback_norm_km_s, 8);
     out += ",\"recovery_max_request_ratio\":";
     out += fmt_double(recovery_cfg.max_request_ratio, 6);
+    out += ",\"recovery_solver_mode\":\"";
+    out += (recovery_cfg.solver_mode == RecoverySolverMode::CW_ZEM_EQUIVALENT)
+        ? "cw_zem"
+        : "heuristic";
+    out += "\"";
     out += ",";
     out += "\"broad_shell_margin_km\":";
     out += fmt_double(cfg.broad_phase.shell_margin_km, 3);

@@ -349,6 +349,14 @@ Status update (current branch):
   - `./scripts/recovery_planner_invariants_gate.sh ./build`
   - `./scripts/maneuver_ops_invariants_gate.sh ./build`
 
+Status update (current branch):
+
+- Added non-breaking planner solver mode toggle for staged CW/ZEM rollout:
+  - `PROJECTBONK_RECOVERY_SOLVER_MODE=heuristic|cw_zem`
+  - default remains `heuristic`
+- Implemented first `cw_zem` single-burn equivalent DV path in recovery planner
+  while preserving existing heuristic path and planner API contracts.
+
 ## P2 - Operational polish and pre-frontend staging
 
 ### P2.1 Multi-tier gate strategy (fast PR + deep nightly)

@@ -4,9 +4,12 @@
 
 #include "maneuver_recovery_planner.hpp"
 
+#include "orbit_math.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <string>
 
 namespace cascade {
 
@@ -35,42 +38,30 @@ double env_double(std::string_view key,
     return parsed;
 }
 
-} // namespace
-
-RecoveryPlannerConfig recovery_planner_config_from_env()
+RecoverySolverMode env_solver_mode(RecoverySolverMode default_value) noexcept
 {
-    RecoveryPlannerConfig cfg;
-    cfg.scale_t = env_double("PROJECTBONK_RECOVERY_SCALE_T", cfg.scale_t, 0.0, 1e-2);
-    cfg.scale_r = env_double("PROJECTBONK_RECOVERY_SCALE_R", cfg.scale_r, 0.0, 1e-1);
-    cfg.radial_share = env_double("PROJECTBONK_RECOVERY_RADIAL_SHARE", cfg.radial_share, 0.0, 2.0);
-    cfg.scale_n = env_double("PROJECTBONK_RECOVERY_SCALE_N", cfg.scale_n, 0.0, 1e-1);
-    cfg.fallback_norm_km_s = env_double(
-        "PROJECTBONK_RECOVERY_FALLBACK_NORM_KM_S",
-        cfg.fallback_norm_km_s,
-        0.0,
-        SAT_MAX_DELTAV_KM_S
-    );
-    cfg.max_request_ratio = env_double(
-        "PROJECTBONK_RECOVERY_MAX_REQUEST_RATIO",
-        cfg.max_request_ratio,
-        0.01,
-        1.0
-    );
-    return cfg;
-}
-
-Vec3 compute_slot_target_recovery_dv(const StateStore& store,
-                                     std::size_t sat_idx,
-                                     const RecoveryRequest& req,
-                                     std::unordered_map<std::string, SlotReference>& slot_reference_by_sat,
-                                     const RecoveryPlannerConfig& cfg) noexcept
-{
-    const OrbitalElements slot = derive_slot_elements_if_needed(store, sat_idx, slot_reference_by_sat);
-    OrbitalElements cur{};
-    if (!get_current_elements(store, sat_idx, cur)) {
-        return req.remaining_delta_v_km_s;
+    const char* raw = std::getenv("PROJECTBONK_RECOVERY_SOLVER_MODE");
+    if (raw == nullptr) {
+        return default_value;
     }
 
+    const std::string mode(raw);
+    if (mode == "cw_zem" || mode == "CW_ZEM" || mode == "cw-zem") {
+        return RecoverySolverMode::CW_ZEM_EQUIVALENT;
+    }
+    if (mode == "heuristic" || mode == "HEURISTIC") {
+        return RecoverySolverMode::HEURISTIC;
+    }
+    return default_value;
+}
+
+Vec3 compute_slot_target_recovery_dv_heuristic(const StateStore& store,
+                                               std::size_t sat_idx,
+                                               const OrbitalElements& slot,
+                                               const OrbitalElements& cur,
+                                               const RecoveryPlannerConfig& cfg,
+                                               const RecoveryRequest& req) noexcept
+{
     const Vec3 r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
     const Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
 
@@ -112,12 +103,89 @@ Vec3 compute_slot_target_recovery_dv(const StateStore& store,
     const double dv_r = de * (cfg.radial_share * cfg.scale_r);
     const double dv_n = (di + d_raan) * cfg.scale_n;
 
-    Vec3 slot_dv{
+    return Vec3{
         t_hat.x * dv_t + r_hat.x * dv_r + n_hat.x * dv_n,
         t_hat.y * dv_t + r_hat.y * dv_r + n_hat.y * dv_n,
         t_hat.z * dv_t + r_hat.z * dv_r + n_hat.z * dv_n
     };
+}
 
+Vec3 compute_slot_target_recovery_dv_cw_zem_equivalent(const StateStore& store,
+                                                        std::size_t sat_idx,
+                                                        const OrbitalElements& slot,
+                                                        const OrbitalElements& cur,
+                                                        const RecoveryPlannerConfig& cfg,
+                                                        const RecoveryRequest& req) noexcept
+{
+    const Vec3 r_cur{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+    const Vec3 v_cur{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+
+    const double r_norm = std::sqrt(r_cur.x * r_cur.x + r_cur.y * r_cur.y + r_cur.z * r_cur.z);
+    const double v_norm = std::sqrt(v_cur.x * v_cur.x + v_cur.y * v_cur.y + v_cur.z * v_cur.z);
+    if (r_norm < EPS_NUM || v_norm < EPS_NUM) {
+        return req.remaining_delta_v_km_s;
+    }
+
+    Vec3 r_slot{};
+    Vec3 v_slot{};
+    if (!elements_to_eci(slot, r_slot, v_slot)) {
+        return req.remaining_delta_v_km_s;
+    }
+
+    const Vec3 r_hat{r_cur.x / r_norm, r_cur.y / r_norm, r_cur.z / r_norm};
+    const Vec3 t_hat{v_cur.x / v_norm, v_cur.y / v_norm, v_cur.z / v_norm};
+    const Vec3 h_vec{
+        r_cur.y * v_cur.z - r_cur.z * v_cur.y,
+        r_cur.z * v_cur.x - r_cur.x * v_cur.z,
+        r_cur.x * v_cur.y - r_cur.y * v_cur.x
+    };
+    const double h_norm = std::sqrt(h_vec.x * h_vec.x + h_vec.y * h_vec.y + h_vec.z * h_vec.z);
+    if (h_norm < EPS_NUM) {
+        return req.remaining_delta_v_km_s;
+    }
+    const Vec3 n_hat{h_vec.x / h_norm, h_vec.y / h_norm, h_vec.z / h_norm};
+
+    const Vec3 dr{r_slot.x - r_cur.x, r_slot.y - r_cur.y, r_slot.z - r_cur.z};
+    const Vec3 dv{v_slot.x - v_cur.x, v_slot.y - v_cur.y, v_slot.z - v_cur.z};
+
+    const double dr_r = dr.x * r_hat.x + dr.y * r_hat.y + dr.z * r_hat.z;
+    const double dr_t = dr.x * t_hat.x + dr.y * t_hat.y + dr.z * t_hat.z;
+    const double dr_n = dr.x * n_hat.x + dr.y * n_hat.y + dr.z * n_hat.z;
+
+    const double dv_r_err = dv.x * r_hat.x + dv.y * r_hat.y + dv.z * r_hat.z;
+    const double dv_t_err = dv.x * t_hat.x + dv.y * t_hat.y + dv.z * t_hat.z;
+    const double dv_n_err = dv.x * n_hat.x + dv.y * n_hat.y + dv.z * n_hat.z;
+
+    const double mean_motion = std::sqrt(MU_KM3_S2 / (r_norm * r_norm * r_norm));
+    const double orbit_period_s = TWO_PI / std::max(mean_motion, EPS_NUM);
+    const double horizon_s = std::clamp(orbit_period_s * 0.25, 300.0, 5400.0);
+
+    // CW/ZEM-equivalent single-burn approximation in RTN.
+    double dv_r = (2.0 / horizon_s) * dr_r + 0.5 * dv_r_err;
+    double dv_t = (2.0 / horizon_s) * dr_t + 0.5 * dv_t_err + 0.5 * mean_motion * dr_r;
+    double dv_n = (2.0 / horizon_s) * dr_n + 0.5 * dv_n_err;
+
+    // Blend in low-order element correction to keep behavior robust across
+    // imperfect orbital-state linearization.
+    const double da = slot.a_km - cur.a_km;
+    const double de = slot.e - cur.e;
+    const double di = slot.i_rad - cur.i_rad;
+    const double d_raan = wrap_0_2pi(slot.raan_rad - cur.raan_rad + PI) - PI;
+    dv_t += (da * cfg.scale_t) + (de * cfg.scale_r);
+    dv_r += de * (cfg.radial_share * cfg.scale_r);
+    dv_n += (di + d_raan) * cfg.scale_n;
+
+    return Vec3{
+        t_hat.x * dv_t + r_hat.x * dv_r + n_hat.x * dv_n,
+        t_hat.y * dv_t + r_hat.y * dv_r + n_hat.y * dv_n,
+        t_hat.z * dv_t + r_hat.z * dv_r + n_hat.z * dv_n
+    };
+}
+
+Vec3 apply_recovery_dv_guards(Vec3 slot_dv,
+                              const RecoveryRequest& req,
+                              const RecoveryPlannerConfig& cfg) noexcept
+{
     const double slot_norm = dv_norm_km_s(slot_dv);
     const double rem_norm = dv_norm_km_s(req.remaining_delta_v_km_s);
     if (slot_norm < cfg.fallback_norm_km_s && rem_norm > EPS_NUM) {
@@ -134,6 +202,67 @@ Vec3 compute_slot_target_recovery_dv(const StateStore& store,
     }
 
     return slot_dv;
+}
+
+} // namespace
+
+RecoveryPlannerConfig recovery_planner_config_from_env()
+{
+    RecoveryPlannerConfig cfg;
+    cfg.scale_t = env_double("PROJECTBONK_RECOVERY_SCALE_T", cfg.scale_t, 0.0, 1e-2);
+    cfg.scale_r = env_double("PROJECTBONK_RECOVERY_SCALE_R", cfg.scale_r, 0.0, 1e-1);
+    cfg.radial_share = env_double("PROJECTBONK_RECOVERY_RADIAL_SHARE", cfg.radial_share, 0.0, 2.0);
+    cfg.scale_n = env_double("PROJECTBONK_RECOVERY_SCALE_N", cfg.scale_n, 0.0, 1e-1);
+    cfg.fallback_norm_km_s = env_double(
+        "PROJECTBONK_RECOVERY_FALLBACK_NORM_KM_S",
+        cfg.fallback_norm_km_s,
+        0.0,
+        SAT_MAX_DELTAV_KM_S
+    );
+    cfg.max_request_ratio = env_double(
+        "PROJECTBONK_RECOVERY_MAX_REQUEST_RATIO",
+        cfg.max_request_ratio,
+        0.01,
+        1.0
+    );
+    cfg.solver_mode = env_solver_mode(cfg.solver_mode);
+    return cfg;
+}
+
+Vec3 compute_slot_target_recovery_dv(const StateStore& store,
+                                     std::size_t sat_idx,
+                                     const RecoveryRequest& req,
+                                     std::unordered_map<std::string, SlotReference>& slot_reference_by_sat,
+                                     const RecoveryPlannerConfig& cfg) noexcept
+{
+    const OrbitalElements slot = derive_slot_elements_if_needed(store, sat_idx, slot_reference_by_sat);
+    OrbitalElements cur{};
+    if (!get_current_elements(store, sat_idx, cur)) {
+        return req.remaining_delta_v_km_s;
+    }
+
+    Vec3 slot_dv{};
+    if (cfg.solver_mode == RecoverySolverMode::CW_ZEM_EQUIVALENT) {
+        slot_dv = compute_slot_target_recovery_dv_cw_zem_equivalent(
+            store,
+            sat_idx,
+            slot,
+            cur,
+            cfg,
+            req
+        );
+    } else {
+        slot_dv = compute_slot_target_recovery_dv_heuristic(
+            store,
+            sat_idx,
+            slot,
+            cur,
+            cfg,
+            req
+        );
+    }
+
+    return apply_recovery_dv_guards(slot_dv, req, cfg);
 }
 
 RecoveryPlanStats plan_recovery_burns(StateStore& store,

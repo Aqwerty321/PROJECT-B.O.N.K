@@ -219,6 +219,9 @@ Strict sweep interpretation:
 - Recovery planner calibration path:
   - runtime now loads planner gains from env with guarded ranges
   - runtime now supports recovery request-ratio cap (`PROJECTBONK_RECOVERY_MAX_REQUEST_RATIO`)
+  - planner solver mode is now env-selectable via
+    `PROJECTBONK_RECOVERY_SOLVER_MODE=heuristic|cw_zem`
+    (default remains `heuristic` for staged rollout)
   - debug propagation config now reports active recovery gain values
 - Narrow-phase fidelity hardening:
   - narrow thresholds/budgets are now runtime-configurable (`PROJECTBONK_NARROW_*`)
