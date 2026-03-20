@@ -74,6 +74,11 @@ struct RecoveryGains {
     double max_request_ratio = 0.05;
 };
 
+enum class SolverMode : std::uint8_t {
+    HEURISTIC = 0,
+    CW_ZEM = 1,
+};
+
 struct NamedGains {
     std::string name;
     RecoveryGains gains{};
@@ -338,9 +343,59 @@ Vec3 slot_target_recovery_dv(const StateStore& store,
     const double di = slot.i_rad - cur.i_rad;
     const double d_raan = cascade::wrap_0_2pi(slot.raan_rad - cur.raan_rad + cascade::PI) - cascade::PI;
 
-    const double dv_t = (da * gains.scale_t) + (de * gains.scale_r);
-    const double dv_r = de * (gains.radial_share * gains.scale_r);
-    const double dv_n = (di + d_raan) * gains.scale_n;
+    auto resolve_solver_mode = []() noexcept {
+        const char* raw = std::getenv("PROJECTBONK_RECOVERY_SOLVER_MODE");
+        if (raw == nullptr) {
+            return SolverMode::HEURISTIC;
+        }
+        const std::string mode(raw);
+        if (mode == "cw_zem" || mode == "CW_ZEM" || mode == "cw-zem") {
+            return SolverMode::CW_ZEM;
+        }
+        return SolverMode::HEURISTIC;
+    };
+
+    const SolverMode solver_mode = resolve_solver_mode();
+
+    double dv_t = 0.0;
+    double dv_r = 0.0;
+    double dv_n = 0.0;
+
+    if (solver_mode == SolverMode::CW_ZEM) {
+        Vec3 r_slot{};
+        Vec3 v_slot{};
+        if (!cascade::elements_to_eci(slot, r_slot, v_slot)) {
+            return req.rem;
+        }
+
+        const Vec3 dr{r_slot.x - r.x, r_slot.y - r.y, r_slot.z - r.z};
+        const Vec3 dv{v_slot.x - v.x, v_slot.y - v.y, v_slot.z - v.z};
+
+        const double dr_r = dr.x * r_hat.x + dr.y * r_hat.y + dr.z * r_hat.z;
+        const double dr_t = dr.x * t_hat.x + dr.y * t_hat.y + dr.z * t_hat.z;
+        const double dr_n = dr.x * n_hat.x + dr.y * n_hat.y + dr.z * n_hat.z;
+
+        const double dv_r_err = dv.x * r_hat.x + dv.y * r_hat.y + dv.z * r_hat.z;
+        const double dv_t_err = dv.x * t_hat.x + dv.y * t_hat.y + dv.z * t_hat.z;
+        const double dv_n_err = dv.x * n_hat.x + dv.y * n_hat.y + dv.z * n_hat.z;
+
+        const double mean_motion = std::sqrt(cascade::MU_KM3_S2 / (r_norm * r_norm * r_norm));
+        const double orbit_period_s = cascade::TWO_PI / std::max(mean_motion, cascade::EPS_NUM);
+        const double horizon_s = std::clamp(orbit_period_s * 0.25, 300.0, 5400.0);
+
+        dv_r = (2.0 / horizon_s) * dr_r + 0.5 * dv_r_err;
+        dv_t = (2.0 / horizon_s) * dr_t + 0.5 * dv_t_err + 0.5 * mean_motion * dr_r;
+        dv_n = (2.0 / horizon_s) * dr_n + 0.5 * dv_n_err;
+
+        // Blend legacy element correction for robustness.
+        dv_t += (da * gains.scale_t) + (de * gains.scale_r);
+        dv_r += de * (gains.radial_share * gains.scale_r);
+        dv_n += (di + d_raan) * gains.scale_n;
+    } else {
+        dv_t = (da * gains.scale_t) + (de * gains.scale_r);
+        dv_r = de * (gains.radial_share * gains.scale_r);
+        dv_n = (di + d_raan) * gains.scale_n;
+    }
 
     Vec3 slot_dv{
         t_hat.x * dv_t + r_hat.x * dv_r + n_hat.x * dv_n,

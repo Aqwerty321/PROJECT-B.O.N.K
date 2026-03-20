@@ -123,6 +123,36 @@ Artifacts:
 - `build/recovery_slot_sweep_strict_expanded_run1.json`
 - `build/recovery_slot_sweep_strict_expanded_run2.json`
 
+### Solver mode comparison (heuristic vs cw_zem)
+
+Comparison helper:
+
+```bash
+./scripts/recovery_solver_compare.sh ./build \
+  ./build/recovery_solver_compare_summary.json \
+  24 0.08 1.10 strict
+```
+
+Comparison artifacts:
+
+- `build/recovery_slot_sweep_strict_heuristic.json`
+- `build/recovery_slot_sweep_strict_cw_zem.json`
+- `build/recovery_solver_compare_summary.json`
+
+Latest strict comparison snapshot:
+
+- heuristic: `PASS` with selected candidate `grid_t1.2_r0.8_n0.8`
+  - selected mean delta slot error: `-0.074717079732`
+  - selected mean fuel used: `0.316844417448 kg`
+- cw_zem: `FAIL` (no strict-safe selected candidate)
+- status: `FAIL` in summary artifact because both modes must pass selection
+
+Rollout decision:
+
+- keep runtime default `PROJECTBONK_RECOVERY_SOLVER_MODE=heuristic`
+- retain `cw_zem` as opt-in calibration mode only until strict comparison
+  reaches deterministic PASS with a valid selected candidate
+
 ## Mandatory gate snapshot
 
 All PASS on this calibration step:

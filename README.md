@@ -374,6 +374,11 @@ Optional: run recovery gain sweep helper (offline tuning, not runtime path).
 # deterministic repeat gate (strict + strict-expanded)
 ./scripts/recovery_sweep_determinism_gate.sh ./build 3 24 0.08 1.10
 
+# solver mode side-by-side comparison (heuristic vs cw_zem)
+./scripts/recovery_solver_compare.sh ./build \
+  ./build/recovery_solver_compare_summary.json \
+  24 0.08 1.10 strict
+
 # narrow-phase calibration probe (phase 4 evidence)
 ./scripts/narrow_phase_calibration_probe.sh ./build 50 10000 5 30
 

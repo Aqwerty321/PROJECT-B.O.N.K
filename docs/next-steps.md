@@ -97,7 +97,7 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 | Narrow-phase analytic TCA + RK4 refinements | PARTIAL | conservative linearized TCA + micro/full RK4 refinement implemented |
 | Plane intersection / phase-torus gate | PARTIAL | shadow-first plane/phase gate scaffolding implemented; hard reject remains opt-in |
 | MOID solver stage | PARTIAL | MOID-proxy shadow stage implemented; full HF evaluator remains pending |
-| Maneuver brain CW/ZEM solver | MISSING | current planner is heuristic slot-delta based |
+| Maneuver brain CW/ZEM solver | PARTIAL | runtime supports `PROJECTBONK_RECOVERY_SOLVER_MODE=heuristic|cw_zem`; strict side-by-side comparison currently keeps heuristic as default |
 | Scheduler with blackout/upload semantics | PARTIAL | LOS + latency upload planning exists; static stations and simplified planner |
 | Offline tuner path | DONE | deterministic offline tuner scaffold and sweep tooling |
 | Frontend mission console | MISSING (deferred) | intentionally deferred |
@@ -109,8 +109,11 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 
 1. False-negative evidence is strong but still synthetic-limited.
    - Risk: blind spots for adversarial geometry/time windows not represented.
-2. Maneuver planner is heuristic, not CW/ZEM or equivalent validated solver.
-   - Risk: may meet safety but underperform fuel/uptime objectives.
+2. CW/ZEM rollout is incomplete.
+   - Current state: a first CW/ZEM-equivalent path exists behind
+     `PROJECTBONK_RECOVERY_SOLVER_MODE=cw_zem`.
+   - Risk: strict side-by-side comparison currently fails in `cw_zem` mode,
+     so default promotion would regress recovery acceptance behavior.
 3. Full HF MOID evaluator is still pending behind placeholder fail-open mode.
   - Risk: fidelity/performance ceiling for narrow-phase decisions.
 
@@ -356,6 +359,16 @@ Status update (current branch):
   - default remains `heuristic`
 - Implemented first `cw_zem` single-burn equivalent DV path in recovery planner
   while preserving existing heuristic path and planner API contracts.
+- Added side-by-side strict comparison helper:
+  - `scripts/recovery_solver_compare.sh`
+  - emits `build/recovery_solver_compare_summary.json`
+  - records per-mode sweep artifacts:
+    - `build/recovery_slot_sweep_strict_heuristic.json`
+    - `build/recovery_slot_sweep_strict_cw_zem.json`
+- Latest strict comparison evidence (`24`, `margin=0.08`, `fuel_ratio_cap=1.10`):
+  - heuristic: `PASS`, selected `grid_t1.2_r0.8_n0.8`
+  - cw_zem: `FAIL` (`no candidate met strict scenario + fuel-ratio criteria`)
+  - summary status: `FAIL` (expected until cw_zem closure)
 
 ## P2 - Operational polish and pre-frontend staging
 

@@ -159,6 +159,11 @@ ctest --test-dir build --output-on-failure
 # deterministic repeat selection gate
 ./scripts/recovery_sweep_determinism_gate.sh ./build 3 24 0.08 1.10
 
+# solver mode side-by-side comparison (heuristic vs cw_zem)
+./scripts/recovery_solver_compare.sh ./build \
+  ./build/recovery_solver_compare_summary.json \
+  24 0.08 1.10 strict
+
 # phase4 aggregate calibration gate (determinism + observability + safety suite)
 ./scripts/phase4_calibration_gate.sh ./build
 ```
@@ -167,6 +172,19 @@ Default sweep artifacts by profile:
 
 - `strict`: `build/recovery_slot_sweep_strict.json`
 - `strict-expanded`: `build/recovery_slot_sweep_strict_expanded.json`
+
+Solver comparison artifacts:
+
+- `build/recovery_slot_sweep_strict_heuristic.json`
+- `build/recovery_slot_sweep_strict_cw_zem.json`
+- `build/recovery_solver_compare_summary.json`
+
+Latest strict side-by-side evidence snapshot:
+
+- heuristic sweep: `PASS`, selected candidate `grid_t1.2_r0.8_n0.8`
+- cw_zem sweep: `FAIL` (`no candidate met strict scenario + fuel-ratio criteria`)
+- promotion verdict: keep runtime default `heuristic`; do not promote `cw_zem`
+  until strict profile passes under deterministic comparison
 
 Strict sweep interpretation:
 
