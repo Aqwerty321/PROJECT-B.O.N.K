@@ -267,11 +267,20 @@ Status update (current branch):
   per-satellite selected candidate list built from fail-open debris + indexed
   bands
 - optional inclination-neighbor filtering toggle added:
-  `PROJECTBONK_BROAD_I_NEIGHBOR_FILTER` (default `0`)
+  `PROJECTBONK_BROAD_I_NEIGHBOR_FILTER` (default `0`, explicit opt-in)
 - safety validation results after this change set:
   - `broad_phase_sanity_gate`: PASS (`missing_vs_shell_baseline_total=0`)
   - `narrow_phase_false_negative_gate`: PASS (`false_negative_sats_total=0`)
-  - broad-phase sanity also PASS with `PROJECTBONK_BROAD_I_NEIGHBOR_FILTER=1`
+- benchmark evidence (3 runs each, `phase3_tick_benchmark 50 10000 10 30 30`):
+  - filter `0`: mean tick 16.919 ms, mean p95 18.127 ms,
+    broad candidates 8,733,275
+  - filter `1`: mean tick 14.470 ms, mean p95 15.907 ms,
+    broad candidates 6,697,647
+  - net impact: about 14.5% lower mean tick latency and about 23.3% fewer
+    broad candidates with gate parity preserved
+  - promotion check outcome: do not flip default yet; a strict default-on run of
+    `broad_phase_sanity_gate` reported `missing_vs_shell_baseline_total=83158`
+    (`indexed_pairs_total=1229360` vs `baseline_shell_pairs_total=1312518`)
 
 ### P1.2 Narrow-phase architecture completion path
 

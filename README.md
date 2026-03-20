@@ -117,7 +117,7 @@ Optional CORS controls:
   (default `0.2`; higher-e pairs fail-open)
 - `PROJECTBONK_BROAD_I_NEIGHBOR_FILTER` opt-in inclination-neighbor band
   filtering in broad phase (default `0` for conservative full-i-band behavior).
-  Keep disabled unless calibrated with broad-phase and false-negative gates.
+  Enable only for targeted workloads after broad-phase and false-negative gate validation.
 
 The backend echoes `Access-Control-Allow-Origin` only for matching allowed
 origins and sets `Vary: Origin` for cache safety.

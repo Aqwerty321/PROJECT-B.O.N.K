@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
@@ -42,6 +43,17 @@ double p95(std::vector<double> v) {
     std::sort(v.begin(), v.end());
     const std::size_t idx = static_cast<std::size_t>(0.95 * static_cast<double>(v.size() - 1));
     return v[idx];
+}
+
+bool env_flag_enabled(const char* key, bool fallback) {
+    const char* raw = std::getenv(key);
+    if (!raw) {
+        return fallback;
+    }
+    if (raw[0] == '\0') {
+        return fallback;
+    }
+    return std::atoi(raw) != 0;
 }
 
 } // namespace
@@ -158,7 +170,9 @@ int main(int argc, char** argv)
     std::uint64_t sum_broad_candidates = 0;
     std::uint64_t sum_broad_overlap = 0;
 
-    const cascade::StepRunConfig cfg{};
+    cascade::StepRunConfig cfg{};
+    cfg.broad_phase.enable_i_neighbor_filter =
+        env_flag_enabled("PROJECTBONK_BROAD_I_NEIGHBOR_FILTER", false);
 
     const int total_ticks = warmup_ticks + measure_ticks;
     for (int t = 0; t < total_ticks; ++t) {
@@ -209,6 +223,9 @@ int main(int argc, char** argv)
     std::cout << "step_seconds=" << step_seconds << "\n";
     std::cout << "warmup_ticks=" << warmup_ticks << "\n";
     std::cout << "measure_ticks=" << measure_ticks << "\n";
+    std::cout << "broad_i_neighbor_filter="
+              << (cfg.broad_phase.enable_i_neighbor_filter ? 1 : 0)
+              << "\n";
     std::cout << "tick_ms_mean=" << mean_ms << "\n";
     std::cout << "tick_ms_median=" << median(tick_ms) << "\n";
     std::cout << "tick_ms_p95=" << p95(tick_ms) << "\n";
