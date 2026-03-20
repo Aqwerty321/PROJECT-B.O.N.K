@@ -602,7 +602,7 @@ bool run_simulation_step(StateStore& store,
     }
 
     // Conservative broad-phase candidate generation at the target epoch.
-    const BroadPhaseResult broad = generate_broad_phase_candidates(store, cfg.broad_phase);
+    BroadPhaseResult broad = generate_broad_phase_candidates(store, cfg.broad_phase);
     out.broad_pairs_considered = broad.pairs_considered;
     out.broad_candidates = static_cast<std::uint64_t>(broad.candidates.size());
     out.broad_shell_overlap_pass = broad.shell_overlap_pass;
@@ -727,6 +727,10 @@ bool run_simulation_step(StateStore& store,
 
     out.narrow_full_refine_budget_allocated = full_refine_budget;
 
+    // Resolve MOID mode once per tick (not per-pair) to avoid hot-path
+    // getenv() calls and mid-sweep mode changes.
+    const NarrowPhaseConfig::MoidMode resolved_moid_mode = resolve_moid_mode(cfg.narrow_phase);
+
     const auto full_window_min_d2_rk4 = [&](std::size_t sat_idx,
                                             std::size_t obj_idx,
                                             bool& ok) noexcept {
@@ -828,8 +832,7 @@ bool run_simulation_step(StateStore& store,
             }
 
             MoidProxyGateResult moid{};
-            const NarrowPhaseConfig::MoidMode moid_mode = resolve_moid_mode(cfg.narrow_phase);
-            if (moid_mode == NarrowPhaseConfig::MoidMode::HF) {
+            if (resolved_moid_mode == NarrowPhaseConfig::MoidMode::HF) {
                 moid = evaluate_moid_hf_gate(store, sat_idx, obj_idx, target_epoch, cfg.narrow_phase);
             } else {
                 moid = evaluate_moid_proxy_gate(store, sat_idx, obj_idx, target_epoch, cfg.narrow_phase);
@@ -940,6 +943,15 @@ bool run_simulation_step(StateStore& store,
     };
 
     if (out.failed_objects == 0) {
+        // Sort candidates by (sat_idx, obj_idx) so that full-refine budget
+        // exhaustion is deterministic regardless of broad-phase hash-map
+        // iteration order.
+        std::sort(broad.candidates.begin(), broad.candidates.end(),
+                  [](const BroadPhasePair& a, const BroadPhasePair& b) noexcept {
+                      if (a.sat_idx != b.sat_idx) return a.sat_idx < b.sat_idx;
+                      return a.obj_idx < b.obj_idx;
+                  });
+
         for (const BroadPhasePair& pair : broad.candidates) {
             const std::size_t sat_idx = static_cast<std::size_t>(pair.sat_idx);
             const std::size_t obj_idx = static_cast<std::size_t>(pair.obj_idx);

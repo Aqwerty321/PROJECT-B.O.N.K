@@ -614,7 +614,7 @@ add_custom_target(phase4_calibration_gate
 )
 
 add_custom_target(phase4_law_assertions_gate
-    COMMAND "${CMAKE_SOURCE_DIR}/scripts/phase4_law_assertions_gate.sh" "${CMAKE_BINARY_DIR}/phase4_calibration_gate_summary.json" 1
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/phase4_law_assertions_gate.sh" "${CMAKE_BINARY_DIR}/phase4_calibration_gate_summary.json" 2
     DEPENDS phase4_calibration_gate
     USES_TERMINAL
 )
