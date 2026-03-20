@@ -507,6 +507,15 @@ add_executable(phase3_tick_benchmark
 target_link_libraries(phase3_tick_benchmark PRIVATE bonk_core)
 
 # ===================================================================
+# Real-data scenario benchmark (OMM JSON catalog → StateStore → ticks)
+# ===================================================================
+add_executable(real_data_scenario_gen
+    tools/real_data_scenario_gen.cpp
+)
+
+target_link_libraries(real_data_scenario_gen PRIVATE bonk_core simdjson::simdjson)
+
+# ===================================================================
 # Offline multi-objective tuner scaffold (separate from runtime path)
 # ===================================================================
 add_executable(offline_multiobjective_tuner
