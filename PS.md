@@ -54,7 +54,7 @@ The primary objective of this hackathon is to architect, develop, and deploy an 
 
 * **High-Frequency Telemetry Ingestion**: Your system must establish a robust pipeline to continuously process incoming orbital state vectors specifically, position (r) and velocity (v) in the Earth-Centered Inertial (ECI) coordinate frame. This data stream will represent the real-time kinematic states of both your controlled constellation and the uncontrolled debris field.
 * **Predictive Conjunction Assessment (CA)**: The software must forecast potential collisions (Conjunction Data Messages) up to 24 hours in the future. Because checking every satellite against every piece of debris is an $O(N^{2})$ operation, participants must implement highly efficient spatial indexing algorithms to calculate the Time of Closest Approach (TCA) without exceeding computational or time constraints.
-* **Autonomous Collision Avoidance (COLA)**: When a critical conjunction (a miss distance of 100 meters) is predicted, the system must autonomously calculate and schedule an evasion maneuver. This involves determining the optimal burn window and the exact change in velocity vector required to push the satellite to a safe standoff distance, factoring in thruster cooldowns and orbital mechanics.
+* **Autonomous Collision Avoidance (COLA)**: When a critical conjunction (a miss distance of **< 100 meters**) is predicted, the system must autonomously calculate and schedule an evasion maneuver. This involves determining the optimal burn window and the exact ∆v (change in velocity) vector required to push the satellite to a safe standoff distance, factoring in thruster cooldowns and orbital mechanics.
 * **Station-Keeping and Orbital Recovery**: A satellite is only useful when it is in its assigned mission slot. Evasion maneuvers will inherently perturb the satellite's orbit, so the ACM must calculate and execute a subsequent "recovery burn" to correct the orbital drift and return the payload to its designated spatial bounding box as quickly as possible.
 * **Propellant Budgeting & End-of-Life (EOL) Management**: Spacecraft cannot refuel. Every burn depletes the finite propellant mass, governed by the Tsiolkovsky rocket equation. Your software must track these fuel budgets strictly; if a satellite's fuel reserves drop to a critical threshold (e.g., 5%), the system must preemptively schedule a final maneuver to move it into a safe "graveyard orbit".
 * **Global Multi-Objective Optimization**: The ultimate algorithmic challenge is balancing two directly opposing metrics: maximizing Constellation Uptime while minimizing the total Fuel Expenditure across the fleet.
@@ -95,9 +95,17 @@ $$|\vec{r}_{sat}(t)-\vec{r}_{deb}(t)|<0.100 \;\text{km}$$ (100 meters)
 
 ## 4. API Specifications and Constraints
 
+Your Autonomous Constellation Manager must expose a robust RESTful API on **port 8000**.
+The simulation engine will communicate with your software exclusively through these endpoints.
+
 ### 4.1 Telemetry Ingestion API
 
+This endpoint will be flooded with high-frequency state vector updates. Your system must
+parse this data and asynchronously update its internal physics state.
+
 **Endpoint:** `POST /api/telemetry`
+
+**Request Body:**
 
 ```json
 {
@@ -107,11 +115,13 @@ $$|\vec{r}_{sat}(t)-\vec{r}_{deb}(t)|<0.100 \;\text{km}$$ (100 meters)
       "id": "DEB-99421",
       "type": "DEBRIS",
       "r": {"x": 4500.2, "y": -2100.5, "z": 4800.1},
-      "v": {"x": 1.25, "y": 6.84, "z": 3.12}
+      "v": {"x": -1.25, "y": 6.84, "z": 3.12}
     }
   ]
 }
 ```
+
+**Response (200 OK):**
 
 ```json
 {
@@ -123,7 +133,13 @@ $$|\vec{r}_{sat}(t)-\vec{r}_{deb}(t)|<0.100 \;\text{km}$$ (100 meters)
 
 ### 4.2 Maneuver Scheduling API
 
+When your system calculates an evasion or recovery burn, it must submit the maneuver sequence
+here. The simulation will validate the line-of-sight constraints, apply the ∆v instantaneously
+at the specified burnTime, and deduct the corresponding fuel mass.
+
 **Endpoint:** `POST /api/maneuver/schedule`
+
+**Request Body:**
 
 ```json
 {
@@ -143,6 +159,8 @@ $$|\vec{r}_{sat}(t)-\vec{r}_{deb}(t)|<0.100 \;\text{km}$$ (100 meters)
 }
 ```
 
+**Response (202 Accepted):**
+
 ```json
 {
   "status": "SCHEDULED",
@@ -156,13 +174,21 @@ $$|\vec{r}_{sat}(t)-\vec{r}_{deb}(t)|<0.100 \;\text{km}$$ (100 meters)
 
 ### 4.3 Simulation Fast-Forward (Tick) API
 
+To test your system's efficiency, the grader will advance the simulation time by arbitrary steps.
+During this "tick", your engine must integrate the physics for all objects and execute any
+maneuvers scheduled within that time window.
+
 **Endpoint:** `POST /api/simulate/step`
+
+**Request Body:**
 
 ```json
 {
   "step_seconds": 3600
 }
 ```
+
+**Response (200 OK):**
 
 ```json
 {
@@ -179,35 +205,53 @@ $$|\vec{r}_{sat}(t)-\vec{r}_{deb}(t)|<0.100 \;\text{km}$$ (100 meters)
 
 ### 5.1 Propulsion Constraints and Fuel Mass Depletion
 
-* **Dry Mass**: 500.0 kg
-* **Initial Propellant Mass**: 50.0 kg (Total initial wet mass is 550.0 kg)
-* **Specific Impulse**: 300.0 s
-* **Maximum Thrust Limit**: 15.0 m/s per individual burn command
-* **Thermal Cooldown**: 600 seconds between burns
+Every satellite in the constellation is identical, utilizing a monopropellant chemical thruster
+system. You must assume **impulsive burns**, meaning the change in velocity (∆v) is applied
+instantaneously, altering the velocity vector without changing the position vector at the exact
+moment of the burn.
+
+* **Dry Mass (m_dry)**: 500.0 kg
+* **Initial Propellant Mass (m_fuel)**: 50.0 kg (Total initial wet mass = 550.0 kg)
+* **Specific Impulse (I_sp)**: 300.0 s
+* **Maximum Thrust Limit**: |∆v| ≤ 15.0 m/s per individual burn command
+* **Thermal Cooldown**: A mandatory 600-second rest period between any two burns on the same satellite to prevent thruster degradation.
 
 $$\Delta m=m_{current}(1-e^{-\frac{|\Delta\vec{v}|}{I_{sp}\cdot g_{0}}})$$
 
-Where standard gravity is 9.80665.
+Where $g_0 = 9.80665\;\text{m/s}^2$ (standard gravity). **Note:** As fuel is depleted, the satellite
+becomes lighter, making subsequent maneuvers slightly more fuel-efficient. Your API must
+dynamically account for this mass change.
 
 ### 5.2 The Station-Keeping Box
 
-* **Drift Tolerance**: Satellite must remain within a **10 km radius**
-* **Uptime Penalty**: Exponential degradation if outside
-* **Recovery Burn Requirement**: Mandatory return maneuver
+Each satellite is assigned a **Nominal Orbital Slot** — a dynamic reference point propagating
+along the ideal, unperturbed orbit.
+
+* **Drift Tolerance**: A satellite is considered "Nominal" as long as its true position remains within a **10 km spherical radius** of its designated slot.
+* **Uptime Penalty**: If a collision avoidance maneuver pushes the satellite outside this bounding box, the system logs a **Service Outage**. Your Uptime Score degrades exponentially for every second spent outside the box.
+* **Recovery Burn Requirement**: Every evasion maneuver must be paired with a calculated recovery trajectory (e.g., a phasing orbit or Hohmann transfer) to return the satellite to its slot once the debris threat has safely passed.
 
 ### 5.3 Maneuver Vectors: The RTN Frame
 
-* **Radial (R)** — From Earth center to satellite
-* **Transverse (T)** — Along velocity direction
-* **Normal (N)** — Orthogonal to orbital plane
+While state vectors are provided in the global ECI frame, maneuver planning is typically
+calculated in the satellite's local Radial-Transverse-Normal (RTN) coordinate frame:
 
-Vectors must be converted from RTN → ECI before API submission.
+* **Radial (R)** — Points from the Earth's center through the satellite. A Radial Shunt alters eccentricity and the argument of perigee.
+* **Transverse (T)** — Points in the direction of velocity, perpendicular to R. A Prograde/Retrograde burn (Phasing Maneuver) is the most fuel-efficient way to change the semi-major axis and orbital period, allowing the satellite to "speed up" or "slow down" relative to the debris.
+* **Normal (N)** — Orthogonal to the orbital plane (R x T). A Plane Change burn alters inclination and RAAN. **Warning**: Out-of-plane maneuvers are notoriously fuel-expensive and should be avoided unless absolutely necessary.
+
+Participants must calculate the required ∆v in the RTN frame and apply the appropriate
+rotation matrix to convert the thrust vector back into the ECI frame before submitting the
+command to the API.
 
 ### 5.4 Communication Latency and Blackout Zones
 
-* **Line-of-Sight Requirement** with ground stations
-* **10-second signal delay**
-* Predictive maneuvers required during blackout zones
+Satellites are not constantly connected to Mission Control. Your Autonomous Constellation
+Manager is assumed to be running on ground servers.
+
+* **Line-of-Sight (LOS) Requirement**: A maneuver command can only be successfully transmitted if the target satellite has an unobstructed geometric line-of-sight to at least one active Ground Station, taking into account the Earth's curvature and the station's minimum elevation mask angle.
+* **Signal Delay**: There is a hardcoded **10-second latency** for any API command. You cannot schedule a burn to occur earlier than Current Simulation Time + 10 seconds.
+* **Blind Conjunctions**: If a collision is predicted to occur over an ocean or pole (a blackout zone), your system must possess the predictive capability to schedule and upload the evasion sequence **before** the satellite leaves the coverage area of the last available ground station.
 
 ### 5.5 Provided Datasets
 
@@ -225,20 +269,46 @@ GS-006, McMurdo_Station, -77.8463,166.6682,10,5.0
 
 ## 6. Frontend: The "Orbital Insight" Visualizer
 
-### Performance Constraints
+While the backend physics engine handles the heavy numerical computations, situational
+awareness is paramount for human-in-the-loop oversight. Teams must build a **2D Operational
+Dashboard** analogous to the software utilized by Flight Dynamics Officers (FDOs) at mission
+control.
 
-Must render **50+ satellites and 10,000+ debris objects** at **60 FPS**.
+### 6.1 Performance Constraints
 
-### Required Visualization Modules
+The visualizer must be capable of rendering **50+ active satellites and 10,000+ debris objects**
+in real-time. Standard DOM manipulation will severely bottleneck the browser; therefore,
+the use of the **Canvas API or WebGL** (via libraries such as PixiJS, Deck.gl, or Three.js) is
+highly recommended to maintain a stable **60 FPS**.
 
-* **Ground Track Map (Mercator Projection)**
-* **Conjunction Bullseye Plot**
-* **Telemetry & Fuel Heatmaps**
-* **Maneuver Timeline (Gantt Scheduler)**
+### 6.2 Required Visualization Modules
 
-### Visualization API
+Your frontend dashboard must incorporate the following distinct modules:
+
+* **The "Ground Track" Map (Mercator Projection)**: A dynamic 2D world map displaying the sub-satellite points over the Earth's surface. It must feature:
+  * Real-time location markers for the entire active constellation.
+  * A historical trailing path representing the **last 90 minutes** of orbit.
+  * A dashed predicted trajectory line for the **next 90 minutes**.
+  * A dynamic shadow overlay representing the **"Terminator Line"** (the boundary between day and night) to indicate solar eclipse zones where satellites must rely on battery power.
+
+* **The Conjunction "Bullseye" Plot (Polar Chart)**: A relative proximity view of debris approaching a selected satellite.
+  * **Center Point**: The selected satellite is fixed at the origin.
+  * **Radial Distance**: Represents the Time to Closest Approach (TCA).
+  * **Angle**: Represents the relative approach vector.
+  * **Risk Indexing**: Debris markers must be color-coded based on probability of collision and miss distance (e.g., Green = Safe, Yellow = Warning < 5 km, Red = Critical < 1 km).
+
+* **Telemetry & Resource Heatmaps**: Fleet-wide health monitoring. This includes a visual fuel gauge representing m_fuel for every satellite and a ∆v cost analysis graph plotting "Fuel Consumed" versus "Collisions Avoided" to visually demonstrate the efficiency of your evasion algorithms.
+
+* **The Maneuver Timeline (Gantt Scheduler)**: A chronological schedule of past and future automated actions. It must display distinct blocks for "Burn Start," "Burn End," and the mandatory 600-second thruster cooldowns, clearly flagging any conflicting commands or blackout zone overlaps.
+
+### 6.3 Visualization API Integration
+
+To support this high-density frontend without overwhelming the network, your API must include
+a highly optimized Snapshot endpoint.
 
 **Endpoint:** `GET /api/visualization/snapshot`
+
+**Response (200 OK):**
 
 ```json
 {
@@ -253,38 +323,55 @@ Must render **50+ satellites and 10,000+ debris objects** at **60 FPS**.
     }
   ],
   "debris_cloud": [
-    ["DEB-99421", 12.42, 45.21, 400.5],
+    ["DEB-99421", 12.42, -45.21, 400.5],
     ["DEB-99422", 12.55, -45.10, 401.2]
   ]
 }
 ```
 
+> **Note:** The `debris_cloud` array should utilize a flattened or tuple-based structure
+> (e.g., `[ID, Latitude, Longitude, Altitude]`) to drastically compress the JSON payload
+> size for rapid network transfer.
+
 ---
 
 ## 7. Evaluation Criteria
 
+The hackathon will employ a rigorous **two-phase evaluation process**. Phase 1 consists of an
+automated objective assessment where your physics engine and API will be stress-tested against
+thousands of simulated debris objects. Phase 2 involves a manual evaluation of the frontend
+and code architecture by the judging panel.
+
 | Criteria             | Weightage | Description                  |
 | :------------------- | :-------- | :--------------------------- |
-| Safety Score         | 25%       | % of collisions avoided      |
-| Fuel Efficiency      | 20%       | Total Δv used                |
-| Constellation Uptime | 15%       | Time satellites stay in slot |
-| Algorithmic Speed    | 15%       | Backend complexity           |
-| UI/UX                | 15%       | Visualization clarity        |
-| Code Quality         | 10%       | Logging & modularity         |
+| Safety Score (Objective) | 25%   | Percentage of conjunctions successfully avoided. A single collision (miss distance < 100m) results in **severe penalty points**. |
+| Fuel Efficiency (Objective) | 20% | Total ∆v consumed across the constellation. Evaluates the mathematical optimization of your evasion algorithms. |
+| Constellation Uptime | 15%       | Measures the total time satellites spend within 10 km of their Nominal Orbital Slots. |
+| Algorithmic Speed    | 15%       | Time complexity of the backend API. Your code must maintain high performance while calculating spatial indices and numerical integrations. |
+| UI/UX & Visualization | 15%     | Evaluates the clarity, frame rate, and situational awareness provided by the Orbital Insight dashboard. |
+| Code Quality & Logging | 10%    | Assesses modularity, documentation, and the accuracy of the system's maneuver logging capabilities. |
 
 ---
 
 ## 8. Deployment Requirements
 
-* **Dockerfile at repo root**
-* **Base image:** `ubuntu:22.04`
-* **Expose port 8000**
+> **This is a hard requirement!** If the repository provided does not build using Docker
+> and does not use the specified base image, your submission cannot be auto-tested and
+> will be **disqualified**.
+
+* **Docker Initialization**: There must be a `Dockerfile` at the root of your GitHub repository that initializes the simulation and exposes the required APIs.
+* **Base image:** `ubuntu:22.04`. This prevents dependency conflicts and ensures cross-environment consistency during automated grading.
+* **Port Binding**: Port **8000** must be exported so that the grading scripts can hit your API endpoints. **Ensure your application binds to `0.0.0.0` and not just `localhost`.**
 
 ---
 
 ## 9. Expected Deliverables
 
-1. Public GitHub repository
-2. Dockerized backend
-3. Technical report (PDF)
-4. Demo video under 5 minutes
+By the final submission deadline, teams must provide the following:
+
+1. **GitHub Repo Link**: Link to your github repo containing your complete application (**Backend + Frontend + Database**). Make sure this repo is **public**.
+2. **Docker Environment**: A valid `Dockerfile` at the root of the repository as specified above.
+3. **Technical Report**: A brief PDF document (preferably in LaTeX) detailing the numerical methods, spatial optimization algorithms, and overall architecture used in your solution.
+4. **Video Demonstration**: A video demo (under 5 minutes) showcasing the Idea, Implementation, Orbital Insight frontend and its core functionalities.
+
+The official Submission Form for these deliverables will be released closer to the deadline.

@@ -517,3 +517,164 @@ Backend is considered ready for frontend integration when:
 - `api_contract_gate` remains stable with no PS schema/status drift,
 - deterministic sweep and observability artifacts are consistently green,
 - docs are synchronized and no stale calibration claims remain.
+
+---
+
+## 11) data.txt ingestion plan (OMM/TLE catalog → ECI state vectors)
+
+### 11.1 Overview
+
+`data.txt` is a 34 MB JSON array containing 29,949 CCSDS OMM records from Space-Track.org.
+These represent real orbital objects (16,927 payloads, 9,742 debris, 2,169 rocket bodies,
+1,111 unknown) with TLE lines and mean orbital elements in the **TEME** (True Equator,
+Mean Equinox) reference frame, propagated via **SGP4** theory. The problem statement
+requires ECI/J2000 state vectors `{r:{x,y,z}, v:{x,y,z}}` in km and km/s.
+
+### 11.2 Pipeline architecture
+
+```
+data.txt (OMM/TLE JSON)
+    │
+    ▼
+[1] TLE Parser ──── extract TLE_LINE1/TLE_LINE2 per object
+    │
+    ▼
+[2] SGP4 Propagator ──── mean elements → TEME state vector at epoch T
+    │
+    ▼
+[3] TEME → ECI (J2000) Frame Rotation ──── nutation/precession correction
+    │
+    ▼
+[4] Bulk Telemetry Injector ──── POST /api/telemetry batches
+                                 OR direct StateStore::upsert() calls
+```
+
+### 11.3 SGP4 library selection
+
+**Recommended: `sgp4` by Daniel Warner (dnwrnr/sgp4)**
+- C++ implementation of Vallado's SGP4 reference code
+- Header + source, easily vendored or FetchContent-ed
+- MIT license
+- Actively used in aerospace applications
+- GitHub: https://github.com/dnwrnr/sgp4
+
+Alternative: Vallado's original C code from "Revisiting Spacetrack Report #3" — public domain
+but less ergonomic for C++ integration.
+
+**CMake integration pattern** (matches existing simdjson FetchContent):
+
+```cmake
+FetchContent_Declare(
+    sgp4
+    GIT_REPOSITORY https://github.com/dnwrnr/sgp4.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(sgp4)
+```
+
+### 11.4 TEME → ECI (J2000) frame conversion
+
+SGP4 outputs positions and velocities in TEME frame. The problem statement specifies
+ECI/J2000. The rotation from TEME to J2000 involves:
+
+1. **Nutation matrix** N(ε, Δψ, Δε) — accounts for Earth's nutation
+2. **Precession matrix** P(ζ, θ, z) — accounts for precession of equinoxes
+
+For LEO conjunction detection purposes, the TEME-to-J2000 error is typically < 1 km in
+position over short arcs. Given that the grader sends ECI state vectors via `/api/telemetry`
+and we propagate with our own J2+RK4 engine, there are two viable strategies:
+
+**Strategy A (recommended): SGP4 → TEME, approximate TEME ≈ J2000**
+- Simplest implementation, < 1 km error for LEO over hours
+- Acceptable because the grader's own telemetry updates will reset state frequently
+- No external IAU nutation tables needed
+
+**Strategy B: Full IAU-76/FK5 TEME → J2000 rotation**
+- Most accurate, requires precession/nutation angle computation
+- ~100 lines of additional code (Meeus algorithms)
+- Use if Strategy A shows grader-visible drift
+
+### 11.5 Object filtering strategy
+
+The full catalog has 29,949 objects. The problem statement says "tens of thousands of tracked
+debris fragments" and the frontend must render "10,000+ debris objects." Filtering options:
+
+| Filter | Count | Rationale |
+|--------|-------|-----------|
+| All objects | 29,949 | Maximum fidelity, highest compute |
+| LEO only (periapsis < 2000 km) | 27,191 | Removes irrelevant HEO/GEO objects |
+| LEO debris + rocket bodies | 10,954 | Only threat objects (no payloads) |
+| LEO debris only | 9,414 | Matches "debris field" narrative |
+
+**Recommended**: Load **all LEO objects** (27,191) as the debris field. Our ~50 constellation
+satellites will be injected separately by the grader via `/api/telemetry`. Objects with
+`OBJECT_TYPE == "PAYLOAD"` from data.txt should be loaded as type `DEBRIS` since they are
+NOT our controlled constellation — they are third-party objects we must avoid.
+
+Alternatively, we could type-map Space-Track `OBJECT_TYPE` as follows:
+- `DEBRIS` → `DEBRIS`
+- `ROCKET BODY` → `DEBRIS`
+- `PAYLOAD` → `DEBRIS` (third-party, uncontrolled)
+- `UNKNOWN` → `DEBRIS`
+
+All data.txt objects are uncontrolled threats from our ACM's perspective.
+
+### 11.6 Integration points
+
+**Option 1: Startup bulk loader (recommended)**
+- New file: `src/tle_loader.cpp` / `src/tle_loader.hpp`
+- Reads `data.txt` at server startup (before first API call)
+- Parses TLE lines, runs SGP4 at each object's epoch, converts TEME → ECI
+- Calls `StateStore::upsert()` directly for each object
+- Env var: `BONK_TLE_CATALOG_PATH=data.txt` (optional, default: no catalog)
+- Env var: `BONK_TLE_EPOCH_ISO=2026-03-20T00:00:00.000Z` (propagation epoch)
+
+**Option 2: External pre-processor tool**
+- Standalone binary: `tools/tle_to_telemetry.cpp`
+- Reads data.txt, runs SGP4, outputs JSON in telemetry API format
+- Pipe to `curl -X POST /api/telemetry` or use as test fixture
+- Pro: decoupled from server, reusable for testing
+- Con: adds network round-trip, slower startup
+
+**Recommendation**: Implement **both**. Option 1 for production startup, Option 2 as a
+debugging/testing tool.
+
+### 11.7 Performance estimate
+
+SGP4 propagation per object: ~1-5 μs (simple arithmetic, no iteration).
+For 27,191 LEO objects: ~27-135 ms total propagation time.
+StateStore::upsert() per object: ~0.5 μs (hash lookup + vector push).
+Total startup overhead: **< 200 ms** — negligible.
+
+Per-tick re-propagation (if needed): Same cost, ~135 ms.
+This is well within the tick budget even for 1-second steps.
+
+### 11.8 Implementation checklist
+
+- [ ] Add SGP4 library via FetchContent in CMakeLists.txt
+- [ ] Create `src/tle_loader.hpp` / `src/tle_loader.cpp`:
+  - `load_tle_catalog(const std::string& path, StateStore& store, double epoch_s)`
+  - Parse data.txt JSON with simdjson
+  - Extract TLE_LINE1/TLE_LINE2 per record
+  - Run SGP4 propagation to target epoch
+  - (Optional) TEME → J2000 rotation
+  - Upsert each object into StateStore as DEBRIS
+- [ ] Add tle_loader to bonk_core library in CMakeLists.txt
+- [ ] Wire into EngineRuntime startup:
+  - Check `BONK_TLE_CATALOG_PATH` env var
+  - If set, call `load_tle_catalog()` before server listen
+- [ ] Create `tools/tle_to_telemetry.cpp` (optional standalone tool)
+- [ ] Add unit test: load a small TLE subset, verify ECI output is valid orbit
+- [ ] Verify conjunction detection works with real TLE-derived state vectors
+- [ ] Performance test: 30K objects × 3600s tick step
+
+### 11.9 Risk assessment
+
+| Risk | Mitigation |
+|------|-----------|
+| SGP4 library doesn't compile with our CMake setup | Vendor the source files directly |
+| TEME ≈ J2000 approximation causes grader drift | Implement full rotation (Strategy B) |
+| 30K objects overwhelm broad phase | Already tested with MOID band filter; 30K is within budget |
+| data.txt JSON format changes | simdjson parsing with graceful per-record error handling |
+| Grader sends conflicting state for data.txt objects | Telemetry upsert will overwrite — by design |
