@@ -55,6 +55,85 @@ inline double norm2(double x, double y, double z) noexcept
     return x * x + y * y + z * z;
 }
 
+inline bool populate_moid_elements(const StateStore& store,
+                                   std::size_t sat_idx,
+                                   std::size_t obj_idx,
+                                   double epoch_s,
+                                   const NarrowPhaseConfig& cfg,
+                                   OrbitalElements& sat_el,
+                                   OrbitalElements& obj_el,
+                                   MoidProxyGateResult& out) noexcept
+{
+    const bool sat_valid = store.elements_valid(sat_idx);
+    const bool obj_valid = store.elements_valid(obj_idx);
+    if (!sat_valid || !obj_valid) {
+        out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_ELEMENTS_INVALID;
+        return false;
+    }
+
+    sat_el.a_km = store.a_km(sat_idx);
+    sat_el.e = store.e(sat_idx);
+    sat_el.i_rad = store.i_rad(sat_idx);
+    sat_el.raan_rad = store.raan_rad(sat_idx);
+    sat_el.argp_rad = store.argp_rad(sat_idx);
+    sat_el.M_rad = store.M_rad(sat_idx);
+    sat_el.n_rad_s = store.n_rad_s(sat_idx);
+    sat_el.p_km = store.p_km(sat_idx);
+    sat_el.rp_km = store.rp_km(sat_idx);
+    sat_el.ra_km = store.ra_km(sat_idx);
+
+    obj_el.a_km = store.a_km(obj_idx);
+    obj_el.e = store.e(obj_idx);
+    obj_el.i_rad = store.i_rad(obj_idx);
+    obj_el.raan_rad = store.raan_rad(obj_idx);
+    obj_el.argp_rad = store.argp_rad(obj_idx);
+    obj_el.M_rad = store.M_rad(obj_idx);
+    obj_el.n_rad_s = store.n_rad_s(obj_idx);
+    obj_el.p_km = store.p_km(obj_idx);
+    obj_el.rp_km = store.rp_km(obj_idx);
+    obj_el.ra_km = store.ra_km(obj_idx);
+
+    if (!std::isfinite(sat_el.a_km)
+        || !std::isfinite(sat_el.e)
+        || !std::isfinite(obj_el.a_km)
+        || !std::isfinite(obj_el.e)) {
+        out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
+        return false;
+    }
+
+    if (sat_el.e > cfg.moid_max_e || obj_el.e > cfg.moid_max_e) {
+        out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_ECCENTRICITY_GUARD;
+        return false;
+    }
+
+    const double sat_epoch = store.telemetry_epoch_s(sat_idx);
+    const double obj_epoch = store.telemetry_epoch_s(obj_idx);
+    const double sat_dt = std::max(0.0, epoch_s - sat_epoch);
+    const double obj_dt = std::max(0.0, epoch_s - obj_epoch);
+    if (!std::isfinite(sat_dt) || !std::isfinite(obj_dt)) {
+        out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
+        return false;
+    }
+
+    apply_j2_secular(sat_el, sat_dt);
+    apply_j2_secular(obj_el, obj_dt);
+    return true;
+}
+
+inline bool eci_position_at_mean_anomaly(const OrbitalElements& base,
+                                         double mean_anomaly_rad,
+                                         Vec3& r_out) noexcept
+{
+    OrbitalElements sample = base;
+    sample.M_rad = wrap_0_2pi(mean_anomaly_rad);
+    Vec3 v_dummy{};
+    return elements_to_eci(sample, r_out, v_dummy);
+}
+
 inline PlanePhaseGateResult evaluate_plane_phase_gate(const StateStore& store,
                                                       std::size_t sat_idx,
                                                       std::size_t obj_idx,
@@ -170,65 +249,11 @@ inline MoidProxyGateResult evaluate_moid_proxy_gate(const StateStore& store,
     MoidProxyGateResult out{};
     out.evaluated = true;
 
-    const bool sat_valid = store.elements_valid(sat_idx);
-    const bool obj_valid = store.elements_valid(obj_idx);
-    if (!sat_valid || !obj_valid) {
-        out.fail_open = true;
-        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_ELEMENTS_INVALID;
-        return out;
-    }
-
     OrbitalElements sat_el{};
-    sat_el.a_km = store.a_km(sat_idx);
-    sat_el.e = store.e(sat_idx);
-    sat_el.i_rad = store.i_rad(sat_idx);
-    sat_el.raan_rad = store.raan_rad(sat_idx);
-    sat_el.argp_rad = store.argp_rad(sat_idx);
-    sat_el.M_rad = store.M_rad(sat_idx);
-    sat_el.n_rad_s = store.n_rad_s(sat_idx);
-    sat_el.p_km = store.p_km(sat_idx);
-    sat_el.rp_km = store.rp_km(sat_idx);
-    sat_el.ra_km = store.ra_km(sat_idx);
-
     OrbitalElements obj_el{};
-    obj_el.a_km = store.a_km(obj_idx);
-    obj_el.e = store.e(obj_idx);
-    obj_el.i_rad = store.i_rad(obj_idx);
-    obj_el.raan_rad = store.raan_rad(obj_idx);
-    obj_el.argp_rad = store.argp_rad(obj_idx);
-    obj_el.M_rad = store.M_rad(obj_idx);
-    obj_el.n_rad_s = store.n_rad_s(obj_idx);
-    obj_el.p_km = store.p_km(obj_idx);
-    obj_el.rp_km = store.rp_km(obj_idx);
-    obj_el.ra_km = store.ra_km(obj_idx);
-
-    if (!std::isfinite(sat_el.a_km)
-        || !std::isfinite(sat_el.e)
-        || !std::isfinite(obj_el.a_km)
-        || !std::isfinite(obj_el.e)) {
-        out.fail_open = true;
-        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
+    if (!populate_moid_elements(store, sat_idx, obj_idx, epoch_s, cfg, sat_el, obj_el, out)) {
         return out;
     }
-
-    if (sat_el.e > cfg.moid_max_e || obj_el.e > cfg.moid_max_e) {
-        out.fail_open = true;
-        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_ECCENTRICITY_GUARD;
-        return out;
-    }
-
-    const double sat_epoch = store.telemetry_epoch_s(sat_idx);
-    const double obj_epoch = store.telemetry_epoch_s(obj_idx);
-    const double sat_dt = std::max(0.0, epoch_s - sat_epoch);
-    const double obj_dt = std::max(0.0, epoch_s - obj_epoch);
-    if (!std::isfinite(sat_dt) || !std::isfinite(obj_dt)) {
-        out.fail_open = true;
-        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_NON_FINITE_STATE;
-        return out;
-    }
-
-    apply_j2_secular(sat_el, sat_dt);
-    apply_j2_secular(obj_el, obj_dt);
 
     const std::uint32_t samples = std::max<std::uint32_t>(cfg.moid_samples, 6U);
     const double two_pi = TWO_PI;
@@ -239,23 +264,15 @@ inline MoidProxyGateResult evaluate_moid_proxy_gate(const StateStore& store,
 
     for (std::uint32_t s = 0; s < samples; ++s) {
         const double sat_u = step * static_cast<double>(s);
-        OrbitalElements sat_sample = sat_el;
-        sat_sample.M_rad = sat_u;
-
         Vec3 sat_r{};
-        Vec3 sat_v{};
-        if (!elements_to_eci(sat_sample, sat_r, sat_v)) {
+        if (!eci_position_at_mean_anomaly(sat_el, sat_u, sat_r)) {
             continue;
         }
 
         for (std::uint32_t d = 0; d < samples; ++d) {
             const double obj_u = step * static_cast<double>(d);
-            OrbitalElements obj_sample = obj_el;
-            obj_sample.M_rad = obj_u;
-
             Vec3 obj_r{};
-            Vec3 obj_v{};
-            if (!elements_to_eci(obj_sample, obj_r, obj_v)) {
+            if (!eci_position_at_mean_anomaly(obj_el, obj_u, obj_r)) {
                 continue;
             }
 
@@ -284,20 +301,115 @@ inline MoidProxyGateResult evaluate_moid_proxy_gate(const StateStore& store,
     return out;
 }
 
-inline MoidProxyGateResult evaluate_moid_hf_gate(const StateStore&,
-                                                 std::size_t,
-                                                 std::size_t,
-                                                 double,
-                                                 const NarrowPhaseConfig&) noexcept
+inline MoidProxyGateResult evaluate_moid_hf_gate(const StateStore& store,
+                                                 std::size_t sat_idx,
+                                                 std::size_t obj_idx,
+                                                 double epoch_s,
+                                                 const NarrowPhaseConfig& cfg) noexcept
 {
-    // HF path is intentionally fail-open until the evaluator lands to protect
-    // LAW1 (no false negatives) during staged rollout.
-    // Remove this placeholder only when the real HF evaluator is merged in the
-    // same change set as observability/schema updates.
     MoidProxyGateResult out{};
     out.evaluated = true;
-    out.fail_open = true;
-    out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_HF_PLACEHOLDER;
+
+    // HF evaluator: coarse global sampling followed by local refinement around
+    // the best coarse cell. Any numeric issue stays fail-open.
+    OrbitalElements sat_el{};
+    OrbitalElements obj_el{};
+    if (!populate_moid_elements(store, sat_idx, obj_idx, epoch_s, cfg, sat_el, obj_el, out)) {
+        return out;
+    }
+
+    const std::uint32_t base_samples = std::max<std::uint32_t>(cfg.moid_samples, 6U);
+    const std::uint32_t coarse_samples = std::max<std::uint32_t>(base_samples * 2U, 12U);
+    const double coarse_step = TWO_PI / static_cast<double>(coarse_samples);
+
+    double min_d2 = std::numeric_limits<double>::infinity();
+    bool any_valid = false;
+    std::uint32_t best_sat_idx = 0;
+    std::uint32_t best_obj_idx = 0;
+
+    for (std::uint32_t s = 0; s < coarse_samples; ++s) {
+        const double sat_u = coarse_step * static_cast<double>(s);
+        Vec3 sat_r{};
+        if (!eci_position_at_mean_anomaly(sat_el, sat_u, sat_r)) {
+            continue;
+        }
+
+        for (std::uint32_t d = 0; d < coarse_samples; ++d) {
+            const double obj_u = coarse_step * static_cast<double>(d);
+            Vec3 obj_r{};
+            if (!eci_position_at_mean_anomaly(obj_el, obj_u, obj_r)) {
+                continue;
+            }
+
+            any_valid = true;
+            const double dx = sat_r.x - obj_r.x;
+            const double dy = sat_r.y - obj_r.y;
+            const double dz = sat_r.z - obj_r.z;
+            const double d2 = norm2(dx, dy, dz);
+            if (d2 < min_d2) {
+                min_d2 = d2;
+                best_sat_idx = s;
+                best_obj_idx = d;
+            }
+        }
+    }
+
+    if (!any_valid || !std::isfinite(min_d2)) {
+        out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_SAMPLING_FAILURE;
+        return out;
+    }
+
+    double best_sat_u = coarse_step * static_cast<double>(best_sat_idx);
+    double best_obj_u = coarse_step * static_cast<double>(best_obj_idx);
+    double fine_step = coarse_step * 0.25;
+
+    for (int iter = 0; iter < 3; ++iter) {
+        bool iter_valid = false;
+        for (int si = -2; si <= 2; ++si) {
+            const double sat_u = best_sat_u + static_cast<double>(si) * fine_step;
+            Vec3 sat_r{};
+            if (!eci_position_at_mean_anomaly(sat_el, sat_u, sat_r)) {
+                continue;
+            }
+            for (int oi = -2; oi <= 2; ++oi) {
+                const double obj_u = best_obj_u + static_cast<double>(oi) * fine_step;
+                Vec3 obj_r{};
+                if (!eci_position_at_mean_anomaly(obj_el, obj_u, obj_r)) {
+                    continue;
+                }
+                iter_valid = true;
+                const double d2 = norm2(sat_r.x - obj_r.x,
+                                        sat_r.y - obj_r.y,
+                                        sat_r.z - obj_r.z);
+                if (d2 < min_d2) {
+                    min_d2 = d2;
+                    best_sat_u = sat_u;
+                    best_obj_u = obj_u;
+                }
+            }
+        }
+
+        if (!iter_valid) {
+            out.fail_open = true;
+            out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_SAMPLING_FAILURE;
+            return out;
+        }
+
+        fine_step *= 0.5;
+    }
+
+    if (!std::isfinite(min_d2)) {
+        out.fail_open = true;
+        out.reason = MoidProxyGateResult::Reason::FAIL_OPEN_SAMPLING_FAILURE;
+        return out;
+    }
+
+    const double threshold_km = std::max(0.0, cfg.moid_reject_threshold_km);
+    out.reject = std::sqrt(min_d2) > threshold_km;
+    if (out.reject) {
+        out.reason = MoidProxyGateResult::Reason::REJECT_DISTANCE_THRESHOLD;
+    }
     return out;
 }
 

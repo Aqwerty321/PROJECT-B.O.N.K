@@ -210,10 +210,11 @@ Strict sweep interpretation:
 ## Phase 4 safety calibration kickoff (in progress)
 
 - HF MOID mode lifecycle:
-  - `PROJECTBONK_NARROW_MOID_MODE=hf` currently enables a deliberate fail-open
-    placeholder path and emits `narrow_moid_fail_open_reason_hf_placeholder`.
-  - Removal criteria for this placeholder are: full HF evaluator merged,
-    reason/schema validators updated atomically, and schema version bump.
+  - `PROJECTBONK_NARROW_MOID_MODE=hf` now enables a two-stage sampled
+    evaluator (coarse global search + local refinement), still fail-open on
+    numeric/validity issues.
+  - `narrow_moid_fail_open_reason_hf_placeholder` is retained as a compatibility
+    metric key and is expected to stay at `0` under the implemented HF path.
 
 - Recovery planner calibration path:
   - runtime now loads planner gains from env with guarded ranges

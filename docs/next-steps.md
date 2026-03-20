@@ -308,6 +308,12 @@ Status update (current branch):
   - `PROJECTBONK_NARROW_MOID_SAMPLES`
   - `PROJECTBONK_NARROW_MOID_REJECT_THRESHOLD_KM`
   - `PROJECTBONK_NARROW_MOID_MAX_E`
+- Implemented `PROJECTBONK_NARROW_MOID_MODE=hf` evaluator path:
+  - replaces placeholder with two-stage sampled evaluation (coarse global
+    search + local refinement)
+  - preserves fail-open behavior for invalid/non-finite/sampling-failure cases
+  - compatibility reason key `narrow_moid_fail_open_reason_hf_placeholder` is
+    retained and expected to remain `0`
 - Added observability counters in debug/status details and calibration probe:
   - plane/phase and MOID-proxy evaluated/shadow-rejected/hard-rejected/
     fail-open pair totals
