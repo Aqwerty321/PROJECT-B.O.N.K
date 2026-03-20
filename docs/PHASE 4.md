@@ -274,6 +274,70 @@ Interpretation:
   - `narrow_uncertainty_promoted_pairs`
   - `broad_dcriterion_shadow_rejected`
 
+## MOID evaluator modes
+
+Two evaluator modes are available via `PROJECTBONK_NARROW_MOID_MODE`:
+
+- `proxy` (default): sampled-orbit distance proxy with configurable sample
+  count (`PROJECTBONK_NARROW_MOID_SAMPLES`, default 24).  Fast but
+  conservative — tends to overestimate MOID for high-e orbits.
+- `hf`: two-stage coarse+local refinement evaluator.  Coarse stage samples
+  both orbits, then runs local Newton-style minimization on the closest
+  sample pair.  More accurate for eccentric/crossing orbits but ~3-5x
+  slower per pair.
+
+Both modes remain fail-open on numeric/validity issues (NaN, non-convergence,
+eccentricity above `PROJECTBONK_NARROW_MOID_MAX_E`).
+
+Shadow/hard filtering controls:
+
+- `PROJECTBONK_NARROW_MOID_SHADOW` (default `1`): count rejections without
+  filtering
+- `PROJECTBONK_NARROW_MOID_FILTER` (default `0`): enable hard rejection
+  (recommended OFF until canary evidence confirms zero-FN)
+
+Evidence from false-negative gate runs with both modes shows zero FN under
+all deterministic scenario families.
+
+## MOID validation matrix
+
+Validation script:
+
+```bash
+./scripts/moid_filter_validation.sh ./build
+```
+
+The matrix exercises both `proxy` and `hf` evaluator modes across:
+
+- circular vs circular pairs
+- circular vs eccentric pairs
+- eccentric vs eccentric pairs (co-planar and inclined)
+- near-miss pairs at threshold boundary (2.0 km)
+- high-e pairs that should fail-open
+
+Each cell verifies that the mode either correctly identifies proximity or
+fails-open; no cell may produce a false negative.
+
+## Broad-phase inclination-neighbor filter
+
+Opt-in via `PROJECTBONK_BROAD_I_NEIGHBOR_FILTER=1` (default `0`).
+
+When enabled, broad-phase band indexing restricts candidate generation to
+satellites and debris in adjacent inclination bands rather than scanning
+all bands.  This reduces broad-phase candidate count but may miss pairs
+with large inclination differences that still overlap in altitude.
+
+Benchmark evidence:
+
+- With i-neighbor OFF (default): broad-phase generates ~N*M candidates
+  (full cross-product within shell-overlapping bands)
+- With i-neighbor ON: candidate count drops ~40-60% in typical LEO
+  constellations, with zero missed pairs in broad-phase sanity gate
+
+Safety policy: keep OFF by default.  Enable only after broad-phase sanity
+gate and false-negative gate both confirm zero-FN with i-neighbor ON for
+the target workload.
+
 ## Promotion policy
 
 - keep runtime defaults unchanged until separate promotion commit.

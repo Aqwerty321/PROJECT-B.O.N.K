@@ -236,7 +236,7 @@ Keep components small and deterministic. Responsibilities:
 **CI**
 
 * Provide Dockerfile + `docker build -t cascade .` and `docker run -p 8000:8000 cascade`
-* Include unit tests (C++ Catch2 or doctest) and a performance script to run scenario sweeps.
+* Include gate tests (C++ binaries in `tools/`, shell runners in `scripts/`) and a performance script to run scenario sweeps.
 * Enforce adaptive propagation safety with a hard-fail regression gate (`phase2_regression_gate`) in CI.
 
 ---
@@ -248,20 +248,21 @@ Keep components small and deterministic. Responsibilities:
 ## Core C++ / build
 
 * **CMake** (>= 3.22) — build orchestrator, cross-platform.
-* **fmtlib** (`fmt`) — safe formatted logging (v9+). Alternative: `spdlog` (already uses fmt).
-* **spdlog** — structured, fast logging.
-* **Eigen** (>= 3.4) — linear algebra for C++ (matrix ops, small vectors). *Used heavily if Julia not used.*
 * **Boost (headers-only)** — version macro verification; Boost.Asio available if needed later.
 * **simdjson** (v3.9.4, FetchContent) — high-performance JSON parsing for telemetry ingestion.
 * **cpp-httplib** (v0.15.3, FetchContent, header-only) — minimal REST API framework.
-* **Catch2** or **doctest** — unit tests.
+
+> **Not currently used** (listed in earlier drafts but not linked in the
+> build): fmtlib/spdlog (logging uses `printf`/`fprintf`), Eigen (hand-rolled
+> vector math + `types.hpp` `Vec3`), Catch2/doctest (gate tests are custom
+> C++ binaries in `tools/`).
 
 ## Numerical / propagation
 
 * **Julia (optional)** + **jluna** — call Julia from C++ for DifferentialEquations.jl solvers, MOID, and high-perf linear algebra. Use only if comfortable; otherwise implement numeric routines in C++ (Eigen + hand-RK4).
 
   * Julia packages: `DifferentialEquations.jl`, `StaticArrays.jl`, `LinearAlgebra` (std), `Measurements.jl` (diagnostics). Use `DifferentialEquations` only via batched calls.
-* **libcmaes** — C++ CMA-ES optimizer for tuner; alternatives: implement simple evolutionary strategy.
+* **libcmaes** (not currently linked) — C++ CMA-ES optimizer for tuner; current tuner uses a simpler Monte-Carlo grid approach.
 
 ## Storage / state
 
@@ -271,9 +272,7 @@ Keep components small and deterministic. Responsibilities:
 
 ## Math & helper libs
 
-* **Eigen** (if not using Julia)
 * **Boost.Random** or `std::mt19937` for Monte Carlo sampling
-* **libcmaes** for tuner (optional)
 * **OpenMP** or thread-pool for parallelizing pair checks
 
 ## Frontend
@@ -383,11 +382,13 @@ Keep components small and deterministic. Responsibilities:
 * `Dockerfile` — builds engine + optionally frontend; `docker build .` → `docker run -p8000:8000 cascade`.
 * `CMakeLists.txt` + `src/` — engine code (ECI, propagator, filters, scheduler, web).
 * `tuner/` — C++ tuner harness (optional separate Docker target).
-* `frontend/` — React app with build script and sample state playback mode.
-* `docs/` — architecture diagram, algorithm references, ground_stations.csv, sample telemetry files.
-* `tests/` — unit tests + performance harness + adversarial scenarios.
-* `demo/` — short GIFs and a small script to run demo sequences.
+* `docs/` — architecture diagram, phase reports, ground_stations.csv, implementation notes.
 * `LICENSE` + `CONTRIBUTING.md` (brief).
+
+> **Planned but not yet created**: `frontend/` (React dashboard), `tests/`
+> (standalone unit-test suite), `demo/` (demo playback scripts).  Safety and
+> regression tests currently live in `tools/` (C++ gate binaries) and
+> `scripts/` (shell gate runners).
 
 ---
 
@@ -412,12 +413,12 @@ Mitigation: follow the “terminal but organic” rules: restrained animation, m
 * **Language**: C++20 (engine, tuner), optional Julia 1.10.0 (numerics) via `jluna`
 * **Build**: CMake >= 3.22, GCC 12, Docker (ubuntu:22.04)
 * **HTTP**: `cpp-httplib` v0.15.3 (header-only, FetchContent)
-* **JSON**: `simdjson` v3.9.4 (FetchContent); raw strings for serialisation (nlohmann/json later if needed)
-* **Linear algebra**: Eigen (or Julia `StaticArrays` if used)
+* **JSON**: `simdjson` v3.9.4 (FetchContent); raw strings for serialisation
+* **Linear algebra**: hand-rolled `Vec3` + scalar math in `types.hpp`; Eigen available if needed later
 * **Parallelism**: OpenMP / thread-pool for pair checks
-* **Tuner**: C++ Monte-Carlo + libcmaes (no Python)
-* **Frontend**: React + Tailwind + deck.gl + three.js + MICR Extended font
-* **Testing**: Catch2 / doctest; performance harness in C++
+* **Tuner**: C++ Monte-Carlo grid in `tuner/` (no Python)
+* **Frontend**: planned — React + Tailwind + deck.gl + three.js + MICR Extended font
+* **Testing**: custom C++ gate binaries (`tools/`) + shell gate runners (`scripts/`); CTest integration
 * **Storage**: in-memory SoA; optional ObjectBox / RocksDB if time permits
 
 ---

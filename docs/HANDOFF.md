@@ -29,9 +29,35 @@ Date: 2026-03-18
   - adaptive fast/RK4 propagation policy
 - `src/simulation_engine.*`
   - tick orchestration for `/api/simulate/step`
+  - narrow-phase TCA screening, refinement, plane/phase and MOID gates
 - `src/broad_phase.*`
   - conservative candidate generation
   - band indexing + shell overlap + fail-open D-criterion gate
+- `src/engine_runtime.*`
+  - command-queue runtime with shared-mutex state
+  - environment variable loading and policy wiring
+  - published read views for lock-free GET endpoints
+  - propagation stats accumulation (last-tick + totals)
+- `src/maneuver_common.*`
+  - shared maneuver/upload/graveyard operations
+  - ground-station LOS checks and upload window validation
+- `src/maneuver_recovery_planner.*`
+  - slot-targeted recovery planner (heuristic + CW/ZEM modes)
+  - request-ratio cap and gain tuning
+- `src/earth_frame.*`
+  - ECI-to-ECEF-to-WGS84 geodetic conversion
+- `src/sim_clock.*`
+  - simulation epoch tracking
+- `src/types.hpp`
+  - common type definitions (Vec3, ObjectType, physics constants)
+- `src/json_util.hpp`
+  - JSON string escaping and formatting helpers
+- `src/http/api_server.*`
+  - HTTP route registration, CORS, query parameter dispatch
+- `src/http/request_parsers.*`
+  - simdjson-based request validation (telemetry, schedule, step)
+- `src/http/response_builders.*`
+  - typed result struct -> JSON response serialization
 
 ## Tooling map
 

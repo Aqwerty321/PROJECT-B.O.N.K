@@ -13,7 +13,7 @@ autonomous orbital debris avoidance.  Built for the
 | Language | C++20 (engine), optional Julia 1.10.x bridge via `jluna` |
 | HTTP | `cpp-httplib` (header-only) |
 | JSON parse | `simdjson` v3.9.4 (FetchContent) |
-| Linear algebra | Boost headers, Eigen (planned) |
+| Linear algebra | Boost headers, hand-rolled `Vec3` (`types.hpp`) |
 | Build | CMake >= 3.22, GCC 12, Docker (`ubuntu:22.04`) |
 
 ---
@@ -465,8 +465,8 @@ The Dockerfile is structured for fast incremental rebuilds:
 2. **`COPY CMakeLists.txt` + `cmake -DPROJECTBONK_PREFETCH_ONLY=ON`** —
    fetches `jluna`, `simdjson`, and `cpp-httplib`.  Cached as long as
    `CMakeLists.txt` does not change.
-3. **`COPY main.cpp` (and future `src/`)** — only this layer and the
-   final build re-run when C++ source files change.
+3. **`COPY main.cpp` + `src/`** — only this layer and the final build
+   re-run when C++ source files change.
 
 ---
 
