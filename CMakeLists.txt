@@ -426,6 +426,15 @@ target_link_libraries(ProjectBONK PRIVATE
 if(PROJECTBONK_ENABLE_JULIA_RUNTIME)
     target_compile_definitions(ProjectBONK PRIVATE PROJECTBONK_ENABLE_JULIA_RUNTIME=1)
     target_link_libraries(ProjectBONK PRIVATE jluna::jluna)
+
+    # NSGA-II multi-objective tuner (jluna bridge → Julia NSGA-II)
+    add_executable(nsga2_jluna_bridge
+        tuner/nsga2_jluna_bridge.cpp
+    )
+    target_link_libraries(nsga2_jluna_bridge PRIVATE
+        bonk_core
+        jluna::jluna
+    )
 else()
     target_compile_definitions(ProjectBONK PRIVATE PROJECTBONK_ENABLE_JULIA_RUNTIME=0)
 endif()
