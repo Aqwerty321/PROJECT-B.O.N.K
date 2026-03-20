@@ -314,6 +314,19 @@ Status update (current branch):
   - preserves fail-open behavior for invalid/non-finite/sampling-failure cases
   - compatibility reason key `narrow_moid_fail_open_reason_hf_placeholder` is
     retained and expected to remain `0`
+- Added MOID validation matrix script and stress fixtures:
+  - `scripts/moid_filter_validation.sh` runs proxy/hf hard-filter canary + hf
+    observability and emits a single summary artifact
+  - false-negative harness now includes MOID stress families:
+    `moid_threshold_edge`, `moid_high_e_guard`, `moid_stale_epoch`
+  - MOID counters (`evaluated`, `shadow_rejected`, `hard_rejected`) are now
+    exported in gate output/canary summaries
+- Coverage closure evidence (full stress profile `13/10/160`):
+  - `build/moid_filter_validation_summary.json`: PASS
+  - `proxy_moid_hard_reject_exercised=true`
+  - `hf_moid_hard_reject_exercised=true`
+  - `false_negative_sats_total=0` in proxy/hf canary
+  - `narrow_moid_fail_open_reason_hf_placeholder_total=0` in hf observability
 - Added observability counters in debug/status details and calibration probe:
   - plane/phase and MOID-proxy evaluated/shadow-rejected/hard-rejected/
     fail-open pair totals

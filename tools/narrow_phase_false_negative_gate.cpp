@@ -242,6 +242,8 @@ struct ScenarioOutcome {
     std::uint64_t uncertainty_promoted_pairs = 0;
     std::uint64_t plane_phase_hard_rejected_pairs = 0;
     std::uint64_t plane_phase_fail_open_pairs = 0;
+    std::uint64_t moid_evaluated_pairs = 0;
+    std::uint64_t moid_shadow_rejected_pairs = 0;
     std::uint64_t moid_hard_rejected_pairs = 0;
     std::uint64_t moid_fail_open_pairs = 0;
     std::string family;
@@ -597,31 +599,36 @@ ScenarioOutcome run_scenario(int scenario_id,
             if (sat_idx >= store_ref.size() || deb_idx >= store_ref.size()) {
                 continue;
             }
-            if (!store_ref.elements_valid(sat_idx)) {
-                continue;
-            }
+            const cascade::Vec3 sat_r{
+                store_ref.rx(sat_idx),
+                store_ref.ry(sat_idx),
+                store_ref.rz(sat_idx)
+            };
+            const cascade::Vec3 sat_v{
+                store_ref.vx(sat_idx),
+                store_ref.vy(sat_idx),
+                store_ref.vz(sat_idx)
+            };
 
-            // Alternate around MOID threshold to stress reject boundary logic.
-            const double side = (k % 2 == 0) ? -1.0 : 1.0;
-            const double offset = std::max(0.03, moid_reject_threshold_km + side * 0.06);
+            // Keep pairs non-collision but inside near-refine window so MOID
+            // gating executes and can hard-reject when filter is on.
+            const double offset = 0.11 + 0.01 * static_cast<double>(k - pair_begin);
+            cascade::Vec3 r{
+                sat_r.x + offset,
+                sat_r.y,
+                sat_r.z
+            };
+            cascade::Vec3 v{
+                sat_v.x,
+                sat_v.y,
+                sat_v.z
+            };
 
             cascade::OrbitalElements el{};
-            el.a_km = std::max(6600.0, store_ref.a_km(sat_idx) + offset);
-            el.e = std::max(0.001, std::min(0.12, store_ref.e(sat_idx)));
-            el.i_rad = store_ref.i_rad(sat_idx);
-            el.raan_rad = store_ref.raan_rad(sat_idx);
-            el.argp_rad = store_ref.argp_rad(sat_idx);
-            el.M_rad = store_ref.M_rad(sat_idx);
-            el.n_rad_s = std::sqrt(cascade::MU_KM3_S2 / (el.a_km * el.a_km * el.a_km));
-            el.p_km = el.a_km * (1.0 - el.e * el.e);
-            el.rp_km = el.a_km * (1.0 - el.e);
-            el.ra_km = el.a_km * (1.0 + el.e);
-
-            cascade::Vec3 r{};
-            cascade::Vec3 v{};
-            if (!cascade::elements_to_eci(el, r, v)) {
+            if (!cascade::eci_to_elements(r, v, el)) {
                 continue;
             }
+
             store_ref.rx_mut(deb_idx) = r.x;
             store_ref.ry_mut(deb_idx) = r.y;
             store_ref.rz_mut(deb_idx) = r.z;
@@ -720,6 +727,8 @@ ScenarioOutcome run_scenario(int scenario_id,
     out.uncertainty_promoted_pairs = stats.narrow_uncertainty_promoted_pairs;
     out.plane_phase_hard_rejected_pairs = stats.narrow_plane_phase_hard_rejected_pairs;
     out.plane_phase_fail_open_pairs = stats.narrow_plane_phase_fail_open_pairs;
+    out.moid_evaluated_pairs = stats.narrow_moid_evaluated_pairs;
+    out.moid_shadow_rejected_pairs = stats.narrow_moid_shadow_rejected_pairs;
     out.moid_hard_rejected_pairs = stats.narrow_moid_hard_rejected_pairs;
     out.moid_fail_open_pairs = stats.narrow_moid_fail_open_pairs;
 
@@ -829,6 +838,8 @@ int main(int argc, char** argv)
     std::uint64_t total_uncertainty_promoted = 0;
     std::uint64_t total_plane_phase_hard_rejected = 0;
     std::uint64_t total_plane_phase_fail_open = 0;
+    std::uint64_t total_moid_evaluated = 0;
+    std::uint64_t total_moid_shadow_rejected = 0;
     std::uint64_t total_moid_hard_rejected = 0;
     std::uint64_t total_moid_fail_open = 0;
     bool all_ok = true;
@@ -893,6 +904,8 @@ int main(int argc, char** argv)
         total_uncertainty_promoted += outcome.uncertainty_promoted_pairs;
         total_plane_phase_hard_rejected += outcome.plane_phase_hard_rejected_pairs;
         total_plane_phase_fail_open += outcome.plane_phase_fail_open_pairs;
+        total_moid_evaluated += outcome.moid_evaluated_pairs;
+        total_moid_shadow_rejected += outcome.moid_shadow_rejected_pairs;
         total_moid_hard_rejected += outcome.moid_hard_rejected_pairs;
         total_moid_fail_open += outcome.moid_fail_open_pairs;
 
@@ -917,6 +930,8 @@ int main(int argc, char** argv)
     std::cout << "narrow_uncertainty_promoted_pairs_total=" << total_uncertainty_promoted << "\n";
     std::cout << "narrow_plane_phase_hard_rejected_pairs_total=" << total_plane_phase_hard_rejected << "\n";
     std::cout << "narrow_plane_phase_fail_open_pairs_total=" << total_plane_phase_fail_open << "\n";
+    std::cout << "narrow_moid_evaluated_pairs_total=" << total_moid_evaluated << "\n";
+    std::cout << "narrow_moid_shadow_rejected_pairs_total=" << total_moid_shadow_rejected << "\n";
     std::cout << "narrow_moid_hard_rejected_pairs_total=" << total_moid_hard_rejected << "\n";
     std::cout << "narrow_moid_fail_open_pairs_total=" << total_moid_fail_open << "\n";
 
