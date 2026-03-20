@@ -368,6 +368,7 @@ cmake --build build --target phase4_calibration_gate
 ./scripts/phase2_regression_gate.sh ./build
 ./scripts/broad_phase_sanity_gate.sh ./build
 ./scripts/narrow_phase_false_negative_gate.sh ./build
+./scripts/phase1_evidence_baseline.sh ./build ./build/phase1_evidence_baseline_summary.json
 ./scripts/maneuver_ops_invariants_gate.sh ./build
 ./scripts/recovery_slot_gate.sh ./build
 ./scripts/recovery_planner_invariants_gate.sh ./build
