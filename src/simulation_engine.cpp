@@ -943,6 +943,7 @@ bool run_simulation_step(StateStore& store,
     };
 
     if (out.failed_objects == 0) {
+        // Happy path: all objects propagated successfully.
         // Sort candidates by (sat_idx, obj_idx) so that full-refine budget
         // exhaustion is deterministic regardless of broad-phase hash-map
         // iteration order.
@@ -962,6 +963,19 @@ bool run_simulation_step(StateStore& store,
             process_pair(sat_idx, obj_idx);
         }
     } else {
+        // Fail-open: if any object failed propagation, bypass broad-phase
+        // filtering entirely and brute-force all SAT×DEBRIS pairs.  This is
+        // necessary because (a) failed objects have stale states that place
+        // them in wrong broad-phase shells, and (b) successfully-propagated
+        // objects that share a shell with a failed object may also have
+        // incorrect pairing.  The all-pairs sweep is the only guaranteed
+        // zero-FN fallback.
+        //
+        // Performance note: this is O(S*D) which is expensive for large
+        // constellations.  A future optimisation (T4-series) can implement
+        // per-object tracking once the broad phase handles crossing orbits.
+        ++out.narrow_fail_open_allpairs;
+
         for (std::size_t i = 0; i < store.size(); ++i) {
             if (store.type(i) != ObjectType::SATELLITE) continue;
 

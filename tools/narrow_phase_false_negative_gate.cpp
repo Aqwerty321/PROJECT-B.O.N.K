@@ -246,6 +246,8 @@ struct ScenarioOutcome {
     std::uint64_t moid_shadow_rejected_pairs = 0;
     std::uint64_t moid_hard_rejected_pairs = 0;
     std::uint64_t moid_fail_open_pairs = 0;
+    std::uint64_t failed_objects = 0;
+    std::uint64_t narrow_pairs_checked = 0;
     std::string family;
     int scenario_seed = 0;
     double step_seconds = 0.0;
@@ -891,6 +893,8 @@ ScenarioOutcome run_scenario(int scenario_id,
     out.moid_shadow_rejected_pairs = stats.narrow_moid_shadow_rejected_pairs;
     out.moid_hard_rejected_pairs = stats.narrow_moid_hard_rejected_pairs;
     out.moid_fail_open_pairs = stats.narrow_moid_fail_open_pairs;
+    out.failed_objects = stats.failed_objects;
+    out.narrow_pairs_checked = stats.narrow_pairs_checked;
 
     std::unordered_set<std::string> production_collision_sat_ids;
     for (std::uint32_t sat_idx_u32 : stats.collision_sat_indices) {
@@ -1090,6 +1094,8 @@ int main(int argc, char** argv)
         std::cout << "scenario_" << s << "_reference_collision_sats=" << outcome.reference_collision_sats << "\n";
         std::cout << "scenario_" << s << "_production_collision_sats=" << outcome.production_collision_sats << "\n";
         std::cout << "scenario_" << s << "_false_negative_sats=" << outcome.false_negative_sats << "\n";
+        std::cout << "scenario_" << s << "_failed_objects=" << outcome.failed_objects << "\n";
+        std::cout << "scenario_" << s << "_narrow_pairs_checked=" << outcome.narrow_pairs_checked << "\n";
         std::cout << "scenario_" << s << "_result=" << (outcome.false_negative_sats == 0 ? "PASS" : "FAIL") << "\n";
     }
 

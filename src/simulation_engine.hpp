@@ -102,6 +102,7 @@ struct StepRunStats {
     std::uint64_t narrow_refine_fail_open_reason_rk4_failure_total = 0;
     std::uint64_t narrow_full_refine_fail_open_reason_rk4_failure_total = 0;
     std::uint64_t narrow_full_refine_fail_open_reason_budget_exhausted_total = 0;
+    std::uint64_t narrow_fail_open_allpairs = 0;
     std::vector<std::uint32_t> collision_sat_indices;
 
     // Broad-phase (conservative shell overlap)
