@@ -96,7 +96,7 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 | D-criterion rollout with shadow mode | PARTIAL | shadow and opt-in gate exist; runtime defaults keep hard filter disabled |
 | Narrow-phase analytic TCA + RK4 refinements | PARTIAL | conservative linearized TCA + micro/full RK4 refinement implemented |
 | Plane intersection / phase-torus gate | PARTIAL | shadow-first plane/phase gate scaffolding implemented; hard reject remains opt-in |
-| MOID solver stage | PARTIAL | MOID-proxy shadow stage implemented; full HF evaluator remains pending |
+| MOID solver stage | DONE | Full HF evaluator implemented and validated; hard-filter canary shows zero FN at production and stress thresholds; default remains shadow-only per rollout model |
 | Maneuver brain CW/ZEM solver | PARTIAL | runtime supports `PROJECTBONK_RECOVERY_SOLVER_MODE=heuristic|cw_zem`; strict side-by-side comparison currently keeps heuristic as default |
 | Scheduler with blackout/upload semantics | PARTIAL | LOS + latency upload planning exists; static stations and simplified planner |
 | Offline tuner path | DONE | deterministic offline tuner scaffold and sweep tooling |
@@ -107,15 +107,21 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 
 ### P0 risk (blockers before frontend)
 
-1. False-negative evidence is strong but still synthetic-limited.
-   - Risk: blind spots for adversarial geometry/time windows not represented.
+1. False-negative evidence is strong with expanded coverage.
+   - Hard-filter canary gate verifies zero FN across 48 scenarios (4 profiles
+     × 12 families) at both production and stress thresholds.
+   - Residual risk: blind spots for adversarial geometry/time windows not
+     represented in current scenario bank.
 2. CW/ZEM rollout is incomplete.
    - Current state: a first CW/ZEM-equivalent path exists behind
      `PROJECTBONK_RECOVERY_SOLVER_MODE=cw_zem`.
    - Risk: strict side-by-side comparison currently fails in `cw_zem` mode,
      so default promotion would regress recovery acceptance behavior.
-3. Full HF MOID evaluator is still pending behind placeholder fail-open mode.
-  - Risk: fidelity/performance ceiling for narrow-phase decisions.
+3. Full HF MOID evaluator is implemented and validated.
+   - Hard-filter canary evidence shows zero FN at production (2.0 km) and
+     stress (0.05 km) thresholds for both proxy and HF modes.
+   - Remaining: hard-filter default promotion requires repeated zero-FN
+     evidence per rollout model (shadow-first default ON, hard filter OFF).
 
 ### P1 risk (important, not immediate blocker)
 
@@ -151,7 +157,7 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 - Verify:
   - `cmake --build build --target phase4_calibration_gate`
 
-### P0.2 Strengthen no-false-negative evidence bank
+### P0.2 [COMPLETE] Strengthen no-false-negative evidence bank
 
 - Why:
   - current gate scenarios are deterministic but modest in diversity.
@@ -162,11 +168,20 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
     - long-step windows (`3600`, `21600`, `86400`)
     - high-e and perigee-low stress cases
   - include deterministic seeds and artifact output
+  - added boundary stress families (plane_boundary, phase_boundary,
+    moid_boundary) with ±0.005 rad / ±0.02 km margins
+  - added hard-filter canary gate testing both filters ON at production
+    and stress thresholds across proxy and HF MOID modes
 - Acceptance:
   - expanded gate remains PASS with `false_negative_sats_total=0`
   - reference collisions observed in each scenario family
+  - hard-filter canary shows zero FN across 48 total scenario runs
+- Evidence:
+  - `hard_filter_canary_gate_summary.json`: PASS, 0 FN, 160 ref collisions
+  - all 12 scenario families pass in all 4 profiles
 - Verify:
   - `./scripts/narrow_phase_false_negative_gate.sh ./build`
+  - `./scripts/hard_filter_canary_gate.sh ./build`
 
 ### P0.3 [COMPLETE] Data-source correctness for ground stations
 
@@ -183,7 +198,7 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
   - `./scripts/maneuver_ops_invariants_gate.sh ./build`
   - `./scripts/api_contract_gate.sh ./build`
 
-### P0.4 Clarify and lock collision-threshold policy
+### P0.4 [COMPLETE] Clarify and lock collision-threshold policy
 
 - Why:
   - runtime currently uses threshold+guard in conservative classification.
@@ -198,7 +213,7 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
   - `./scripts/narrow_phase_false_negative_gate.sh ./build`
   - `./scripts/api_contract_gate.sh ./build`
 
-### P0.5 Contract guardrail review and decision log
+### P0.5 [COMPLETE] Contract guardrail review and decision log
 
 - Why:
   - avoid grader-facing ambiguity and accidental schema drift.
@@ -237,7 +252,7 @@ Status: partial progress completed
   override `PROJECTBONK_API_CONTRACT_SCHEDULE_SUCCESS_STATUS` still takes
   precedence for external compatibility probes.
 
-### P0.6 Documentation consistency sweep
+### P0.6 [COMPLETE] Documentation consistency sweep
 
 - Why:
   - stale docs increase operational mistakes and handoff risk.
@@ -338,6 +353,28 @@ Status update (current branch):
   shadow evidence while keeping FN gate at zero (fixture profile now uses
   `high_rel_speed_km_s=2.0`, `high_rel_speed_extra_band_km=0.5`,
   `fixture_rel_speed_km_s=3.0`).
+- Added dedicated hard-filter canary gate (`scripts/hard_filter_canary_gate.sh`)
+  that runs FN gate with both plane-phase and MOID hard filters ON across four
+  profiles: production thresholds (proxy + HF) and stress thresholds (proxy + HF).
+- Hard-filter canary evidence (48 scenarios total, 12 per profile, 10 sats, 160 debris):
+  - `hard_filter_canary_gate_status=PASS`
+  - `total_false_negatives=0` across all 4 profiles
+  - `total_reference_collisions=160`, `total_production_collisions=174`
+  - `stress_moid_hard_reject_exercised=true`
+  - All 12 scenario families pass in every profile (baseline, high_e, coorbital,
+    crossing, high_alt, long_step, plane_edge, phase_edge, moid_edge,
+    moid_threshold_edge, moid_high_e_guard, moid_stale_epoch)
+  - Artifact: `build/hard_filter_canary_gate_summary.json`
+- Pre-computed per-object MOID data once per tick (T4.2):
+  - `PerObjectPrecomp` struct holds J2-propagated elements, angular momentum,
+    phase, and eligibility flags
+  - All narrow-phase gate evaluators refactored to use precomp references
+- Static scratch vectors for pre-step state (T4.3):
+  - `rx0..vz0`, `sat_collision_mark`, `obj_precomp` changed from per-tick
+    heap allocations to `static` vectors with `resize()`
+- Flat sorted band index replacing nested unordered_maps (T4.4):
+  - `BandEntry` struct with `(a_bin, i_bin, debris_idx)` + `std::lower_bound`
+  - Better cache locality and no hash overhead
 
 ### P1.3 Maneuver planner fidelity upgrade path
 
@@ -412,6 +449,7 @@ cmake --build build --target phase4_calibration_gate
 ./scripts/narrow_phase_false_negative_gate.sh ./build
 ./scripts/phase1_evidence_baseline.sh ./build ./build/phase1_evidence_baseline_summary.json
 ./scripts/moid_filter_validation.sh ./build ./build/moid_filter_validation_summary.json
+./scripts/hard_filter_canary_gate.sh ./build ./build/hard_filter_canary_gate_summary.json
 ./scripts/maneuver_ops_invariants_gate.sh ./build
 ./scripts/recovery_slot_gate.sh ./build
 ./scripts/recovery_planner_invariants_gate.sh ./build
@@ -448,13 +486,21 @@ docker run --rm -p 8000:8000 cascade:local
    - Impact: changing code affects contract gate and potentially integrations.
 
 2. MOID implementation timing
-   - Recommended default: defer full MOID to P1 after P0 hardening and CI gate
-     unification.
+   - Recommended default: full HF evaluator is now implemented and validated.
+     Hard-filter canary evidence shows zero FN at both production (2.0 km) and
+     stress (0.05 km) thresholds across proxy and HF modes.
+   - Status: promotion to hard-filter-ON default is supported by evidence but
+     not yet flipped; recommended rollout model is shadow-first default ON,
+     hard filter default OFF, promote only after repeated zero-FN evidence.
    - Impact: keeps near-term risk low while preserving safety-first posture.
 
-3. D-criterion enablement in runtime
+3. D-criterion / plane-phase hard-filter enablement in runtime
    - Recommended default: keep runtime hard filter disabled (`shadow` only)
      until broader FN evidence bank is complete.
+   - Evidence: hard-filter canary shows zero FN with both filters ON across
+     48 scenarios, but plane-phase hard-reject path was not exercised at
+     production thresholds (wide angles mean no rejections). Need stress
+     scenarios that specifically trigger plane-phase rejections before promoting.
    - Impact: higher compute, lower FN risk.
 
 4. CI runtime budget

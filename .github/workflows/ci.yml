@@ -84,6 +84,9 @@ jobs:
       - name: Run MOID filter validation
         run: ./scripts/moid_filter_validation.sh ./build
 
+      - name: Run hard-filter canary gate
+        run: ./scripts/hard_filter_canary_gate.sh ./build
+
       - name: Run recovery solver comparison
         run: ./scripts/recovery_solver_compare.sh ./build ./build/recovery_solver_compare_summary.json 24 0.08 1.10 strict
 
@@ -115,6 +118,14 @@ jobs:
         with:
           name: recovery-solver-compare-summary
           path: build/recovery_solver_compare_summary.json
+          if-no-files-found: warn
+
+      - name: Upload hard-filter canary gate summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hard-filter-canary-gate-summary
+          path: build/hard_filter_canary_gate_summary.json
           if-no-files-found: warn
 
       - name: Run CTest safety suite
