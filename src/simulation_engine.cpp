@@ -1101,6 +1101,23 @@ bool run_simulation_step(StateStore& store,
             ++local_out.collisions_detected;
             sat_collision_mark[sat_idx] = 1;
         }
+
+        // Capture conjunction events for visualization when miss distance
+        // falls within the full refine band (close approaches worth tracking).
+        const double miss_dist = std::sqrt(d2);
+        if (miss_dist <= screening_threshold_km + full_refine_band_km) {
+            ConjunctionRecord rec;
+            rec.satellite_id = store.id(sat_idx);
+            rec.debris_id    = store.id(obj_idx);
+            rec.tca_epoch_s  = target_epoch;
+            rec.miss_distance_km = miss_dist;
+            rec.approach_speed_km_s = rel_speed;
+            rec.sat_pos_eci_km = {store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+            rec.deb_pos_eci_km = {store.rx(obj_idx), store.ry(obj_idx), store.rz(obj_idx)};
+            rec.collision = (d2 < collision_threshold_sq);
+            rec.tick_id = 0; // Will be set by engine_runtime after step
+            local_out.conjunction_events.push_back(std::move(rec));
+        }
     };
 
     auto t_narrow_sweep_start = std::chrono::steady_clock::now();
@@ -1143,6 +1160,10 @@ bool run_simulation_step(StateStore& store,
         // Merge per-thread stats into the main output.
         for (int t = 0; t < max_threads; ++t) {
             merge_narrow_stats(out, thread_stats[static_cast<size_t>(t)]);
+            auto& tevts = thread_stats[static_cast<size_t>(t)].conjunction_events;
+            out.conjunction_events.insert(out.conjunction_events.end(),
+                std::make_move_iterator(tevts.begin()),
+                std::make_move_iterator(tevts.end()));
         }
 #else
         for (int64_t ci = 0; ci < n_candidates; ++ci) {
@@ -1201,6 +1222,10 @@ bool run_simulation_step(StateStore& store,
 
         for (int t = 0; t < max_threads; ++t) {
             merge_narrow_stats(out, thread_stats[static_cast<size_t>(t)]);
+            auto& tevts = thread_stats[static_cast<size_t>(t)].conjunction_events;
+            out.conjunction_events.insert(out.conjunction_events.end(),
+                std::make_move_iterator(tevts.begin()),
+                std::make_move_iterator(tevts.end()));
         }
 #else
         for (int64_t pi = 0; pi < n_all; ++pi) {

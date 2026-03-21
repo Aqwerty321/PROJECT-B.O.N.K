@@ -6,6 +6,7 @@
 #include "state_store.hpp"
 #include "sim_clock.hpp"
 #include "broad_phase.hpp"
+#include "maneuver_common.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -105,6 +106,9 @@ struct StepRunStats {
     std::uint64_t narrow_full_refine_fail_open_reason_budget_exhausted_total = 0;
     std::uint64_t narrow_fail_open_allpairs = 0;
     std::vector<std::uint32_t> collision_sat_indices;
+
+    // Conjunction events captured during narrow-phase for visualization.
+    std::vector<ConjunctionRecord> conjunction_events;
 
     // Broad-phase (conservative shell overlap)
     std::uint64_t broad_pairs_considered = 0;

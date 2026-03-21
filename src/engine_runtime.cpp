@@ -848,6 +848,232 @@ std::string build_propagation_json(const StateStore& store,
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// build_burns_json — serialize executed burn history + pending burn queue
+// ---------------------------------------------------------------------------
+std::string build_burns_json(const std::deque<ExecutedBurn>& history,
+                             const std::vector<ScheduledBurn>& pending,
+                             const std::unordered_map<std::string, PerSatManeuverStats>& per_sat)
+{
+    std::string out;
+    out.reserve(4096);
+    out += "{\"executed\":[";
+    bool first = true;
+    for (const auto& b : history) {
+        if (!first) out += ',';
+        first = false;
+        out += "{\"id\":";
+        append_json_string(out, b.id);
+        out += ",\"satellite_id\":";
+        append_json_string(out, b.satellite_id);
+        out += ",\"burn_epoch\":";
+        append_json_string(out, iso8601(b.burn_epoch_s));
+        out += ",\"upload_epoch\":";
+        append_json_string(out, iso8601(b.upload_epoch_s));
+        out += ",\"upload_station\":";
+        append_json_string(out, b.upload_station_id);
+        out += ",\"delta_v_km_s\":[";
+        out += fmt_double(b.delta_v_km_s.x, 9);
+        out += ',';
+        out += fmt_double(b.delta_v_km_s.y, 9);
+        out += ',';
+        out += fmt_double(b.delta_v_km_s.z, 9);
+        out += "],\"delta_v_norm_km_s\":";
+        out += fmt_double(b.delta_v_norm_km_s, 9);
+        out += ",\"fuel_before_kg\":";
+        out += fmt_double(b.fuel_before_kg, 4);
+        out += ",\"fuel_after_kg\":";
+        out += fmt_double(b.fuel_after_kg, 4);
+        out += ",\"auto_generated\":";
+        out += (b.auto_generated ? "true" : "false");
+        out += ",\"recovery_burn\":";
+        out += (b.recovery_burn ? "true" : "false");
+        out += ",\"graveyard_burn\":";
+        out += (b.graveyard_burn ? "true" : "false");
+        out += '}';
+    }
+    out += "],\"pending\":[";
+    first = true;
+    for (const auto& b : pending) {
+        if (!first) out += ',';
+        first = false;
+        out += "{\"id\":";
+        append_json_string(out, b.id);
+        out += ",\"satellite_id\":";
+        append_json_string(out, b.satellite_id);
+        out += ",\"burn_epoch\":";
+        append_json_string(out, iso8601(b.burn_epoch_s));
+        out += ",\"upload_epoch\":";
+        append_json_string(out, iso8601(b.upload_epoch_s));
+        out += ",\"upload_station\":";
+        append_json_string(out, b.upload_station_id);
+        out += ",\"delta_v_km_s\":[";
+        out += fmt_double(b.delta_v_km_s.x, 9);
+        out += ',';
+        out += fmt_double(b.delta_v_km_s.y, 9);
+        out += ',';
+        out += fmt_double(b.delta_v_km_s.z, 9);
+        out += "],\"delta_v_norm_km_s\":";
+        out += fmt_double(b.delta_v_norm_km_s, 9);
+        out += ",\"auto_generated\":";
+        out += (b.auto_generated ? "true" : "false");
+        out += ",\"recovery_burn\":";
+        out += (b.recovery_burn ? "true" : "false");
+        out += ",\"graveyard_burn\":";
+        out += (b.graveyard_burn ? "true" : "false");
+        out += '}';
+    }
+    out += "],\"per_satellite\":{";
+    first = true;
+    for (const auto& [sat_id, st] : per_sat) {
+        if (!first) out += ',';
+        first = false;
+        append_json_string(out, sat_id);
+        out += ":{\"burns_executed\":";
+        out += std::to_string(st.burns_executed);
+        out += ",\"delta_v_total_km_s\":";
+        out += fmt_double(st.delta_v_total_km_s, 9);
+        out += ",\"fuel_consumed_kg\":";
+        out += fmt_double(st.fuel_consumed_kg, 4);
+        out += '}';
+    }
+    out += "}}";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// build_conjunctions_json — serialize conjunction history ring buffer
+// ---------------------------------------------------------------------------
+std::string build_conjunctions_json(const std::deque<ConjunctionRecord>& history,
+                                    std::string_view satellite_id_filter)
+{
+    std::string out;
+    out.reserve(4096);
+    out += "{\"conjunctions\":[";
+    bool first = true;
+    for (const auto& c : history) {
+        if (!satellite_id_filter.empty() && c.satellite_id != satellite_id_filter) {
+            continue;
+        }
+        if (!first) out += ',';
+        first = false;
+        out += "{\"satellite_id\":";
+        append_json_string(out, c.satellite_id);
+        out += ",\"debris_id\":";
+        append_json_string(out, c.debris_id);
+        out += ",\"tca\":";
+        append_json_string(out, iso8601(c.tca_epoch_s));
+        out += ",\"tca_epoch_s\":";
+        out += fmt_double(c.tca_epoch_s, 3);
+        out += ",\"miss_distance_km\":";
+        out += fmt_double(c.miss_distance_km, 6);
+        out += ",\"approach_speed_km_s\":";
+        out += fmt_double(c.approach_speed_km_s, 6);
+        out += ",\"sat_pos_eci_km\":[";
+        out += fmt_double(c.sat_pos_eci_km.x, 6);
+        out += ',';
+        out += fmt_double(c.sat_pos_eci_km.y, 6);
+        out += ',';
+        out += fmt_double(c.sat_pos_eci_km.z, 6);
+        out += "],\"deb_pos_eci_km\":[";
+        out += fmt_double(c.deb_pos_eci_km.x, 6);
+        out += ',';
+        out += fmt_double(c.deb_pos_eci_km.y, 6);
+        out += ',';
+        out += fmt_double(c.deb_pos_eci_km.z, 6);
+        out += "],\"collision\":";
+        out += (c.collision ? "true" : "false");
+        out += ",\"tick_id\":";
+        out += std::to_string(c.tick_id);
+        out += '}';
+    }
+    out += "],\"count\":";
+    out += std::to_string(history.size());
+    out += '}';
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// build_trajectory_json — serialize trailing track + predicted path
+// ---------------------------------------------------------------------------
+std::string build_trajectory_json(const StateStore& store,
+                                  std::string_view satellite_id,
+                                  const std::deque<TrackPoint>& trail,
+                                  double current_epoch_s)
+{
+    std::string out;
+    out.reserve(8192);
+    out += "{\"satellite_id\":";
+    append_json_string(out, satellite_id);
+    out += ",\"trail\":[";
+    bool first = true;
+    for (const auto& tp : trail) {
+        if (!first) out += ',';
+        first = false;
+        out += "{\"epoch_s\":";
+        out += fmt_double(tp.epoch_s, 3);
+        out += ",\"lat\":";
+        out += fmt_double(tp.lat_deg, 6);
+        out += ",\"lon\":";
+        out += fmt_double(tp.lon_deg, 6);
+        out += ",\"alt_km\":";
+        out += fmt_double(tp.alt_km, 3);
+        out += ",\"eci\":[";
+        out += fmt_double(tp.eci_km.x, 6);
+        out += ',';
+        out += fmt_double(tp.eci_km.y, 6);
+        out += ',';
+        out += fmt_double(tp.eci_km.z, 6);
+        out += "]}";
+    }
+    out += "],\"predicted\":[";
+
+    // Forward-propagate current state for 90 min (90 points @ 60s intervals)
+    const std::size_t sat_idx = store.find(satellite_id);
+    first = true;
+    if (sat_idx < store.size()) {
+        Vec3 r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+        Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+        constexpr int kPredictPoints = 90;
+        constexpr double kPredictInterval_s = 60.0;
+
+        for (int p = 0; p < kPredictPoints; ++p) {
+            Vec3 rp = r;
+            Vec3 vp = v;
+            const bool ok = propagate_rk4_j2_substep(rp, vp, kPredictInterval_s, 10.0);
+            if (!ok) break;
+            r = rp;
+            v = vp;
+
+            if (!first) out += ',';
+            first = false;
+
+            const double pred_epoch = current_epoch_s + kPredictInterval_s * (p + 1);
+            const Vec3 ecef = eci_to_ecef(r, pred_epoch);
+            double lat = 0.0, lon = 0.0, alt = 0.0;
+            ecef_to_geodetic(ecef, lat, lon, alt);
+
+            out += "{\"epoch_s\":";
+            out += fmt_double(pred_epoch, 3);
+            out += ",\"lat\":";
+            out += fmt_double(lat, 6);
+            out += ",\"lon\":";
+            out += fmt_double(lon, 6);
+            out += ",\"alt_km\":";
+            out += fmt_double(alt, 3);
+            out += ",\"eci\":[";
+            out += fmt_double(r.x, 6);
+            out += ',';
+            out += fmt_double(r.y, 6);
+            out += ',';
+            out += fmt_double(r.z, 6);
+            out += "]}";
+        }
+    }
+    out += "]}";
+    return out;
+}
+
 } // namespace
 
 EngineRuntime::EngineRuntime()
@@ -1280,6 +1506,7 @@ void EngineRuntime::publish_read_views()
         next->snapshot_json = build_snapshot(store_, clock_);
         next->conflicts_json = build_conflicts_json(store_);
         next->propagation_json = build_propagation_json(store_, prop_stats_, step_cfg_, recovery_cfg_);
+        next->burns_json = build_burns_json(executed_burn_history_, burn_queue_, per_sat_maneuver_stats_);
     }
 
     std::atomic_store_explicit(&published_views_, std::const_pointer_cast<const PublishedReadViews>(next), std::memory_order_release);
@@ -1593,6 +1820,18 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         // Station-keeping path only proposes corrective burns after slot-box
         // breach and still obeys cooldown/LOS/fuel safety checks.
 
+        // --- Phase 0D: Snapshot burn queue + satellite fuel for burn capture ---
+        std::unordered_map<std::string, double> fuel_snapshot_before;
+        std::vector<ScheduledBurn> burns_before = burn_queue_;
+        for (const auto& b : burns_before) {
+            if (fuel_snapshot_before.find(b.satellite_id) == fuel_snapshot_before.end()) {
+                const std::size_t si = store_.find(b.satellite_id);
+                if (si < store_.size()) {
+                    fuel_snapshot_before[b.satellite_id] = store_.fuel_kg(si);
+                }
+            }
+        }
+
         const ManeuverExecStats exec_stats = cascade::execute_due_maneuvers(
             store_,
             clock_.epoch_s(),
@@ -1604,6 +1843,44 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         );
         upload_missed_tick += exec_stats.upload_missed;
         stats.maneuvers_executed = exec_stats.executed;
+
+        // --- Phase 0D: Identify executed burns and record them ---
+        if (exec_stats.executed > 0) {
+            // Build set of remaining burn IDs
+            std::unordered_map<std::string, bool> remaining_ids;
+            for (const auto& b : burn_queue_) {
+                remaining_ids[b.id] = true;
+            }
+            // Any burn from before that's not in remaining was executed
+            for (const auto& b : burns_before) {
+                if (remaining_ids.find(b.id) != remaining_ids.end()) continue;
+                ExecutedBurn eb;
+                eb.id = b.id;
+                eb.satellite_id = b.satellite_id;
+                eb.upload_station_id = b.upload_station_id;
+                eb.upload_epoch_s = b.upload_epoch_s;
+                eb.burn_epoch_s = b.burn_epoch_s;
+                eb.delta_v_km_s = b.delta_v_km_s;
+                eb.delta_v_norm_km_s = b.delta_v_norm_km_s;
+                eb.auto_generated = b.auto_generated;
+                eb.recovery_burn = b.recovery_burn;
+                eb.graveyard_burn = b.graveyard_burn;
+                // Fuel before from snapshot; fuel after from current store
+                auto fit = fuel_snapshot_before.find(b.satellite_id);
+                eb.fuel_before_kg = (fit != fuel_snapshot_before.end()) ? fit->second : 0.0;
+                const std::size_t si = store_.find(b.satellite_id);
+                eb.fuel_after_kg = (si < store_.size()) ? store_.fuel_kg(si) : 0.0;
+                executed_burn_history_.push_back(std::move(eb));
+                while (executed_burn_history_.size() > kMaxExecutedBurnHistory) {
+                    executed_burn_history_.pop_front();
+                }
+                // Update per-sat stats
+                auto& ps = per_sat_maneuver_stats_[b.satellite_id];
+                ++ps.burns_executed;
+                ps.delta_v_total_km_s += b.delta_v_norm_km_s;
+                ps.fuel_consumed_kg += (eb.fuel_before_kg - eb.fuel_after_kg);
+            }
+        }
 
         const RecoveryPlanStats rec_plan = cascade::plan_recovery_burns(
             store_,
@@ -1781,6 +2058,40 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         // 24-hour predictive CDM scan (PS.md §3: "forecast potential
         // collisions up to 24 hours in the future").
         cdm_warnings_count_ = compute_cdm_warnings_24h(store_, step_cfg_.broad_phase);
+
+        // --- Phase 0D: Record conjunction events from this step ---
+        for (auto& ce : stats.conjunction_events) {
+            ce.tick_id = tick_id;
+            conjunction_history_.push_back(std::move(ce));
+        }
+        while (conjunction_history_.size() > kMaxConjunctionHistory) {
+            conjunction_history_.pop_front();
+        }
+
+        // --- Phase 0D: Record trajectory track points for all satellites ---
+        {
+            const double epoch_s = clock_.epoch_s();
+            for (std::size_t i = 0; i < store_.size(); ++i) {
+                if (store_.type(i) != ObjectType::SATELLITE) continue;
+                const std::string sid = store_.id(i);
+                const Vec3 eci{store_.rx(i), store_.ry(i), store_.rz(i)};
+                const Vec3 ecef = eci_to_ecef(eci, epoch_s);
+                double lat = 0.0, lon = 0.0, alt = 0.0;
+                ecef_to_geodetic(ecef, lat, lon, alt);
+                TrackPoint tp;
+                tp.epoch_s = epoch_s;
+                tp.lat_deg = lat;
+                tp.lon_deg = lon;
+                tp.alt_km = alt;
+                tp.eci_km = eci;
+                tp.vel_km_s = {store_.vx(i), store_.vy(i), store_.vz(i)};
+                auto& trail = trajectory_by_sat_[sid];
+                trail.push_back(std::move(tp));
+                while (trail.size() > kMaxTrackPointsPerSat) {
+                    trail.pop_front();
+                }
+            }
+        }
 
         new_ts = clock_.to_iso();
     }
@@ -2438,6 +2749,35 @@ std::string EngineRuntime::propagation_json() const
 
     std::shared_lock lock(mutex_);
     return build_propagation_json(store_, prop_stats_, step_cfg_, recovery_cfg_);
+}
+
+std::string EngineRuntime::burns_json() const
+{
+    const std::shared_ptr<const PublishedReadViews> view =
+        std::atomic_load_explicit(&published_views_, std::memory_order_acquire);
+    if (view) {
+        return view->burns_json;
+    }
+
+    std::shared_lock lock(mutex_);
+    return build_burns_json(executed_burn_history_, burn_queue_, per_sat_maneuver_stats_);
+}
+
+std::string EngineRuntime::conjunctions_json(std::string_view satellite_id_filter) const
+{
+    // Conjunctions are not pre-published (filter varies per request).
+    std::shared_lock lock(mutex_);
+    return build_conjunctions_json(conjunction_history_, satellite_id_filter);
+}
+
+std::string EngineRuntime::trajectory_json(std::string_view satellite_id) const
+{
+    // Trajectory is not pre-published (per-satellite + forward prediction).
+    std::shared_lock lock(mutex_);
+    const auto it = trajectory_by_sat_.find(std::string(satellite_id));
+    static const std::deque<TrackPoint> empty_trail;
+    const auto& trail = (it != trajectory_by_sat_.end()) ? it->second : empty_trail;
+    return build_trajectory_json(store_, satellite_id, trail, clock_.epoch_s());
 }
 
 } // namespace cascade

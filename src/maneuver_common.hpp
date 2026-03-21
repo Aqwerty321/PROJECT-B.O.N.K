@@ -28,6 +28,65 @@ struct ScheduledBurn {
     bool graveyard_burn = false;
 };
 
+// ---------------------------------------------------------------------------
+// ExecutedBurn — record of a burn that has been applied to the state vector.
+// Stored in a ring buffer (512 cap) for frontend Gantt timeline visualization.
+// ---------------------------------------------------------------------------
+struct ExecutedBurn {
+    std::string id;
+    std::string satellite_id;
+    std::string upload_station_id;
+    double upload_epoch_s = 0.0;
+    double burn_epoch_s = 0.0;
+    Vec3 delta_v_km_s{};
+    double delta_v_norm_km_s = 0.0;
+    double fuel_before_kg = 0.0;
+    double fuel_after_kg = 0.0;
+    bool auto_generated = false;
+    bool recovery_burn = false;
+    bool graveyard_burn = false;
+};
+
+// ---------------------------------------------------------------------------
+// ConjunctionRecord — persisted narrow-phase conjunction result.
+// Captured when a satellite-debris pair enters TCA refinement within the
+// full_refine_band, or when a collision is detected. Ring buffer (1024 cap)
+// for bullseye visualization.
+// ---------------------------------------------------------------------------
+struct ConjunctionRecord {
+    std::string satellite_id;
+    std::string debris_id;
+    double tca_epoch_s = 0.0;          // time of closest approach (sim epoch)
+    double miss_distance_km = 0.0;     // minimum separation at TCA
+    double approach_speed_km_s = 0.0;  // relative speed at TCA
+    Vec3 sat_pos_eci_km{};             // satellite ECI position at detection
+    Vec3 deb_pos_eci_km{};             // debris ECI position at detection
+    bool collision = false;            // was this a collision event?
+    std::uint64_t tick_id = 0;
+};
+
+// ---------------------------------------------------------------------------
+// TrackPoint — per-satellite position sample for trajectory visualization.
+// Stored in a per-satellite ring buffer (5400 entries = 90 min @ 1 sample/s).
+// ---------------------------------------------------------------------------
+struct TrackPoint {
+    double epoch_s = 0.0;
+    double lat_deg = 0.0;
+    double lon_deg = 0.0;
+    double alt_km = 0.0;
+    Vec3 eci_km{};
+    Vec3 vel_km_s{};
+};
+
+// ---------------------------------------------------------------------------
+// PerSatManeuverStats — cumulative burn statistics per satellite.
+// ---------------------------------------------------------------------------
+struct PerSatManeuverStats {
+    std::uint64_t burns_executed = 0;
+    double delta_v_total_km_s = 0.0;
+    double fuel_consumed_kg = 0.0;
+};
+
 struct ManeuverExecStats {
     std::uint64_t executed = 0;
     std::uint64_t recovery_pending_marked = 0;

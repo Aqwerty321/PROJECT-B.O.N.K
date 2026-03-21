@@ -283,6 +283,37 @@ void register_routes(httplib::Server& server,
         res.set_content(runtime.propagation_json(), "application/json");
         with_cors(req, res);
     });
+
+    server.Get("/api/debug/burns", [&runtime, with_cors](const httplib::Request& req, httplib::Response& res) {
+        res.status = 200;
+        res.set_content(runtime.burns_json(), "application/json");
+        with_cors(req, res);
+    });
+
+    server.Get("/api/debug/conjunctions", [&runtime, with_cors](const httplib::Request& req, httplib::Response& res) {
+        std::string_view filter;
+        std::string filter_str;
+        if (req.has_param("satellite_id")) {
+            filter_str = req.get_param_value("satellite_id");
+            filter = filter_str;
+        }
+        res.status = 200;
+        res.set_content(runtime.conjunctions_json(filter), "application/json");
+        with_cors(req, res);
+    });
+
+    server.Get("/api/visualization/trajectory", [&runtime, with_cors](const httplib::Request& req, httplib::Response& res) {
+        if (!req.has_param("satellite_id")) {
+            res.status = 400;
+            res.set_content("{\"error\":\"missing satellite_id parameter\"}", "application/json");
+            with_cors(req, res);
+            return;
+        }
+        const std::string sat_id = req.get_param_value("satellite_id");
+        res.status = 200;
+        res.set_content(runtime.trajectory_json(sat_id), "application/json");
+        with_cors(req, res);
+    });
 }
 
 } // namespace cascade::http
