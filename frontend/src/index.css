@@ -27,6 +27,7 @@ html, body, #root {
 
 body {
   margin: 0;
+  background-color: #050a14;
 }
 
 /* Scrollbar styling */
@@ -48,4 +49,43 @@ body {
 ::selection {
   background: rgba(58, 159, 232, 0.35);
   color: #ffffff;
+}
+
+/* ---- Global keyframes ---- */
+
+@keyframes borderPulse {
+  0%, 100% {
+    border-color: rgba(58, 159, 232, 0.18);
+    box-shadow: 0 0 15px rgba(58, 159, 232, 0.08);
+  }
+  50% {
+    border-color: rgba(58, 159, 232, 0.35);
+    box-shadow: 0 0 20px rgba(58, 159, 232, 0.15);
+  }
+}
+
+@keyframes radarSweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes dotPulse {
+  0%, 100% {
+    box-shadow: 0 0 4px currentColor;
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 10px currentColor, 0 0 20px currentColor;
+    opacity: 0.8;
+  }
+}
+
+/* Chamfer button utility */
+.chamfer-button {
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
 }

@@ -55,10 +55,10 @@ const BOOT_LINES = [
   'CASCADE ORBITAL ENGINE READY',
 ];
 
-const BOOT_SCROLL_INTERVAL_MS = 55;    // ms per line
-const BOOT_CURSOR_BLINK_MS = 500;      // cursor blink after scroll ends
+const BOOT_SCROLL_INTERVAL_MS = 55;    // ms per line (keep)
+const BOOT_CURSOR_BLINK_MS = 125;      // cursor blink after scroll ends (was 500)
 const BOOT_CURSOR_BLINKS = 3;          // number of blink cycles
-const BOOT_FADE_MS = 600;              // green->black fade duration
+const BOOT_FADE_MS = 150;              // green->black fade duration (was 600)
 
 // ---- CASCADE title ----
 const TITLE_TEXT = 'CASCADE';
@@ -76,7 +76,8 @@ const INIT_LINES = [
   { text: '[LOAD]  Constellation ...............', status: 'NOMINAL' },
 ];
 const INIT_LINE_INTERVAL_MS = 200;
-const ROTOR_CYCLE_MS = 160;            // full 360 deg Y-axis rotation period
+const ASCII_SPINNER_MS = 100;          // ASCII spinner cycle speed
+const SPINNER_CHARS = ['-', '\\', '|', '/'];
 
 // ---- component ----
 
@@ -169,8 +170,7 @@ export default function BootSequence({ onComplete }: BootSequenceProps) {
 
     t += 800; // wait for expand animation
 
-    // == Phase C: Border trace + log lines ==
-    // Border starts from mid-top AFTER cascade is expanded
+    // == Phase C: Border trace completes, THEN log lines ==
     const borderStart = t;
     const borderSteps = 40;
     const borderDuration = 800;
@@ -181,19 +181,19 @@ export default function BootSequence({ onComplete }: BootSequenceProps) {
       }, borderStart + i * borderStepMs));
     }
 
-    // Log lines start slightly after border begins
-    const logStart = t + 200;
+    // Log lines start AFTER border completes (not overlapping)
+    const logStart = borderStart + borderDuration;
     timers.push(setTimeout(() => {
       setPhase('logs');
     }, logStart));
 
     for (let i = 0; i < INIT_LINES.length; i++) {
-      // Show line (with active rotor)
+      // Show line (with active spinner)
       timers.push(setTimeout(() => {
         setVisibleLogs(i + 1);
       }, logStart + i * INIT_LINE_INTERVAL_MS));
 
-      // Complete line (rotor resolves to OK) after a short spin
+      // Complete line (spinner resolves to status text) after a short spin
       timers.push(setTimeout(() => {
         setCompletedLogs(i + 1);
       }, logStart + i * INIT_LINE_INTERVAL_MS + INIT_LINE_INTERVAL_MS - 40));
@@ -231,7 +231,7 @@ export default function BootSequence({ onComplete }: BootSequenceProps) {
 
   const showBootTerminal = phase === 'boot' || phase === 'fade';
   const showCascade = phase === 'cascade' || phase === 'logs' || phase === 'ready' || phase === 'done';
-  const showLogs = phase === 'logs' || phase === 'ready' || phase === 'done';
+  const showLogs = phase === 'cascade' || phase === 'logs' || phase === 'ready' || phase === 'done';
 
   return (
     <div style={{
@@ -381,7 +381,7 @@ export default function BootSequence({ onComplete }: BootSequenceProps) {
             </div>
           </div>
 
-          {/* Log area with SVG border trace */}
+          {/* Log area with SVG border trace -- fixed size box */}
           {showLogs && (
             <div style={{
               position: 'absolute',
@@ -390,8 +390,9 @@ export default function BootSequence({ onComplete }: BootSequenceProps) {
               transform: 'translateX(-50%)',
               zIndex: 3,
               width: 'min(580px, 85vw)',
+              minHeight: '220px',
             }}>
-              {/* SVG border -- traces from mid-top */}
+              {/* SVG border -- traces from mid-top, thicker stroke */}
               <svg
                 style={{
                   position: 'absolute',
@@ -409,7 +410,7 @@ export default function BootSequence({ onComplete }: BootSequenceProps) {
               </svg>
 
               {/* Log lines */}
-              <div style={{ padding: '8px 4px', perspective: '600px' }}>
+              <div style={{ padding: '8px 4px' }}>
                 {INIT_LINES.slice(0, visibleLogs).map((line, i) => {
                   const isCompleted = i < completedLogs;
                   return (
@@ -432,7 +433,7 @@ export default function BootSequence({ onComplete }: BootSequenceProps) {
                           textAlign: 'right',
                         }}>{line.status}</span>
                       ) : (
-                        <Rotor cycleDurationMs={ROTOR_CYCLE_MS} />
+                        <AsciiSpinner />
                       )}
                     </div>
                   );
@@ -478,9 +479,18 @@ export default function BootSequence({ onComplete }: BootSequenceProps) {
   );
 }
 
-// ---- Rotor: split-flap /- indicator that spins on Y-axis ----
+// ---- ASCII Spinner: cycles through - \ | / ----
 
-function Rotor({ cycleDurationMs }: { cycleDurationMs: number }) {
+function AsciiSpinner() {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setIndex(prev => (prev + 1) % SPINNER_CHARS.length);
+    }, ASCII_SPINNER_MS);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <span style={{
       display: 'inline-block',
@@ -490,11 +500,8 @@ function Rotor({ cycleDurationMs }: { cycleDurationMs: number }) {
       color: theme.colors.primary,
       fontWeight: 600,
       fontSize: 'inherit',
-      animation: `rotorSpin ${cycleDurationMs}ms linear infinite`,
-      transformStyle: 'preserve-3d',
-      perspective: '200px',
     }}>
-      /-
+      {SPINNER_CHARS[index]}
     </span>
   );
 }
@@ -516,7 +523,7 @@ function BorderTrace({ progress }: { progress: number }) {
       d={path}
       fill="none"
       stroke={theme.colors.primary}
-      strokeWidth="0.6"
+      strokeWidth="1.5"
       strokeDasharray={totalLength}
       strokeDashoffset={totalLength * (1 - progress)}
       opacity={0.7}
@@ -528,15 +535,6 @@ function BorderTrace({ progress }: { progress: number }) {
 // ---- keyframes ----
 
 const keyframes = `
-@keyframes rotorSpin {
-  0% {
-    transform: rotateY(0deg);
-  }
-  100% {
-    transform: rotateY(360deg);
-  }
-}
-
 @keyframes readyPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }

@@ -4,7 +4,6 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { SatelliteSnapshot, DebrisTuple } from '../types/api';
 import { statusColor } from '../types/api';
-import { theme } from '../styles/theme';
 
 // ---- constants ----
 
@@ -29,6 +28,65 @@ function geoTo3D(lat: number, lon: number, altKm: number): THREE.Vector3 {
     r * Math.sin(phi) * Math.sin(theta),
   );
 }
+
+// Create a circular star texture (32x32) to replace square default
+function createStarTexture(): THREE.CanvasTexture {
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const center = size / 2;
+  const grad = ctx.createRadialGradient(center, center, 0, center, center, center);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0.15)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// Create nebula sprite texture
+function createNebulaTexture(
+  r: number, g: number, b: number,
+): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const center = size / 2;
+  const grad = ctx.createRadialGradient(center, center, 0, center, center, center);
+  grad.addColorStop(0, `rgba(${r},${g},${b},0.12)`);
+  grad.addColorStop(0.3, `rgba(${r},${g},${b},0.06)`);
+  grad.addColorStop(0.7, `rgba(${r},${g},${b},0.02)`);
+  grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// Fresnel atmosphere shader
+const atmosphereVertexShader = `
+  varying vec3 vNormal;
+  void main() {
+    vNormal = normalize(normalMatrix * normal);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const atmosphereFragmentShader = `
+  varying vec3 vNormal;
+  void main() {
+    float intensity = pow(0.65 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+    gl_FragColor = vec4(0.3, 0.6, 1.0, 1.0) * intensity;
+  }
+`;
 
 // ---- props ----
 
@@ -74,18 +132,18 @@ export default function EarthGlobe({
     const container = mountRef.current;
     if (!container) return;
 
-    const width = container.clientWidth;
-    const height = container.clientHeight;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
 
-    // renderer
+    // renderer -- opaque cosmic black, NOT transparent
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
-      alpha: true,
+      alpha: false,
       powerPreference: 'high-performance',
     });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0x000000, 0);
+    renderer.setClearColor(0x050a14, 1); // opaque cosmic black
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
@@ -94,8 +152,8 @@ export default function EarthGlobe({
     // scene
     const scene = new THREE.Scene();
 
-    // camera
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 100);
+    // camera -- extended far plane for distant stars/nebulae
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 200);
     camera.position.set(0, 0.8, CAMERA_DISTANCE);
 
     // controls
@@ -118,8 +176,55 @@ export default function EarthGlobe({
     rim.position.set(-3, -1, -5);
     scene.add(rim);
 
+    // ---- nebula background (behind stars) ----
+    {
+      // Nebula 1: deep purple/violet -- upper right
+      const nebTex1 = createNebulaTexture(80, 40, 120);
+      const nebMat1 = new THREE.SpriteMaterial({
+        map: nebTex1,
+        transparent: true,
+        opacity: 0.06,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const neb1 = new THREE.Sprite(nebMat1);
+      neb1.scale.set(30, 30, 1);
+      neb1.position.set(15, 10, -42);
+      scene.add(neb1);
+
+      // Nebula 2: deep blue -- lower left
+      const nebTex2 = createNebulaTexture(30, 60, 140);
+      const nebMat2 = new THREE.SpriteMaterial({
+        map: nebTex2,
+        transparent: true,
+        opacity: 0.05,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const neb2 = new THREE.Sprite(nebMat2);
+      neb2.scale.set(25, 25, 1);
+      neb2.position.set(-12, -8, -40);
+      scene.add(neb2);
+
+      // Nebula 3: subtle teal -- center-left
+      const nebTex3 = createNebulaTexture(20, 80, 100);
+      const nebMat3 = new THREE.SpriteMaterial({
+        map: nebTex3,
+        transparent: true,
+        opacity: 0.04,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const neb3 = new THREE.Sprite(nebMat3);
+      neb3.scale.set(20, 20, 1);
+      neb3.position.set(-20, 5, -45);
+      scene.add(neb3);
+    }
+
     // ---- starfield (fixed relative to camera, does NOT rotate with Earth) ----
     {
+      const starTexture = createStarTexture();
+
       const starPositions = new Float32Array(STAR_COUNT * 3);
       const starSizes = new Float32Array(STAR_COUNT);
       const starColors = new Float32Array(STAR_COUNT * 3);
@@ -136,11 +241,11 @@ export default function EarthGlobe({
         starPositions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
         starPositions[i * 3 + 2] = r * Math.cos(phi);
 
-        // Varying brightness: most dim, some bright, few very bright
+        // Reduced sizes: 0.3-0.8 range (was 0.8-3.5)
         const brightness = Math.random();
-        const size = brightness < 0.85 ? 0.8 + Math.random() * 0.6
-                   : brightness < 0.97 ? 1.6 + Math.random() * 0.8
-                   : 2.5 + Math.random() * 1.0;
+        const size = brightness < 0.85 ? 0.3 + Math.random() * 0.2
+                   : brightness < 0.97 ? 0.5 + Math.random() * 0.2
+                   : 0.6 + Math.random() * 0.2;
         starSizes[i] = size;
 
         // Subtle color variation: mostly white, slight blue or warm tint
@@ -172,17 +277,19 @@ export default function EarthGlobe({
       starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
 
       const starMat = new THREE.PointsMaterial({
-        size: 1.2,
+        size: 0.6,
         sizeAttenuation: true,
         vertexColors: true,
         transparent: true,
         opacity: 0.9,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
+        map: starTexture,
+        alphaTest: 0.01,
       });
 
       const stars = new THREE.Points(starGeo, starMat);
-      scene.add(stars); // added to scene, NOT earthGroup — stays fixed
+      scene.add(stars); // added to scene, NOT earthGroup -- stays fixed
     }
 
     // earth group (for rotation)
@@ -202,6 +309,21 @@ export default function EarthGlobe({
       model.position.sub(sphere.center.multiplyScalar(scaleFactor));
       earthGroup.add(model);
     });
+
+    // ---- Fresnel atmospheric glow ----
+    {
+      const atmosGeo = new THREE.SphereGeometry(1.015, 64, 64);
+      const atmosMat = new THREE.ShaderMaterial({
+        vertexShader: atmosphereVertexShader,
+        fragmentShader: atmosphereFragmentShader,
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide,
+        transparent: true,
+        depthWrite: false,
+      });
+      const atmosMesh = new THREE.Mesh(atmosGeo, atmosMat);
+      earthGroup.add(atmosMesh);
+    }
 
     // raycaster for satellite picking
     const raycaster = new THREE.Raycaster();
@@ -237,11 +359,10 @@ export default function EarthGlobe({
     }
     animate();
 
-    // resize handler
+    // resize handler -- use window dimensions for full viewport
     const onResize = () => {
-      if (!container) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
       state.camera.aspect = w / h;
       state.camera.updateProjectionMatrix();
       state.renderer.setSize(w, h);
@@ -475,12 +596,9 @@ export default function EarthGlobe({
     <div
       ref={mountRef}
       style={{
-        width: '100%',
-        height: '100%',
-        position: 'relative',
-        borderRadius: '4px',
-        overflow: 'hidden',
-        background: theme.colors.bg,
+        position: 'fixed',
+        inset: 0,
+        zIndex: 0,
       }}
     />
   );

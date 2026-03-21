@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import type { StatusResponse } from '../types/api';
 import { formatUptime } from '../utils/geo';
+import { theme } from '../styles/theme';
 
 interface Props {
   status: StatusResponse | null;
@@ -25,12 +27,13 @@ function MetricRow({ label, value, highlight, warn }: MetricRowProps) {
       padding: '3px 0',
       borderBottom: '1px solid rgba(255,255,255,0.04)',
     }}>
-      <span style={{ fontSize: '11px', color: '#64748b' }}>{label}</span>
+      <span style={{ fontSize: '11px', color: theme.colors.textDim, fontFamily: theme.font.mono }}>{label}</span>
       <span style={{
         fontSize: '12px',
-        fontFamily: 'monospace',
-        color: warn ? '#ef4444' : highlight ? '#22c55e' : '#e2e8f0',
+        fontFamily: theme.font.mono,
+        color: warn ? theme.colors.critical : highlight ? theme.colors.accent : theme.colors.text,
         fontWeight: highlight || warn ? 600 : 400,
+        transition: 'color 0.3s ease',
       }}>
         {value}
       </span>
@@ -38,17 +41,48 @@ function MetricRow({ label, value, highlight, warn }: MetricRowProps) {
   );
 }
 
+// Animated dots for connecting state
+function AnimatedDots() {
+  const [dotCount, setDotCount] = useState(1);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDotCount(prev => (prev % 3) + 1);
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
+  return <span>{'.'.repeat(dotCount)}</span>;
+}
+
+// Pulsing status dot
+function StatusDot({ isNominal }: { isNominal: boolean }) {
+  return (
+    <span style={{
+      display: 'inline-block',
+      width: '8px',
+      height: '8px',
+      borderRadius: '50%',
+      background: isNominal ? theme.colors.accent : theme.colors.critical,
+      boxShadow: isNominal
+        ? `0 0 4px ${theme.colors.accent}, 0 0 8px ${theme.colors.accent}`
+        : `0 0 4px ${theme.colors.critical}`,
+      animation: isNominal ? 'dotPulse 2s ease-in-out infinite' : 'none',
+      marginRight: '6px',
+      verticalAlign: 'middle',
+    }} />
+  );
+}
+
 export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, satCount }: Props) {
   if (apiError) {
     return (
       <div style={{ padding: '12px' }}>
-        <div style={{ color: '#ef4444', fontSize: '12px', marginBottom: '6px' }}>
+        <div style={{ color: theme.colors.critical, fontSize: '12px', marginBottom: '6px', fontFamily: theme.font.mono }}>
           Backend Offline
         </div>
-        <div style={{ color: '#64748b', fontSize: '11px', wordBreak: 'break-all' }}>
+        <div style={{ color: theme.colors.textDim, fontSize: '11px', wordBreak: 'break-all', fontFamily: theme.font.mono }}>
           {apiError}
         </div>
-        <div style={{ color: '#475569', fontSize: '10px', marginTop: '8px' }}>
+        <div style={{ color: theme.colors.textMuted, fontSize: '10px', marginTop: '8px', fontFamily: theme.font.mono }}>
           Ensure backend is running:<br />
           <code style={{
             color: '#94a3b8',
@@ -57,6 +91,7 @@ export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, 
             marginTop: '4px',
             lineHeight: '1.6',
             wordBreak: 'break-all',
+            fontFamily: theme.font.mono,
           }}>
             PROJECTBONK_CORS_ENABLE=true PROJECTBONK_CORS_ALLOW_ORIGIN=http://localhost:5173 ./build/ProjectBONK
           </code>
@@ -67,8 +102,14 @@ export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, 
 
   if (!status) {
     return (
-      <div style={{ padding: '12px', color: '#64748b', fontSize: '12px' }}>
-        Connecting...
+      <div style={{
+        padding: '12px',
+        color: theme.colors.textDim,
+        fontSize: '12px',
+        fontFamily: theme.font.mono,
+        letterSpacing: '0.08em',
+      }}>
+        ESTABLISHING LINK<AnimatedDots />
       </div>
     );
   }
@@ -78,12 +119,25 @@ export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, 
 
   return (
     <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
-      <MetricRow
-        label="System Status"
-        value={status.status}
-        highlight={isNominal}
-        warn={!isNominal}
-      />
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '3px 0',
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+      }}>
+        <span style={{ fontSize: '11px', color: theme.colors.textDim, fontFamily: theme.font.mono }}>System Status</span>
+        <span style={{
+          fontSize: '12px',
+          fontFamily: theme.font.mono,
+          color: isNominal ? theme.colors.accent : theme.colors.critical,
+          fontWeight: 600,
+          transition: 'color 0.3s ease',
+        }}>
+          <StatusDot isNominal={isNominal} />
+          {status.status}
+        </span>
+      </div>
       <MetricRow
         label="Uptime"
         value={formatUptime(status.uptime_s)}
@@ -95,11 +149,11 @@ export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, 
       />
       <MetricRow
         label="Satellites"
-        value={satCount ?? status.internal_metrics?.satellite_count ?? '—'}
+        value={satCount ?? status.internal_metrics?.satellite_count ?? '--'}
       />
       <MetricRow
         label="Debris Objects"
-        value={debrisCount !== undefined ? debrisCount.toLocaleString() : (metrics?.debris_count?.toLocaleString() ?? '—')}
+        value={debrisCount !== undefined ? debrisCount.toLocaleString() : (metrics?.debris_count?.toLocaleString() ?? '--')}
       />
       <MetricRow
         label="Total Objects"
@@ -109,7 +163,7 @@ export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, 
       {metrics && (
         <>
           <div style={{ height: '6px' }} />
-          <div style={{ fontSize: '10px', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '2px' }}>
+          <div style={{ fontSize: '10px', color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '2px', fontFamily: theme.font.mono }}>
             Engine
           </div>
           <MetricRow
@@ -135,14 +189,14 @@ export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, 
           {metrics.command_latency_us && (
             <>
               <div style={{ height: '6px' }} />
-              <div style={{ fontSize: '10px', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '2px' }}>
+              <div style={{ fontSize: '10px', color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '2px', fontFamily: theme.font.mono }}>
                 Latency (last)
               </div>
               {Object.entries(metrics.command_latency_us).map(([cmd, lat]) => (
                 <MetricRow
                   key={cmd}
                   label={cmd}
-                  value={`${lat.execution_us_last.toLocaleString()} µs`}
+                  value={`${lat.execution_us_last.toLocaleString()} us`}
                   highlight={lat.execution_us_last < 50000}
                   warn={lat.execution_us_last > 100000}
                 />
