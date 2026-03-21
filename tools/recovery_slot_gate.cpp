@@ -506,7 +506,7 @@ double aggregate_slot_error(const StateStore& store,
         if (it == slot.end()) continue;
         OrbitalElements cur{};
         if (!get_elements(store, i, cur)) continue;
-        sum += slot_error_score(it->second, cur);
+        sum += ::slot_error_score(it->second, cur);
         ++n;
     }
     if (n == 0) return 0.0;

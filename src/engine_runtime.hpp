@@ -223,6 +223,9 @@ public:
     std::string status_json(bool include_details) const;
     std::string conflicts_json() const;
     std::string propagation_json() const;
+    std::string burns_json() const;
+    std::string conjunctions_json(std::string_view satellite_id_filter) const;
+    std::string trajectory_json(std::string_view satellite_id) const;
 
 private:
     struct TelemetryCommand {
@@ -291,6 +294,7 @@ private:
         std::string snapshot_json;
         std::string conflicts_json;
         std::string propagation_json;
+        std::string burns_json;
     };
 
     mutable std::shared_mutex mutex_;
@@ -330,6 +334,16 @@ private:
 
     // 24-hour predictive CDM count (updated each simulation step).
     std::uint64_t cdm_warnings_count_ = 0;
+
+    // --- Phase 0B: Ring buffers for debug/visualization endpoints ---
+    static constexpr std::size_t kMaxExecutedBurnHistory = 512;
+    static constexpr std::size_t kMaxConjunctionHistory = 1024;
+    static constexpr std::size_t kMaxTrackPointsPerSat = 5400;  // 90 min at 1s intervals
+
+    std::deque<ExecutedBurn> executed_burn_history_;
+    std::deque<ConjunctionRecord> conjunction_history_;
+    std::unordered_map<std::string, std::deque<TrackPoint>> trajectory_by_sat_;
+    std::unordered_map<std::string, PerSatManeuverStats> per_sat_maneuver_stats_;
 };
 
 } // namespace cascade
