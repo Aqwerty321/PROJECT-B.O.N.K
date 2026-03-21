@@ -15,6 +15,19 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+# B2: Explicit Release flags — -O3, NDEBUG, LTO
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG" CACHE STRING "Release flags" FORCE)
+
+include(CheckIPOSupported)
+check_ipo_supported(RESULT PROJECTBONK_IPO_SUPPORTED)
+if(PROJECTBONK_IPO_SUPPORTED)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+endif()
+
+# B2: Optional native-arch tuning (OFF by default — not used in Docker)
+option(PROJECTBONK_NATIVE_ARCH
+       "Enable -march=native for local builds (do NOT use in Docker)" OFF)
+
 # ---------------------------------------------------------------------------
 # Install-prefix overrides (avoid needing root in container / local builds)
 # ---------------------------------------------------------------------------
@@ -392,6 +405,12 @@ add_library(bonk_core STATIC
 target_include_directories(bonk_core PUBLIC
     "${CMAKE_SOURCE_DIR}/src"
 )
+
+# B2: native arch tuning for local perf (opt-in)
+if(PROJECTBONK_NATIVE_ARCH)
+    target_compile_options(bonk_core PRIVATE
+        $<$<CXX_COMPILER_ID:GNU,Clang>:-march=native>)
+endif()
 
 if(OpenMP_CXX_FOUND)
     target_link_libraries(bonk_core PUBLIC OpenMP::OpenMP_CXX)

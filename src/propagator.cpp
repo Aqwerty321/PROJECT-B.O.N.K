@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 #include "propagator.hpp"
 
+#include "env_util.hpp"
 #include "orbit_math.hpp"
 
 #include <cmath>
@@ -10,18 +11,9 @@
 
 namespace cascade {
 
-namespace {
+using env_util::env_double;
 
-// Read an env var as a double, returning `fallback` if not set or invalid.
-inline double env_double(const char* name, double fallback) noexcept
-{
-    const char* v = std::getenv(name);
-    if (!v) return fallback;
-    char* end = nullptr;
-    const double d = std::strtod(v, &end);
-    if (end == v || !std::isfinite(d)) return fallback;
-    return d;
-}
+namespace {
 
 // Propagator fast-lane thresholds — env-overridable once on first call.
 struct FastLaneParams {

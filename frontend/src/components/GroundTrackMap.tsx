@@ -1,6 +1,6 @@
-import { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import type { VisualizationSnapshot, SatelliteSnapshot } from '../types/api';
-import { latLonToMercator, computeTerminator } from '../utils/geo';
+import { latLonToMercator, computeTerminator, hexColor } from '../utils/geo';
 import { GROUND_STATIONS, statusColor } from '../types/api';
 import { theme } from '../styles/theme';
 
@@ -17,10 +17,6 @@ const COLOR_GRID = 'rgba(255,255,255,0.06)';
 const COLOR_TERMINATOR = 'rgba(0,0,0,0.45)';
 const COLOR_DEBRIS = 'rgba(239,68,68,0.55)';
 const COLOR_GS = '#7dd3fc';
-
-function hexColor(n: number): string {
-  return `#${n.toString(16).padStart(6, '0')}`;
-}
 
 // Simple Mercator world outline -- draw graticule lines
 function drawGraticule(ctx: CanvasRenderingContext2D, w: number, h: number) {
@@ -102,9 +98,8 @@ function drawGroundStations(ctx: CanvasRenderingContext2D, w: number, h: number)
   ctx.restore();
 }
 
-export function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHistory }: Props) {
+export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHistory }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rafRef = useRef<number>(0);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -112,8 +107,12 @@ export function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHist
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const w = canvas.width;
-    const h = canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.width / dpr;
+    const h = canvas.height / dpr;
+
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Clear
     ctx.fillStyle = BG_OCEAN;
@@ -221,34 +220,27 @@ export function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHist
         ctx.fillText(sat.id, x + 5, y - 4);
       }
     }
+
+    ctx.restore();
   }, [snapshot, selectedSatId, trackHistory]);
 
-  // Kick off RAF loop
+  // Redraw when data changes (no RAF loop needed -- data updates at ~1Hz)
   useEffect(() => {
-    let running = true;
-    const loop = () => {
-      if (!running) return;
-      draw();
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
-    return () => {
-      running = false;
-      cancelAnimationFrame(rafRef.current);
-    };
+    draw();
   }, [draw]);
 
-  // Handle canvas resize
+  // Handle canvas resize (DPR-aware)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
     const obs = new ResizeObserver(() => {
-      canvas.width = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
     });
     obs.observe(canvas);
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+    canvas.width = canvas.offsetWidth * dpr;
+    canvas.height = canvas.offsetHeight * dpr;
     return () => obs.disconnect();
   }, []);
 
@@ -261,8 +253,9 @@ export function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHist
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
-      const w = canvas.width;
-      const h = canvas.height;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.width / dpr;
+      const h = canvas.height / dpr;
 
       let closest: SatelliteSnapshot | null = null;
       let closestDist = 12; // px hit radius
@@ -291,4 +284,4 @@ export function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHist
       }}
     />
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, memo } from 'react';
 import type { BurnsResponse, ExecutedBurn, PendingBurn } from '../types/api';
 import { theme } from '../styles/theme';
 
@@ -23,7 +23,7 @@ function burnColor(burn: ExecutedBurn | PendingBurn, isPending: boolean): string
   return theme.colors.accent;
 }
 
-export default function ManeuverGantt({ burns, selectedSatId, nowEpochS }: ManeuverGanttProps) {
+export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: ManeuverGanttProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const draw = useCallback(() => {
@@ -51,14 +51,12 @@ export default function ManeuverGantt({ burns, selectedSatId, nowEpochS }: Maneu
       // Draw basic grid even with no data
       drawEmptyGrid(ctx, lw, lh, chartWidth);
 
-      // Empty state text
-      const time = Date.now() / 1000;
-      const pulseAlpha = 0.4 + 0.6 * Math.abs(Math.sin(time * 1.5));
+      // Empty state text (CSS animation handles pulsing)
       ctx.save();
       ctx.fillStyle = theme.colors.textMuted;
       ctx.font = `11px ${theme.font.mono}`;
       ctx.textAlign = 'center';
-      ctx.globalAlpha = pulseAlpha;
+      ctx.globalAlpha = 0.7;
       ctx.fillText('AWAITING BURN DATA', lw / 2, lh / 2);
       ctx.globalAlpha = 1;
       ctx.restore();
@@ -280,16 +278,9 @@ export default function ManeuverGantt({ burns, selectedSatId, nowEpochS }: Maneu
     }
   }
 
-  // Render loop
+  // Redraw when data changes (no RAF loop needed -- data updates at ~1Hz)
   useEffect(() => {
-    let running = true;
-    const loop = () => {
-      if (!running) return;
-      draw();
-      requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
-    return () => { running = false; };
+    draw();
   }, [draw]);
 
   // Resize observer
@@ -314,4 +305,4 @@ export default function ManeuverGantt({ burns, selectedSatId, nowEpochS }: Maneu
       style={{ width: '100%', height: '100%', display: 'block' }}
     />
   );
-}
+});

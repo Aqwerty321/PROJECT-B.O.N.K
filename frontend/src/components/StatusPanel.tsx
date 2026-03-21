@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { StatusResponse } from '../types/api';
 import { formatUptime } from '../utils/geo';
 import { theme } from '../styles/theme';
@@ -18,16 +18,33 @@ interface MetricRowProps {
   warn?: boolean;
 }
 
+const metricRowStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  padding: '3px 0',
+  borderBottom: '1px solid rgba(255,255,255,0.04)',
+};
+
+const metricLabelStyle: React.CSSProperties = {
+  fontSize: '11px',
+  color: theme.colors.textDim,
+  fontFamily: theme.font.mono,
+};
+
+const sectionLabelStyle: React.CSSProperties = {
+  fontSize: '10px',
+  color: theme.colors.textMuted,
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+  marginBottom: '2px',
+  fontFamily: theme.font.mono,
+};
+
 function MetricRow({ label, value, highlight, warn }: MetricRowProps) {
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: '3px 0',
-      borderBottom: '1px solid rgba(255,255,255,0.04)',
-    }}>
-      <span style={{ fontSize: '11px', color: theme.colors.textDim, fontFamily: theme.font.mono }}>{label}</span>
+    <div style={metricRowStyle}>
+      <span style={metricLabelStyle}>{label}</span>
       <span style={{
         fontSize: '12px',
         fontFamily: theme.font.mono,
@@ -72,7 +89,7 @@ function StatusDot({ isNominal }: { isNominal: boolean }) {
   );
 }
 
-export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, satCount }: Props) {
+export const StatusPanel = React.memo(function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, satCount }: Props) {
   if (apiError) {
     return (
       <div style={{ padding: '12px' }}>
@@ -163,7 +180,7 @@ export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, 
       {metrics && (
         <>
           <div style={{ height: '6px' }} />
-          <div style={{ fontSize: '10px', color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '2px', fontFamily: theme.font.mono }}>
+          <div style={sectionLabelStyle}>
             Engine
           </div>
           <MetricRow
@@ -189,7 +206,7 @@ export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, 
           {metrics.command_latency_us && (
             <>
               <div style={{ height: '6px' }} />
-              <div style={{ fontSize: '10px', color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '2px', fontFamily: theme.font.mono }}>
+              <div style={sectionLabelStyle}>
                 Latency (last)
               </div>
               {Object.entries(metrics.command_latency_us).map(([cmd, lat]) => (
@@ -214,4 +231,4 @@ export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, 
       )}
     </div>
   );
-}
+});

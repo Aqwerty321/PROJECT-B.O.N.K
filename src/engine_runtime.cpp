@@ -6,6 +6,7 @@
 
 #include "broad_phase.hpp"
 #include "earth_frame.hpp"
+#include "env_util.hpp"
 #include "json_util.hpp"
 #include "maneuver_recovery_planner.hpp"
 #include "orbit_math.hpp"
@@ -22,33 +23,12 @@
 
 namespace cascade {
 
+using env_util::env_double;
+
 namespace {
 
 // Legacy constexpr aliases removed; runtime code uses ops_*() functions directly.
 constexpr std::chrono::seconds k_command_timeout{15};
-
-double env_double(std::string_view key,
-                  double default_value,
-                  double min_value,
-                  double max_value) noexcept
-{
-    const char* raw = std::getenv(std::string(key).c_str());
-    if (raw == nullptr) {
-        return default_value;
-    }
-
-    char* end = nullptr;
-    const double parsed = std::strtod(raw, &end);
-    if (end == nullptr || *end != '\0' || !std::isfinite(parsed)) {
-        return default_value;
-    }
-
-    if (parsed < min_value || parsed > max_value) {
-        return default_value;
-    }
-
-    return parsed;
-}
 
 std::uint64_t env_u64(std::string_view key,
                       std::uint64_t default_value,
@@ -152,7 +132,7 @@ std::uint64_t plan_collision_avoidance_burns(
         if (store.type(sat_idx) != ObjectType::SATELLITE) continue;
         if (store.sat_status(sat_idx) == SatStatus::OFFLINE) continue;
 
-        const std::string sat_id = store.id(sat_idx);
+        const auto& sat_id = store.id(sat_idx);
         if (graveyard_requested_by_sat[sat_id]) continue;
         auto grave_done_it = graveyard_completed_by_sat.find(sat_id);
         if (grave_done_it != graveyard_completed_by_sat.end() && grave_done_it->second) {
@@ -2073,7 +2053,7 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
             const double epoch_s = clock_.epoch_s();
             for (std::size_t i = 0; i < store_.size(); ++i) {
                 if (store_.type(i) != ObjectType::SATELLITE) continue;
-                const std::string sid = store_.id(i);
+                const auto& sid = store_.id(i);
                 const Vec3 eci{store_.rx(i), store_.ry(i), store_.rz(i)};
                 const Vec3 ecef = eci_to_ecef(eci, epoch_s);
                 double lat = 0.0, lon = 0.0, alt = 0.0;
@@ -2124,7 +2104,7 @@ std::uint64_t EngineRuntime::enforce_stationkeeping_recovery(double epoch_s,
         if (store_.type(i) != ObjectType::SATELLITE) continue;
         if (store_.sat_status(i) == SatStatus::OFFLINE) continue;
 
-        const std::string sat_id = store_.id(i);
+        const auto& sat_id = store_.id(i);
         const auto it_slot = slot_reference_by_sat_.find(sat_id);
         if (it_slot == slot_reference_by_sat_.end()) {
             continue;

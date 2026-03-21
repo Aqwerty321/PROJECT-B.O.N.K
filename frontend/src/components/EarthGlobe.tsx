@@ -16,6 +16,7 @@ const AUTO_ROTATE_SPEED = 0.08;  // degrees per frame
 const CAMERA_DISTANCE = 2.5;
 const STAR_COUNT = 2500;         // background star count
 const STAR_SPHERE_RADIUS = 50;   // far-distance sphere for stars
+const MAX_DEBRIS_COUNT = 25000;  // pre-allocated capacity for debris positions
 
 // GLB normalization uses Box3.getBoundingSphere which overestimates by sqrt(3).
 // After scaling, the actual Earth mesh radius is 1/sqrt(3), NOT 1.0.
@@ -443,6 +444,30 @@ export default function EarthGlobe({
       renderer.domElement.removeEventListener('click', onClick);
       renderer.domElement.removeEventListener('pointerdown', onInteract);
       cancelAnimationFrame(state.animId);
+
+      // Dispose all GPU resources (geometries, materials, textures)
+      state.scene.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh || (obj as THREE.Points).isPoints || (obj as THREE.Line).isLine) {
+          const o = obj as THREE.Mesh | THREE.Points | THREE.Line;
+          o.geometry?.dispose();
+          const mat = o.material;
+          if (Array.isArray(mat)) {
+            mat.forEach((m) => {
+              if ((m as THREE.MeshStandardMaterial).map) (m as THREE.MeshStandardMaterial).map!.dispose();
+              m.dispose();
+            });
+          } else if (mat) {
+            if ((mat as THREE.MeshStandardMaterial).map) (mat as THREE.MeshStandardMaterial).map!.dispose();
+            (mat as THREE.Material).dispose();
+          }
+        }
+        if ((obj as THREE.Sprite).isSprite) {
+          const sprite = obj as THREE.Sprite;
+          sprite.material.map?.dispose();
+          sprite.material.dispose();
+        }
+      });
+
       renderer.dispose();
       controls.dispose();
       container.removeChild(renderer.domElement);
@@ -452,46 +477,47 @@ export default function EarthGlobe({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---- update debris cloud ----
+  // ---- update debris cloud (reuse geometry + material) ----
   const updateDebris = useCallback((debrisData: DebrisTuple[]) => {
     const s = sceneRef.current;
     if (!s) return;
 
-    // remove old
-    if (s.debrisPoints) {
-      s.earthGroup.remove(s.debrisPoints);
-      s.debrisPoints.geometry.dispose();
-      (s.debrisPoints.material as THREE.Material).dispose();
-      s.debrisPoints = null;
+    if (!s.debrisPoints) {
+      // First call -- allocate geometry + material once
+      const positions = new Float32Array(MAX_DEBRIS_COUNT * 3);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geo.setDrawRange(0, 0);
+
+      const mat = new THREE.PointsMaterial({
+        color: 0xef4444,
+        size: DEBRIS_SIZE,
+        sizeAttenuation: false,
+        transparent: true,
+        opacity: 0.55,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+
+      s.debrisPoints = new THREE.Points(geo, mat);
+      s.earthGroup.add(s.debrisPoints);
     }
 
-    if (debrisData.length === 0) return;
+    const posAttr = s.debrisPoints.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const arr = posAttr.array as Float32Array;
+    const count = Math.min(debrisData.length, MAX_DEBRIS_COUNT);
 
-    const positions = new Float32Array(debrisData.length * 3);
-    for (let i = 0; i < debrisData.length; i++) {
+    for (let i = 0; i < count; i++) {
       const [, lat, lon, alt] = debrisData[i];
       const p = geoTo3D(lat, lon, alt);
-      positions[i * 3] = p.x;
-      positions[i * 3 + 1] = p.y;
-      positions[i * 3 + 2] = p.z;
+      arr[i * 3] = p.x;
+      arr[i * 3 + 1] = p.y;
+      arr[i * 3 + 2] = p.z;
     }
 
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-    const mat = new THREE.PointsMaterial({
-      color: 0xef4444,
-      size: DEBRIS_SIZE,
-      sizeAttenuation: false,
-      transparent: true,
-      opacity: 0.55,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-
-    const points = new THREE.Points(geo, mat);
-    s.earthGroup.add(points);
-    s.debrisPoints = points;
+    posAttr.needsUpdate = true;
+    s.debrisPoints.geometry.setDrawRange(0, count);
+    s.debrisPoints.visible = count > 0;
   }, []);
 
   // ---- update satellites ----
@@ -547,30 +573,32 @@ export default function EarthGlobe({
       mat.emissiveIntensity = isSelected ? 1.0 : 0.5;
     }
 
-    // selection ring
-    if (s.selectedRing) {
-      s.earthGroup.remove(s.selectedRing);
-      s.selectedRing.geometry.dispose();
-      (s.selectedRing.material as THREE.Material).dispose();
-      s.selectedRing = null;
+    // selection ring -- reuse if already exists, toggle visibility
+    if (!s.selectedRing) {
+      const ringGeo = new THREE.RingGeometry(SAT_SIZE * 2.5, SAT_SIZE * 3.2, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x3a9fe8,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      s.selectedRing = new THREE.Mesh(ringGeo, ringMat);
+      s.selectedRing.visible = false;
+      s.earthGroup.add(s.selectedRing);
     }
+
     if (selected) {
       const selMesh = s.satMeshes.get(selected);
       if (selMesh) {
-        const ringGeo = new THREE.RingGeometry(SAT_SIZE * 2.5, SAT_SIZE * 3.2, 32);
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0x3a9fe8,
-          transparent: true,
-          opacity: 0.7,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.position.copy(selMesh.position);
-        ring.lookAt(0, 0, 0);
-        s.earthGroup.add(ring);
-        s.selectedRing = ring;
+        s.selectedRing.position.copy(selMesh.position);
+        s.selectedRing.lookAt(0, 0, 0);
+        s.selectedRing.visible = true;
+      } else {
+        s.selectedRing.visible = false;
       }
+    } else {
+      s.selectedRing.visible = false;
     }
   }, []);
 

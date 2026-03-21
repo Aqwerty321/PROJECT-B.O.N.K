@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, memo } from 'react';
 import { theme } from '../styles/theme';
 import { useSound } from '../hooks/useSound';
 
@@ -16,13 +16,13 @@ async function postStep(hours: number): Promise<{ status: string; new_timestamp:
   const res = await fetch('/api/simulate/step', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hours }),
+    body: JSON.stringify({ step_seconds: hours * 3600 }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
-export default function SimControls({ disabled = false }: SimControlsProps) {
+export default memo(function SimControls({ disabled = false }: SimControlsProps) {
   const { play } = useSound();
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
   const [flashBtn, setFlashBtn] = useState<string | null>(null);
@@ -74,7 +74,7 @@ export default function SimControls({ disabled = false }: SimControlsProps) {
       </div>
     </div>
   );
-}
+});
 
 const styles: Record<string, React.CSSProperties> = {
   container: {

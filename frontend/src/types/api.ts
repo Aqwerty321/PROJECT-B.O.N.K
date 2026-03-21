@@ -53,24 +53,6 @@ export interface LatencyStats {
   execution_us_mean: number;
 }
 
-export interface ConflictsResponse {
-  status: string;
-  total_conflicts: number;
-  ring_size: number;
-  conflicts_by_source: Record<string, number>;
-  recent: ConflictRecord[];
-}
-
-export interface ConflictRecord {
-  object_id: string;
-  stored_type: string;
-  incoming_type: string;
-  telemetry_timestamp: string;
-  ingestion_timestamp: string;
-  source_id: string;
-  reason: string;
-}
-
 // Ground stations from docs/groundstations.csv
 export interface GroundStation {
   name: string;
@@ -79,12 +61,12 @@ export interface GroundStation {
 }
 
 export const GROUND_STATIONS: GroundStation[] = [
-  { name: "Svalbard",      lat:  78.23, lon:  15.40 },
-  { name: "McMurdo",       lat: -77.85, lon: 166.67 },
-  { name: "Hartebeesthoek",lat: -25.89, lon:  27.68 },
-  { name: "Fucino",        lat:  41.97, lon:  13.60 },
-  { name: "Inuvik",        lat:  68.36, lon:-133.72 },
-  { name: "Singapore",     lat:   1.29, lon: 103.85 },
+  { name: "ISTRAC Bengaluru",  lat:  13.0333, lon:  77.5167 },
+  { name: "Svalbard",          lat:  78.2297, lon:  15.4077 },
+  { name: "Goldstone",         lat:  35.4266, lon:-116.89   },
+  { name: "Punta Arenas",      lat: -53.15,   lon: -70.9167 },
+  { name: "IIT Delhi",         lat:  28.545,  lon:  77.1926 },
+  { name: "McMurdo",           lat: -77.8463, lon: 166.6682 },
 ];
 
 // Risk color thresholds (from PS.md conjunction warning levels)

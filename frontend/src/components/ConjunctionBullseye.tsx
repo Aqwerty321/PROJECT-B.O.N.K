@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import type { ConjunctionEvent } from '../types/api';
 import { riskLevelFromDistance, riskColor } from '../types/api';
 import { theme } from '../styles/theme';
@@ -29,15 +29,27 @@ function approachAngle(
   return Math.atan2(dy, dx);
 }
 
-export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: Props) {
+export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sweepAngleRef = useRef(0);
+
+  // Store rapidly-changing data in refs so draw callback is stable
+  const conjunctionsRef = useRef(conjunctions);
+  const selectedSatIdRef = useRef(selectedSatId);
+  const nowEpochSRef = useRef(nowEpochS);
+  conjunctionsRef.current = conjunctions;
+  selectedSatIdRef.current = selectedSatId;
+  nowEpochSRef.current = nowEpochS;
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    const currentConjunctions = conjunctionsRef.current;
+    const currentSelectedSatId = selectedSatIdRef.current;
+    const currentNowEpochS = nowEpochSRef.current;
 
     const w = canvas.width;
     const h = canvas.height;
@@ -59,9 +71,9 @@ export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: 
     const sweepRad = (sweepAngleRef.current * Math.PI) / 180;
 
     // filter to selected satellite if any
-    const events = selectedSatId
-      ? conjunctions.filter(c => c.satellite_id === selectedSatId)
-      : conjunctions;
+    const events = currentSelectedSatId
+      ? currentConjunctions.filter(c => c.satellite_id === currentSelectedSatId)
+      : currentConjunctions;
 
     // Draw pulsing concentric rings
     const time = Date.now() / 1000;
@@ -113,7 +125,7 @@ export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: 
       let greenCount = 0;
 
       for (const evt of events) {
-        const dtca = evt.tca_epoch_s - nowEpochS;
+        const dtca = evt.tca_epoch_s - currentNowEpochS;
         if (dtca < -300) continue; // skip events more than 5min in the past
 
         const tFrac = Math.min(1, Math.max(0, Math.abs(dtca) / MAX_TCA_S));
@@ -195,17 +207,18 @@ export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: 
     ctx.restore();
 
     // selected sat label
-    if (selectedSatId) {
+    if (currentSelectedSatId) {
       ctx.save();
       ctx.font = `9px ${theme.font.mono}`;
       ctx.fillStyle = theme.colors.textDim;
       ctx.textAlign = 'center';
-      ctx.fillText(selectedSatId, cx, cy + R + 24);
+      ctx.fillText(currentSelectedSatId, cx, cy + R + 24);
       ctx.restore();
     }
 
     ctx.restore();
-  }, [conjunctions, selectedSatId, nowEpochS]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function drawRings(ctx: CanvasRenderingContext2D, cx: number, cy: number, R: number, time: number) {
     // TCA time rings with pulsing opacity
@@ -301,4 +314,4 @@ export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: 
       style={{ width: '100%', height: '100%', display: 'block' }}
     />
   );
-}
+});

@@ -6,6 +6,7 @@
 // ---------------------------------------------------------------------------
 
 #include "types.hpp"
+#include "env_util.hpp"
 #include "state_store.hpp"
 #include "sim_clock.hpp"
 #include "orbit_math.hpp"
@@ -54,16 +55,7 @@ bool env_bool(const char* key, bool default_value)
 
 double env_double(const char* key, double default_value)
 {
-    const char* raw = std::getenv(key);
-    if (raw == nullptr) {
-        return default_value;
-    }
-    char* end = nullptr;
-    const double parsed = std::strtod(raw, &end);
-    if (end == nullptr || *end != '\0' || !std::isfinite(parsed)) {
-        return default_value;
-    }
-    return parsed;
+    return cascade::env_util::env_double(key, default_value);
 }
 
 std::uint32_t env_u32(const char* key, std::uint32_t default_value, std::uint32_t min_value)

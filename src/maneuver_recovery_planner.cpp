@@ -4,6 +4,7 @@
 
 #include "maneuver_recovery_planner.hpp"
 
+#include "env_util.hpp"
 #include "orbit_math.hpp"
 
 #include <algorithm>
@@ -13,30 +14,9 @@
 
 namespace cascade {
 
+using env_util::env_double;
+
 namespace {
-
-double env_double(std::string_view key,
-                  double default_value,
-                  double min_value,
-                  double max_value) noexcept
-{
-    const char* raw = std::getenv(std::string(key).c_str());
-    if (raw == nullptr) {
-        return default_value;
-    }
-
-    char* end = nullptr;
-    const double parsed = std::strtod(raw, &end);
-    if (end == nullptr || *end != '\0' || !std::isfinite(parsed)) {
-        return default_value;
-    }
-
-    if (parsed < min_value || parsed > max_value) {
-        return default_value;
-    }
-
-    return parsed;
-}
 
 RecoverySolverMode env_solver_mode(RecoverySolverMode default_value) noexcept
 {

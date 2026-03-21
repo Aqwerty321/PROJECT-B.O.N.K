@@ -40,3 +40,19 @@ compile_commands.json
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Large data files not needed in Docker build
+tle2025.txt
+data.txt
+ps.txt
+
+# Julia build artifacts
+build_julia/
+
+# Frontend node_modules excluded (npm ci runs inside Docker)
+frontend/node_modules/
+frontend/dist/
+
+# Documentation (except groundstations.csv, copied explicitly)
+*.md
+LICENSE

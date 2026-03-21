@@ -41,24 +41,34 @@ export function useSnapshot(intervalMs = 1000) {
 export function useStatus(intervalMs = 2000) {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/status?details=1`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: StatusResponse = await res.json();
-        setStatus(data);
-        setError(null);
-      } catch (e) {
+  const fetchStatus = useCallback(async () => {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    try {
+      const res = await fetch(`${API_BASE}/api/status?details=1`, {
+        signal: abortRef.current.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: StatusResponse = await res.json();
+      setStatus(data);
+      setError(null);
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') {
         setError((e as Error).message);
       }
-    };
+    }
+  }, []);
 
+  useEffect(() => {
     fetchStatus();
     const id = setInterval(fetchStatus, intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
+    return () => {
+      clearInterval(id);
+      abortRef.current?.abort();
+    };
+  }, [fetchStatus, intervalMs]);
 
   return { status, error };
 }
@@ -66,23 +76,34 @@ export function useStatus(intervalMs = 2000) {
 export function useBurns(intervalMs = 2000) {
   const [burns, setBurns] = useState<BurnsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    const fetchBurns = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/debug/burns`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: BurnsResponse = await res.json();
-        setBurns(data);
-        setError(null);
-      } catch (e) {
+  const fetchBurns = useCallback(async () => {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    try {
+      const res = await fetch(`${API_BASE}/api/debug/burns`, {
+        signal: abortRef.current.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: BurnsResponse = await res.json();
+      setBurns(data);
+      setError(null);
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') {
         setError((e as Error).message);
       }
-    };
+    }
+  }, []);
+
+  useEffect(() => {
     fetchBurns();
     const id = setInterval(fetchBurns, intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
+    return () => {
+      clearInterval(id);
+      abortRef.current?.abort();
+    };
+  }, [fetchBurns, intervalMs]);
 
   return { burns, error };
 }
@@ -90,24 +111,35 @@ export function useBurns(intervalMs = 2000) {
 export function useConjunctions(intervalMs = 2000, satelliteId?: string) {
   const [conjunctions, setConjunctions] = useState<ConjunctionsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    const fetchConjunctions = async () => {
-      try {
-        const params = satelliteId ? `?satellite_id=${encodeURIComponent(satelliteId)}` : '';
-        const res = await fetch(`${API_BASE}/api/debug/conjunctions${params}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: ConjunctionsResponse = await res.json();
-        setConjunctions(data);
-        setError(null);
-      } catch (e) {
+  const fetchConjunctions = useCallback(async () => {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    try {
+      const params = satelliteId ? `?satellite_id=${encodeURIComponent(satelliteId)}` : '';
+      const res = await fetch(`${API_BASE}/api/debug/conjunctions${params}`, {
+        signal: abortRef.current.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: ConjunctionsResponse = await res.json();
+      setConjunctions(data);
+      setError(null);
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') {
         setError((e as Error).message);
       }
-    };
+    }
+  }, [satelliteId]);
+
+  useEffect(() => {
     fetchConjunctions();
     const id = setInterval(fetchConjunctions, intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs, satelliteId]);
+    return () => {
+      clearInterval(id);
+      abortRef.current?.abort();
+    };
+  }, [fetchConjunctions, intervalMs]);
 
   return { conjunctions, error };
 }
@@ -115,6 +147,7 @@ export function useConjunctions(intervalMs = 2000, satelliteId?: string) {
 export function useTrajectory(satelliteId: string | null, intervalMs = 2000) {
   const [trajectory, setTrajectory] = useState<TrajectoryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!satelliteId) {
@@ -122,19 +155,28 @@ export function useTrajectory(satelliteId: string | null, intervalMs = 2000) {
       return;
     }
     const fetchTrajectory = async () => {
+      if (abortRef.current) abortRef.current.abort();
+      abortRef.current = new AbortController();
       try {
-        const res = await fetch(`${API_BASE}/api/visualization/trajectory?satellite_id=${encodeURIComponent(satelliteId)}`);
+        const res = await fetch(`${API_BASE}/api/visualization/trajectory?satellite_id=${encodeURIComponent(satelliteId)}`, {
+          signal: abortRef.current.signal,
+        });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: TrajectoryResponse = await res.json();
         setTrajectory(data);
         setError(null);
       } catch (e) {
-        setError((e as Error).message);
+        if ((e as Error).name !== 'AbortError') {
+          setError((e as Error).message);
+        }
       }
     };
     fetchTrajectory();
     const id = setInterval(fetchTrajectory, intervalMs);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      abortRef.current?.abort();
+    };
   }, [intervalMs, satelliteId]);
 
   return { trajectory, error };

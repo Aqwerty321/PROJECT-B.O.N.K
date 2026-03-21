@@ -59,6 +59,11 @@ export function formatUptime(seconds: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+/** Convert a numeric hex color (e.g. 0x22c55e) to a CSS hex string */
+export function hexColor(n: number): string {
+  return `#${n.toString(16).padStart(6, '0')}`;
+}
+
 /** Fuel fraction 0..1 → CSS hsl colour (green → yellow → red) */
 export function fuelColor(fraction: number): string {
   if (fraction > 0.5) {

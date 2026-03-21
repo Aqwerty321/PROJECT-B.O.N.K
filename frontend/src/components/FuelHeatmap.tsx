@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { SatelliteSnapshot } from '../types/api';
 import { statusColor } from '../types/api';
-import { fuelColor } from '../utils/geo';
+import { fuelColor, hexColor } from '../utils/geo';
 import { useSound } from '../hooks/useSound';
 import { theme } from '../styles/theme';
 
@@ -10,10 +10,6 @@ interface Props {
   selectedSatId: string | null;
   onSelectSat: (id: string | null) => void;
   maxFuelKg?: number;
-}
-
-function hexColor(n: number): string {
-  return `#${n.toString(16).padStart(6, '0')}`;
 }
 
 // Animated empty state placeholder bars
@@ -75,7 +71,7 @@ function EmptyState() {
   );
 }
 
-export function FuelHeatmap({ satellites, selectedSatId, onSelectSat, maxFuelKg = 100 }: Props) {
+export const FuelHeatmap = React.memo(function FuelHeatmap({ satellites, selectedSatId, onSelectSat, maxFuelKg = 100 }: Props) {
   const { play } = useSound();
   if (satellites.length === 0) {
     return <EmptyState />;
@@ -169,4 +165,4 @@ export function FuelHeatmap({ satellites, selectedSatId, onSelectSat, maxFuelKg 
       })}
     </div>
   );
-}
+});

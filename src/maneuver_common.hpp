@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 #pragma once
 
+#include "env_util.hpp"
 #include "state_store.hpp"
 #include "types.hpp"
 
@@ -130,15 +131,11 @@ std::string active_ground_station_source();
 
 // Operational constants — env-overridable via PROJECTBONK_* env vars.
 // Initialized once on first call (thread-safe via C++11 static init).
+// Delegates to shared env_util::env_double (simple 2-arg variant).
 namespace detail {
 inline double ops_env_double(const char* name, double fallback) noexcept
 {
-    const char* v = std::getenv(name);
-    if (!v) return fallback;
-    char* end = nullptr;
-    const double d = std::strtod(v, &end);
-    if (end == v || d != d) return fallback;  // NaN guard
-    return d;
+    return env_util::env_double(name, fallback);
 }
 } // namespace detail
 

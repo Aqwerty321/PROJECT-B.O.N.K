@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, type ReactNode } from 'react';
+import React, { useEffect, useState, useRef, type ReactNode } from 'react';
 import { theme } from '../styles/theme';
 import { useSound } from '../hooks/useSound';
 
@@ -43,7 +43,7 @@ function injectBorderPulseStyle() {
   document.head.appendChild(style);
 }
 
-export function GlassPanel({
+export const GlassPanel = React.memo(function GlassPanel({
   title,
   children,
   revealIndex = 0,
@@ -155,4 +155,4 @@ export function GlassPanel({
       </div>
     </div>
   );
-}
+});

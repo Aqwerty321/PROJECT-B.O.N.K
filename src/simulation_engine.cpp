@@ -335,17 +335,24 @@ inline MoidProxyGateResult evaluate_moid_hf_gate(const PerObjectPrecomp& sat_pre
     const std::uint32_t coarse_samples = std::max<std::uint32_t>(base_samples * 2U, 12U);
     const double coarse_step = TWO_PI / static_cast<double>(coarse_samples);
 
+    // B3: Pre-compute satellite orbit positions once and reuse for all debris.
+    // Avoids redundant trig calls when the same sat_el is tested against many
+    // debris objects.
+    struct SamplePoint { Vec3 r; bool valid; };
+    std::vector<SamplePoint> sat_samples(coarse_samples);
+    for (std::uint32_t s = 0; s < coarse_samples; ++s) {
+        const double sat_u = coarse_step * static_cast<double>(s);
+        sat_samples[s].valid = eci_position_at_mean_anomaly(sat_el, sat_u, sat_samples[s].r);
+    }
+
     double min_d2 = std::numeric_limits<double>::infinity();
     bool any_valid = false;
     std::uint32_t best_sat_idx = 0;
     std::uint32_t best_obj_idx = 0;
 
     for (std::uint32_t s = 0; s < coarse_samples; ++s) {
-        const double sat_u = coarse_step * static_cast<double>(s);
-        Vec3 sat_r{};
-        if (!eci_position_at_mean_anomaly(sat_el, sat_u, sat_r)) {
-            continue;
-        }
+        if (!sat_samples[s].valid) continue;
+        const Vec3& sat_r = sat_samples[s].r;
 
         for (std::uint32_t d = 0; d < coarse_samples; ++d) {
             const double obj_u = coarse_step * static_cast<double>(d);
@@ -454,22 +461,26 @@ inline MoidProxyGateResult evaluate_moid_analytical_gate(const PerObjectPrecomp&
     return out;
 }
 
+// B6: Memoize — env var is read once, result cached for process lifetime.
 inline NarrowPhaseConfig::MoidMode resolve_moid_mode(const NarrowPhaseConfig& cfg) noexcept
 {
-    const char* env = std::getenv("PROJECTBONK_NARROW_MOID_MODE");
-    if (env != nullptr) {
-        const std::string mode(env);
-        if (mode == "hf" || mode == "HF") {
-            return NarrowPhaseConfig::MoidMode::HF;
+    static const auto result = [&]() -> NarrowPhaseConfig::MoidMode {
+        const char* env = std::getenv("PROJECTBONK_NARROW_MOID_MODE");
+        if (env != nullptr) {
+            const std::string mode(env);
+            if (mode == "hf" || mode == "HF") {
+                return NarrowPhaseConfig::MoidMode::HF;
+            }
+            if (mode == "proxy" || mode == "PROXY") {
+                return NarrowPhaseConfig::MoidMode::PROXY;
+            }
+            if (mode == "analytical" || mode == "ANALYTICAL") {
+                return NarrowPhaseConfig::MoidMode::ANALYTICAL;
+            }
         }
-        if (mode == "proxy" || mode == "PROXY") {
-            return NarrowPhaseConfig::MoidMode::PROXY;
-        }
-        if (mode == "analytical" || mode == "ANALYTICAL") {
-            return NarrowPhaseConfig::MoidMode::ANALYTICAL;
-        }
-    }
-    return cfg.moid_mode;
+        return cfg.moid_mode;
+    }();
+    return result;
 }
 
 inline double min_d2_linear_segment(double rx,
@@ -596,6 +607,20 @@ bool run_simulation_step(StateStore& store,
     }
 
     auto t_prop_start = std::chrono::steady_clock::now();
+
+    // B1: Parallelise the per-object propagation loop.  Each iteration writes
+    // to a unique store index, so there are no data races on position/velocity
+    // columns.  Counters use OpenMP reduction clauses.
+    std::uint64_t failed_objects = 0;
+    std::uint64_t used_rk4 = 0;
+    std::uint64_t used_fast = 0;
+    std::uint64_t escalated_after_probe = 0;
+    std::uint64_t propagated_objects = 0;
+
+#if PROJECTBONK_HAVE_OPENMP
+    #pragma omp parallel for schedule(static) \
+        reduction(+:failed_objects, used_rk4, used_fast, escalated_after_probe, propagated_objects)
+#endif
     for (std::size_t i = 0; i < store.size(); ++i) {
         Vec3 r{store.rx(i), store.ry(i), store.rz(i)};
         Vec3 v{store.vx(i), store.vy(i), store.vz(i)};
@@ -619,7 +644,7 @@ bool run_simulation_step(StateStore& store,
         }
 
         if (!el_ok) {
-            ++out.failed_objects;
+            ++failed_objects;
             continue;
         }
 
@@ -631,13 +656,13 @@ bool run_simulation_step(StateStore& store,
         if (obj_dt > 0.0) {
             AdaptivePropagationResult prop = propagate_adaptive(r, v, el, obj_dt);
             ok = prop.ok;
-            if (prop.used_rk4) ++out.used_rk4;
-            else ++out.used_fast;
-            if (prop.escalated_after_probe) ++out.escalated_after_probe;
+            if (prop.used_rk4) ++used_rk4;
+            else ++used_fast;
+            if (prop.escalated_after_probe) ++escalated_after_probe;
         }
 
         if (!ok) {
-            ++out.failed_objects;
+            ++failed_objects;
             continue;
         }
 
@@ -650,8 +675,14 @@ bool run_simulation_step(StateStore& store,
         const double applied_epoch = (obj_epoch > target_epoch) ? obj_epoch : target_epoch;
         store.set_telemetry_epoch_s(i, applied_epoch);
         store.set_elements(i, el, true);
-        ++out.propagated_objects;
+        ++propagated_objects;
     }
+
+    out.failed_objects = failed_objects;
+    out.used_rk4 = used_rk4;
+    out.used_fast = used_fast;
+    out.escalated_after_probe = escalated_after_probe;
+    out.propagated_objects = propagated_objects;
     auto t_prop_end = std::chrono::steady_clock::now();
     out.propagation_us = std::chrono::duration<double, std::micro>(t_prop_end - t_prop_start).count();
 

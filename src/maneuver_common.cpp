@@ -218,7 +218,7 @@ bool can_schedule_burn_now(const StateStore& store,
         return false;
     }
 
-    const std::string sat_id = store.id(sat_idx);
+    const auto& sat_id = store.id(sat_idx);
     const auto last_it = last_burn_epoch_by_sat.find(sat_id);
     if (last_it != last_burn_epoch_by_sat.end()) {
         const double dt = epoch_s - last_it->second;
@@ -324,7 +324,7 @@ OrbitalElements derive_slot_elements_if_needed(const StateStore& store,
                                                 std::size_t sat_idx,
                                                 std::unordered_map<std::string, SlotReference>& slot_reference_by_sat) noexcept
 {
-    const std::string sat_id = store.id(sat_idx);
+    const auto& sat_id = store.id(sat_idx);
     auto it = slot_reference_by_sat.find(sat_id);
     if (it != slot_reference_by_sat.end()) {
         return it->second.elements;
@@ -672,7 +672,7 @@ bool should_request_graveyard(const StateStore& store,
     if (store.type(sat_idx) != ObjectType::SATELLITE) return false;
     if (store.sat_status(sat_idx) == SatStatus::OFFLINE) return false;
 
-    const std::string sat_id = store.id(sat_idx);
+    const auto& sat_id = store.id(sat_idx);
     auto done_it = graveyard_completed_by_sat.find(sat_id);
     if (done_it != graveyard_completed_by_sat.end() && done_it->second) {
         return false;
@@ -697,7 +697,7 @@ GraveyardPlanStats plan_graveyard_burns(StateStore& store,
             continue;
         }
 
-        const std::string sat_id = store.id(sat_idx);
+        const auto& sat_id = store.id(sat_idx);
         graveyard_requested_by_sat[sat_id] = true;
 
         if (has_any_pending_burn(burn_queue, sat_id)
@@ -797,9 +797,9 @@ ManeuverExecStats execute_due_maneuvers(StateStore& store,
     std::vector<ScheduledBurn> pending;
     pending.reserve(burn_queue.size());
 
-    for (const ScheduledBurn& burn : burn_queue) {
+    for (ScheduledBurn& burn : burn_queue) {
         if (burn.burn_epoch_s > current_epoch_s + EPS_NUM) {
-            pending.push_back(burn);
+            pending.push_back(std::move(burn));
             continue;
         }
 
