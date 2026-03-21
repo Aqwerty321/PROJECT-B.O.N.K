@@ -390,7 +390,7 @@ export default function BootSequence({ onComplete }: BootSequenceProps) {
               transform: 'translateX(-50%)',
               zIndex: 3,
               width: 'min(580px, 85vw)',
-              minHeight: '220px',
+              minHeight: '250px',
             }}>
               {/* SVG border -- traces from mid-top, thicker stroke */}
               <svg

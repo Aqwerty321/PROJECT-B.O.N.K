@@ -13,9 +13,13 @@ const SAT_ALT_OFFSET = 0.06;     // visual offset above globe surface
 const DEBRIS_SIZE = 1.8;         // point size in px
 const SAT_SIZE = 0.018;          // satellite mesh radius
 const AUTO_ROTATE_SPEED = 0.08;  // degrees per frame
-const CAMERA_DISTANCE = 3.2;
+const CAMERA_DISTANCE = 2.5;
 const STAR_COUNT = 2500;         // background star count
 const STAR_SPHERE_RADIUS = 50;   // far-distance sphere for stars
+
+// GLB normalization uses Box3.getBoundingSphere which overestimates by sqrt(3).
+// After scaling, the actual Earth mesh radius is 1/sqrt(3), NOT 1.0.
+const EARTH_VISUAL_RADIUS = 1 / Math.sqrt(3);  // ≈ 0.577
 
 // Convert lat/lon/alt to 3D position (Y-up)
 function geoTo3D(lat: number, lon: number, altKm: number): THREE.Vector3 {
@@ -71,20 +75,32 @@ function createNebulaTexture(
   return tex;
 }
 
-// Fresnel atmosphere shader
+// Fresnel atmosphere shader (BackSide on a sphere slightly larger than Earth).
+// BackSide: we see back faces; dot(normal, viewDir) is ~0 at silhouette (outer
+// edge of glow) and goes negative toward the back-center (occluded by Earth).
+// Using -dot as intensity gives: bright at inner edge (near Earth surface),
+// fading to transparent at outer edge -- exactly the radial gradient we want.
+// Earth's depth buffer naturally occludes the center.
 const atmosphereVertexShader = `
   varying vec3 vNormal;
+  varying vec3 vViewDir;
   void main() {
     vNormal = normalize(normalMatrix * normal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+    vViewDir = normalize(-mvPos.xyz);
+    gl_Position = projectionMatrix * mvPos;
   }
 `;
 
 const atmosphereFragmentShader = `
   varying vec3 vNormal;
+  varying vec3 vViewDir;
   void main() {
-    float intensity = pow(0.65 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
-    gl_FragColor = vec4(0.3, 0.6, 1.0, 1.0) * intensity;
+    float d = dot(vNormal, vViewDir);          // ~0 at silhouette, negative on back face
+    float inner = clamp(-d, 0.0, 1.0);         // 0 at outer edge, grows toward Earth
+    float glow = sqrt(inner) * 1.4;            // sqrt for smooth gradient, bright near Earth
+    vec3 col = vec3(0.30, 0.65, 1.0);          // bright electric blue
+    gl_FragColor = vec4(col * glow, glow);
   }
 `;
 
@@ -154,13 +170,13 @@ export default function EarthGlobe({
 
     // camera -- extended far plane for distant stars/nebulae
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 200);
-    camera.position.set(0, 0.8, CAMERA_DISTANCE);
+    camera.position.set(0, 0.6, CAMERA_DISTANCE);
 
     // controls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.minDistance = 1.5;
+    controls.minDistance = 1.3;
     controls.maxDistance = 8;
     controls.enablePan = false;
 
@@ -307,12 +323,42 @@ export default function EarthGlobe({
       const scaleFactor = 1 / sphere.radius;
       model.scale.setScalar(scaleFactor);
       model.position.sub(sphere.center.multiplyScalar(scaleFactor));
+
+      // Use the Earth's own diffuse texture as emissive map so surface
+      // details glow with a subtle blue tint matching the atmosphere halo.
+      // We must create a NEW material with emissiveMap specified at construction
+      // time -- mutating an existing material's emissiveMap and setting needsUpdate
+      // does not reliably trigger shader recompilation with USE_EMISSIVEMAP define.
+      model.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          const oldMat = mesh.material as THREE.MeshStandardMaterial;
+          if (oldMat && oldMat.isMeshStandardMaterial && oldMat.map) {
+            const newMat = new THREE.MeshStandardMaterial({
+              map: oldMat.map,
+              normalMap: oldMat.normalMap,
+              metalnessMap: oldMat.metalnessMap,
+              roughnessMap: oldMat.roughnessMap,
+              aoMap: oldMat.aoMap,
+              metalness: oldMat.metalness,
+              roughness: oldMat.roughness,
+              emissiveMap: oldMat.map,                         // diffuse texture as emission source
+              emissive: new THREE.Color(0.4, 0.55, 0.9),      // blue tint matching halo
+              emissiveIntensity: 0.5,
+            });
+            mesh.material = newMat;
+            oldMat.dispose();
+          }
+        }
+      });
+
       earthGroup.add(model);
     });
 
     // ---- Fresnel atmospheric glow ----
     {
-      const atmosGeo = new THREE.SphereGeometry(1.015, 64, 64);
+      // 5% larger than actual Earth visual radius -- tight rim glow
+      const atmosGeo = new THREE.SphereGeometry(EARTH_VISUAL_RADIUS * 1.05, 64, 64);
       const atmosMat = new THREE.ShaderMaterial({
         vertexShader: atmosphereVertexShader,
         fragmentShader: atmosphereFragmentShader,
