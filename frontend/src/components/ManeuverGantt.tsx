@@ -5,6 +5,7 @@ import { theme } from '../styles/theme';
 interface ManeuverGanttProps {
   burns: BurnsResponse | null;
   selectedSatId: string | null;
+  nowEpochS: number;        // current sim epoch in seconds for sweep line
 }
 
 // ---- constants ----
@@ -22,7 +23,7 @@ function burnColor(burn: ExecutedBurn | PendingBurn, isPending: boolean): string
   return theme.colors.accent;
 }
 
-export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttProps) {
+export default function ManeuverGantt({ burns, selectedSatId, nowEpochS }: ManeuverGanttProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const draw = useCallback(() => {
@@ -33,16 +34,35 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
 
     const w = canvas.width;
     const h = canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const lw = w / dpr;
+    const lh = h / dpr;
 
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = theme.colors.bg;
-    ctx.fillRect(0, 0, w, h);
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    if (!burns) {
-      ctx.fillStyle = theme.colors.textDim;
-      ctx.font = `12px ${theme.font.mono}`;
+    // Clear -- transparent bg
+    ctx.clearRect(0, 0, lw, lh);
+
+    // Always draw grid background
+    const chartWidth = lw - LABEL_WIDTH - 10;
+
+    if (!burns || (burns.executed.length === 0 && burns.pending.length === 0)) {
+      // Draw basic grid even with no data
+      drawEmptyGrid(ctx, lw, lh, chartWidth);
+
+      // Empty state text
+      const time = Date.now() / 1000;
+      const pulseAlpha = 0.4 + 0.6 * Math.abs(Math.sin(time * 1.5));
+      ctx.save();
+      ctx.fillStyle = theme.colors.textMuted;
+      ctx.font = `11px ${theme.font.mono}`;
       ctx.textAlign = 'center';
-      ctx.fillText('No burn data', w / 2, h / 2);
+      ctx.globalAlpha = pulseAlpha;
+      ctx.fillText('AWAITING BURN DATA', lw / 2, lh / 2);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      ctx.restore();
       return;
     }
 
@@ -61,10 +81,8 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
     const satellites = Array.from(satIds).sort();
 
     if (satellites.length === 0) {
-      ctx.fillStyle = theme.colors.textDim;
-      ctx.font = `12px ${theme.font.mono}`;
-      ctx.textAlign = 'center';
-      ctx.fillText('No burns recorded', w / 2, h / 2);
+      drawEmptyGrid(ctx, lw, lh, chartWidth);
+      ctx.restore();
       return;
     }
 
@@ -74,13 +92,12 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
     allExecuted.forEach(b => allEpochs.push(parseEpoch(b.burn_epoch)));
     allPending.forEach(b => allEpochs.push(parseEpoch(b.burn_epoch)));
 
-    if (allEpochs.length === 0) return;
+    if (allEpochs.length === 0) { ctx.restore(); return; }
 
     const tMin = Math.min(...allEpochs) - 600;
     const tMax = Math.max(...allEpochs) + 600;
     const tRange = Math.max(tMax - tMin, 3600); // at least 1 hour range
 
-    const chartWidth = w - LABEL_WIDTH - 10;
     const timeToX = (t: number) => LABEL_WIDTH + ((t - tMin) / tRange) * chartWidth;
 
     // Header -- time axis
@@ -101,7 +118,7 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
       ctx.lineWidth = 0.5;
       ctx.beginPath();
       ctx.moveTo(x, HEADER_HEIGHT);
-      ctx.lineTo(x, h);
+      ctx.lineTo(x, lh);
       ctx.stroke();
     }
 
@@ -113,7 +130,7 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
       // alternate row bg
       if (i % 2 === 0) {
         ctx.fillStyle = 'rgba(255,255,255,0.02)';
-        ctx.fillRect(0, y, w, ROW_HEIGHT);
+        ctx.fillRect(0, y, lw, ROW_HEIGHT);
       }
 
       // row divider
@@ -121,7 +138,7 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
       ctx.lineWidth = 0.5;
       ctx.beginPath();
       ctx.moveTo(LABEL_WIDTH, y + ROW_HEIGHT);
-      ctx.lineTo(w, y + ROW_HEIGHT);
+      ctx.lineTo(lw, y + ROW_HEIGHT);
       ctx.stroke();
 
       // satellite label
@@ -131,7 +148,7 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
       const shortId = satId.length > 10 ? satId.slice(0, 10) : satId;
       ctx.fillText(shortId, LABEL_WIDTH - 6, y + ROW_HEIGHT / 2 + 3);
 
-      // draw executed burns
+      // draw executed burns with neon glow
       const satExecuted = allExecuted.filter(b => b.satellite_id === satId);
       for (const burn of satExecuted) {
         const t = parseEpoch(burn.burn_epoch);
@@ -140,6 +157,16 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
         const bw = x2 - x1;
         const color = burnColor(burn, false);
 
+        // Outer glow pass
+        ctx.save();
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 6;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.3;
+        ctx.fillRect(x1 - 1, y + 2, bw + 2, ROW_HEIGHT - 4);
+        ctx.restore();
+
+        // Inner fill
         ctx.fillStyle = color;
         ctx.globalAlpha = 0.85;
         ctx.fillRect(x1, y + 3, bw, ROW_HEIGHT - 6);
@@ -151,7 +178,7 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
         ctx.strokeRect(x1, y + 3, bw, ROW_HEIGHT - 6);
       }
 
-      // draw pending burns (dashed outline)
+      // draw pending burns (dashed outline + glow)
       const satPending = allPending.filter(b => b.satellite_id === satId);
       for (const burn of satPending) {
         const t = parseEpoch(burn.burn_epoch);
@@ -161,9 +188,13 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
         const color = burnColor(burn, true);
 
         ctx.setLineDash([3, 3]);
+        ctx.save();
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 4;
         ctx.strokeStyle = color;
         ctx.lineWidth = 1.2;
         ctx.strokeRect(x1, y + 3, bw, ROW_HEIGHT - 6);
+        ctx.restore();
         ctx.setLineDash([]);
 
         ctx.fillStyle = color;
@@ -173,8 +204,36 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
       }
     }
 
+    // Sweep line at current sim time
+    const sweepX = timeToX(nowEpochS);
+    if (sweepX >= LABEL_WIDTH && sweepX <= lw - 10) {
+      // Wide glow
+      ctx.save();
+      ctx.strokeStyle = 'rgba(58, 159, 232, 0.15)';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(sweepX, HEADER_HEIGHT);
+      ctx.lineTo(sweepX, lh - 20);
+      ctx.stroke();
+      // Medium
+      ctx.strokeStyle = 'rgba(58, 159, 232, 0.3)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sweepX, HEADER_HEIGHT);
+      ctx.lineTo(sweepX, lh - 20);
+      ctx.stroke();
+      // Sharp
+      ctx.strokeStyle = theme.colors.primary;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sweepX, HEADER_HEIGHT);
+      ctx.lineTo(sweepX, lh - 20);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Legend
-    const legendY = h - 14;
+    const legendY = lh - 14;
     const legendItems = [
       { label: 'Avoidance', color: theme.colors.accent },
       { label: 'Recovery', color: theme.colors.warning },
@@ -191,7 +250,35 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
       ctx.fillText(item.label, lx + 14, legendY + 1);
       lx += ctx.measureText(item.label).width + 28;
     }
-  }, [burns, selectedSatId]);
+
+    ctx.restore();
+  }, [burns, selectedSatId, nowEpochS]);
+
+  function drawEmptyGrid(ctx: CanvasRenderingContext2D, lw: number, lh: number, chartWidth: number) {
+    // Draw basic time axis grid even with no data
+    ctx.fillStyle = theme.colors.textMuted;
+    ctx.font = `9px ${theme.font.mono}`;
+    ctx.textAlign = 'center';
+    const tickCount = Math.min(8, Math.floor(chartWidth / 80));
+    for (let i = 0; i <= tickCount; i++) {
+      const x = LABEL_WIDTH + (i / tickCount) * chartWidth;
+      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, HEADER_HEIGHT);
+      ctx.lineTo(x, lh);
+      ctx.stroke();
+    }
+    // horizontal row lines
+    for (let y = HEADER_HEIGHT; y < lh; y += ROW_HEIGHT) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(LABEL_WIDTH, y);
+      ctx.lineTo(lw, y);
+      ctx.stroke();
+    }
+  }
 
   // Render loop
   useEffect(() => {
@@ -210,16 +297,14 @@ export default function ManeuverGantt({ burns, selectedSatId }: ManeuverGanttPro
     const canvas = canvasRef.current;
     if (!canvas) return;
     const obs = new ResizeObserver(() => {
-      canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1);
-      canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1);
-      const ctx = canvas.getContext('2d');
-      if (ctx) ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
     });
     obs.observe(canvas);
-    canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1);
-    canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1);
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.offsetWidth * dpr;
+    canvas.height = canvas.offsetHeight * dpr;
     return () => obs.disconnect();
   }, []);
 

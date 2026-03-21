@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import type { VisualizationSnapshot, SatelliteSnapshot } from '../types/api';
 import { latLonToMercator, computeTerminator } from '../utils/geo';
 import { GROUND_STATIONS, statusColor } from '../types/api';
+import { theme } from '../styles/theme';
 
 interface Props {
   snapshot: VisualizationSnapshot | null;
@@ -12,7 +13,6 @@ interface Props {
 
 // World map colors
 const BG_OCEAN  = '#0a1628';
-const BG_LAND   = '#112240';
 const COLOR_GRID = 'rgba(255,255,255,0.06)';
 const COLOR_TERMINATOR = 'rgba(0,0,0,0.45)';
 const COLOR_DEBRIS = 'rgba(239,68,68,0.55)';
@@ -22,7 +22,7 @@ function hexColor(n: number): string {
   return `#${n.toString(16).padStart(6, '0')}`;
 }
 
-// Simple Mercator world outline — we draw graticule lines, no SVG needed
+// Simple Mercator world outline -- draw graticule lines
 function drawGraticule(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.strokeStyle = COLOR_GRID;
   ctx.lineWidth = 0.5;
@@ -42,7 +42,7 @@ function drawGraticule(ctx: CanvasRenderingContext2D, w: number, h: number) {
     ctx.stroke();
   }
 
-  // Equator — slightly brighter
+  // Equator -- slightly brighter
   ctx.strokeStyle = 'rgba(255,255,255,0.15)';
   ctx.lineWidth = 0.8;
   const [, yeq] = latLonToMercator(0, 0, w, h);
@@ -77,7 +77,7 @@ function drawTerminator(
 
   // terminator line
   ctx.strokeStyle = 'rgba(251,191,36,0.5)';
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) {
@@ -91,19 +91,13 @@ function drawGroundStations(ctx: CanvasRenderingContext2D, w: number, h: number)
   ctx.save();
   ctx.strokeStyle = COLOR_GS;
   ctx.fillStyle = COLOR_GS;
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 1;
   for (const gs of GROUND_STATIONS) {
     const [x, y] = latLonToMercator(gs.lat, gs.lon, w, h);
+    // Just dots for compact mini-map (no labels to reduce clutter)
     ctx.beginPath();
-    ctx.arc(x, y, 4, 0, Math.PI * 2);
-    ctx.stroke();
-    // cross
-    ctx.beginPath();
-    ctx.moveTo(x - 6, y); ctx.lineTo(x + 6, y);
-    ctx.moveTo(x, y - 6); ctx.lineTo(x, y + 6);
-    ctx.stroke();
-    ctx.font = '9px monospace';
-    ctx.fillText(gs.name, x + 6, y - 4);
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -125,9 +119,7 @@ export function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHist
     ctx.fillStyle = BG_OCEAN;
     ctx.fillRect(0, 0, w, h);
 
-    // Background land-mass approximation: just a darker rectangle near mid-latitudes (placeholder)
-    ctx.fillStyle = BG_LAND;
-    // We can't draw continents without a data file, so draw a subtle gradient layer
+    // Background land-mass approximation gradient
     const grad = ctx.createLinearGradient(0, 0, 0, h);
     grad.addColorStop(0, 'rgba(17,34,64,0.0)');
     grad.addColorStop(0.5, 'rgba(17,34,64,0.6)');
@@ -151,7 +143,7 @@ export function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHist
       const [, lat, lon] = d;
       const [x, y] = latLonToMercator(lat, lon, w, h);
       ctx.fillStyle = COLOR_DEBRIS;
-      ctx.fillRect(x - 0.8, y - 0.8, 1.6, 1.6);
+      ctx.fillRect(x - 0.6, y - 0.6, 1.2, 1.2);
     }
     ctx.restore();
 
@@ -161,8 +153,8 @@ export function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHist
       if (history && history.length > 1) {
         ctx.save();
         ctx.strokeStyle = `${hexColor(statusColor(sat.status))}88`;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 3]);
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([3, 2]);
         ctx.beginPath();
         let firstPoint = true;
         let prevX = 0;
@@ -200,33 +192,33 @@ export function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHist
         // selection ring
         ctx.save();
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(x, y, 9, 0, Math.PI * 2);
+        ctx.arc(x, y, 6, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
 
       // Glow
-      const glow = ctx.createRadialGradient(x, y, 0, x, y, 8);
+      const glow = ctx.createRadialGradient(x, y, 0, x, y, 5);
       glow.addColorStop(0, `${col}cc`);
       glow.addColorStop(1, `${col}00`);
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(x, y, 8, 0, Math.PI * 2);
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
       ctx.fill();
 
       // Core dot
       ctx.fillStyle = col;
       ctx.beginPath();
-      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Label for selected
+      // Label for selected (compact)
       if (isSelected) {
-        ctx.font = '10px monospace';
+        ctx.font = `8px ${theme.font.mono}`;
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(sat.id, x + 8, y - 6);
+        ctx.fillText(sat.id, x + 5, y - 4);
       }
     }
   }, [snapshot, selectedSatId, trackHistory]);
@@ -296,7 +288,6 @@ export function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHist
         height: '100%',
         display: 'block',
         cursor: 'crosshair',
-        borderRadius: '6px',
       }}
     />
   );

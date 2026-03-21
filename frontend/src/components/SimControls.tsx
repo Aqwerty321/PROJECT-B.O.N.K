@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { theme } from '../styles/theme';
 import { useSound } from '../hooks/useSound';
 
@@ -24,9 +24,13 @@ async function postStep(hours: number): Promise<{ status: string; new_timestamp:
 
 export default function SimControls({ disabled = false }: SimControlsProps) {
   const { play } = useSound();
+  const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
+  const [flashBtn, setFlashBtn] = useState<string | null>(null);
 
-  const handleStep = useCallback(async (hours: number) => {
+  const handleStep = useCallback(async (hours: number, label: string) => {
     play('buttonPress');
+    setFlashBtn(label);
+    setTimeout(() => setFlashBtn(null), 200);
     try {
       await postStep(hours);
     } catch {
@@ -38,17 +42,35 @@ export default function SimControls({ disabled = false }: SimControlsProps) {
     <div style={styles.container}>
       <span style={styles.label}>SIM STEP</span>
       <div style={styles.buttons}>
-        {STEP_OPTIONS.map(opt => (
-          <button
-            key={opt.label}
-            disabled={disabled}
-            onClick={() => handleStep(opt.hours)}
-            onMouseEnter={() => play('hover')}
-            style={styles.button}
-          >
-            {opt.label}
-          </button>
-        ))}
+        {STEP_OPTIONS.map(opt => {
+          const isHovered = hoveredBtn === opt.label;
+          const isFlash = flashBtn === opt.label;
+          return (
+            <button
+              key={opt.label}
+              disabled={disabled}
+              onClick={() => handleStep(opt.hours, opt.label)}
+              onMouseEnter={() => { setHoveredBtn(opt.label); play('hover'); }}
+              onMouseLeave={() => setHoveredBtn(null)}
+              style={{
+                ...styles.button,
+                background: isFlash
+                  ? 'rgba(58, 159, 232, 0.3)'
+                  : isHovered
+                    ? 'rgba(58, 159, 232, 0.12)'
+                    : 'rgba(58, 159, 232, 0.06)',
+                borderColor: isHovered
+                  ? 'rgba(58, 159, 232, 0.5)'
+                  : 'rgba(58, 159, 232, 0.3)',
+                boxShadow: isHovered
+                  ? '0 0 12px rgba(58, 159, 232, 0.25)'
+                  : 'none',
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -78,11 +100,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     letterSpacing: '0.05em',
     padding: '4px 12px',
-    border: `1px solid ${theme.colors.border}`,
-    borderRadius: '3px',
-    background: 'rgba(58, 159, 232, 0.08)',
+    border: '1px solid rgba(58, 159, 232, 0.3)',
+    background: 'rgba(58, 159, 232, 0.06)',
     color: theme.colors.primary,
     cursor: 'pointer',
     transition: 'all 0.15s ease',
+    clipPath: theme.chamfer.buttonClipPath,
   },
 };

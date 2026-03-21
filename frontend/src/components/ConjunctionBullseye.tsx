@@ -4,7 +4,7 @@ import { riskLevelFromDistance, riskColor } from '../types/api';
 import { theme } from '../styles/theme';
 
 /**
- * Conjunction Bullseye Plot -- now driven by real /api/debug/conjunctions data.
+ * Conjunction Bullseye Plot with animated radar sweep.
  *
  * Radial distance = time-to-closest-approach (TCA). Center = now.
  * Angle = approach bearing derived from relative ECI positions.
@@ -18,7 +18,7 @@ interface Props {
 }
 
 const MAX_TCA_S = 5400;       // 90 minutes max on bullseye
-const RISK_RINGS_KM = [1, 5]; // red / yellow boundaries
+const SWEEP_SPEED_DEG = 1.5;  // degrees per frame (~4s full rotation at 60fps)
 
 function approachAngle(
   satPos: [number, number, number],
@@ -31,6 +31,7 @@ function approachAngle(
 
 export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const sweepAngleRef = useRef(0);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -40,30 +41,34 @@ export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: 
 
     const w = canvas.width;
     const h = canvas.height;
-    const cx = w / 2;
-    const cy = h / 2;
+    const dpr = window.devicePixelRatio || 1;
+    const lw = w / dpr;
+    const lh = h / dpr;
+    const cx = lw / 2;
+    const cy = lh / 2;
     const R = Math.min(cx, cy) - 24;
 
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = theme.colors.bg;
-    ctx.fillRect(0, 0, w, h);
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Clear -- transparent bg (let GlassPanel show through)
+    ctx.clearRect(0, 0, lw, lh);
+
+    // Advance sweep angle
+    sweepAngleRef.current = (sweepAngleRef.current + SWEEP_SPEED_DEG) % 360;
+    const sweepRad = (sweepAngleRef.current * Math.PI) / 180;
 
     // filter to selected satellite if any
     const events = selectedSatId
       ? conjunctions.filter(c => c.satellite_id === selectedSatId)
       : conjunctions;
 
-    if (events.length === 0 && !selectedSatId) {
-      ctx.fillStyle = theme.colors.textMuted;
-      ctx.font = `12px ${theme.font.mono}`;
-      ctx.textAlign = 'center';
-      ctx.fillText('No conjunctions', cx, cy - 6);
-      ctx.fillText('detected', cx, cy + 12);
-      drawRings(ctx, cx, cy, R);
-      return;
-    }
+    // Draw pulsing concentric rings
+    const time = Date.now() / 1000;
+    drawRings(ctx, cx, cy, R, time);
 
-    drawRings(ctx, cx, cy, R);
+    // Radar sweep line with trail
+    drawSweepLine(ctx, cx, cy, R, sweepRad);
 
     // crosshairs
     ctx.save();
@@ -90,47 +95,94 @@ export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: 
     ctx.fillText('W', cx - R - 4, cy + 4);
     ctx.restore();
 
-    // plot conjunction events
-    let redCount = 0;
-    let yellowCount = 0;
-    let greenCount = 0;
+    if (events.length === 0) {
+      // Empty state with pulsing text
+      ctx.save();
+      ctx.fillStyle = theme.colors.textMuted;
+      ctx.font = `11px ${theme.font.mono}`;
+      ctx.textAlign = 'center';
+      const pulseAlpha = 0.4 + 0.6 * Math.abs(Math.sin(time * 1.5));
+      ctx.globalAlpha = pulseAlpha;
+      ctx.fillText('AWAITING CONJUNCTION DATA', cx, cy + 4);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    } else {
+      // plot conjunction events
+      let redCount = 0;
+      let yellowCount = 0;
+      let greenCount = 0;
 
-    for (const evt of events) {
-      const dtca = evt.tca_epoch_s - nowEpochS;
-      if (dtca < -300) continue; // skip events more than 5min in the past
+      for (const evt of events) {
+        const dtca = evt.tca_epoch_s - nowEpochS;
+        if (dtca < -300) continue; // skip events more than 5min in the past
 
-      const tFrac = Math.min(1, Math.max(0, Math.abs(dtca) / MAX_TCA_S));
-      const rr = tFrac * R;
+        const tFrac = Math.min(1, Math.max(0, Math.abs(dtca) / MAX_TCA_S));
+        const rr = tFrac * R;
 
-      const angle = approachAngle(evt.sat_pos_eci_km, evt.deb_pos_eci_km);
-      const px = cx + rr * Math.cos(angle);
-      const py = cy + rr * Math.sin(angle);
+        const angle = approachAngle(evt.sat_pos_eci_km, evt.deb_pos_eci_km);
+        const px = cx + rr * Math.cos(angle);
+        const py = cy + rr * Math.sin(angle);
 
-      const risk = riskLevelFromDistance(evt.miss_distance_km);
-      const color = riskColor(risk);
+        const risk = riskLevelFromDistance(evt.miss_distance_km);
+        const color = riskColor(risk);
 
-      if (risk === 'red') redCount++;
-      else if (risk === 'yellow') yellowCount++;
-      else greenCount++;
+        if (risk === 'red') redCount++;
+        else if (risk === 'yellow') yellowCount++;
+        else greenCount++;
 
-      // draw point
-      ctx.fillStyle = color;
-      ctx.globalAlpha = evt.collision ? 1.0 : 0.8;
-      ctx.beginPath();
-      const ptSize = risk === 'red' ? 3.5 : risk === 'yellow' ? 2.5 : 1.8;
-      ctx.arc(px, py, ptSize, 0, Math.PI * 2);
-      ctx.fill();
+        // Check if sweep just passed this dot
+        const dotAngle = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        const sweepNorm = ((sweepRad % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        const angleDiff = ((sweepNorm - dotAngle) + 2 * Math.PI) % (2 * Math.PI);
+        const justSwept = angleDiff < 0.5 && angleDiff > 0; // ~30 degrees behind sweep
 
-      // collision marker -- extra ring
-      if (evt.collision) {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5;
+        // Glow pass (larger, blurred)
+        ctx.save();
+        ctx.shadowColor = color;
+        ctx.shadowBlur = justSwept ? 12 : 6;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = evt.collision ? 1.0 : justSwept ? 0.9 : 0.7;
         ctx.beginPath();
-        ctx.arc(px, py, ptSize + 3, 0, Math.PI * 2);
-        ctx.stroke();
+        const ptSize = risk === 'red' ? 3.5 : risk === 'yellow' ? 2.5 : 1.8;
+        ctx.arc(px, py, ptSize + (justSwept ? 1.5 : 0), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // collision marker -- extra ring
+        if (evt.collision) {
+          ctx.save();
+          ctx.strokeStyle = color;
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 8;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(px, py, ptSize + 3, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
       }
+
+      // threat summary
+      ctx.save();
+      ctx.font = `10px ${theme.font.mono}`;
+      ctx.textAlign = 'left';
+      let sy = lh - 8;
+      if (greenCount > 0) {
+        ctx.fillStyle = theme.colors.accent;
+        ctx.fillText(`${greenCount} NOMINAL (>5km)`, 8, sy);
+        sy -= 14;
+      }
+      if (yellowCount > 0) {
+        ctx.fillStyle = theme.colors.warning;
+        ctx.fillText(`${yellowCount} WARNING (1-5km)`, 8, sy);
+        sy -= 14;
+      }
+      if (redCount > 0) {
+        ctx.fillStyle = theme.colors.critical;
+        ctx.fillText(`${redCount} CRITICAL (<1km)`, 8, sy);
+      }
+      ctx.restore();
     }
-    ctx.globalAlpha = 1;
 
     // center dot
     ctx.save();
@@ -152,38 +204,22 @@ export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: 
       ctx.restore();
     }
 
-    // threat summary
-    ctx.save();
-    ctx.font = `10px ${theme.font.mono}`;
-    ctx.textAlign = 'left';
-    let sy = h - 8;
-    if (greenCount > 0) {
-      ctx.fillStyle = theme.colors.accent;
-      ctx.fillText(`${greenCount} NOMINAL (>5km)`, 8, sy);
-      sy -= 14;
-    }
-    if (yellowCount > 0) {
-      ctx.fillStyle = theme.colors.warning;
-      ctx.fillText(`${yellowCount} WARNING (1-5km)`, 8, sy);
-      sy -= 14;
-    }
-    if (redCount > 0) {
-      ctx.fillStyle = theme.colors.critical;
-      ctx.fillText(`${redCount} CRITICAL (<1km)`, 8, sy);
-    }
     ctx.restore();
   }, [conjunctions, selectedSatId, nowEpochS]);
 
-  function drawRings(ctx: CanvasRenderingContext2D, cx: number, cy: number, R: number) {
-    // TCA time rings
+  function drawRings(ctx: CanvasRenderingContext2D, cx: number, cy: number, R: number, time: number) {
+    // TCA time rings with pulsing opacity
     const timeRings = [
       { s: 900,  label: '15m' },
       { s: 2700, label: '45m' },
       { s: 5400, label: '90m' },
     ];
-    for (const ring of timeRings) {
+    for (let i = 0; i < timeRings.length; i++) {
+      const ring = timeRings[i];
       const rr = (ring.s / MAX_TCA_S) * R;
-      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      // Pulsing opacity with slight phase offset per ring
+      const pulse = 0.06 + 0.09 * Math.abs(Math.sin(time * 1.2 + i * 0.8));
+      ctx.strokeStyle = `rgba(255,255,255,${pulse})`;
       ctx.lineWidth = 0.5;
       ctx.beginPath();
       ctx.arc(cx, cy, rr, 0, Math.PI * 2);
@@ -195,12 +231,42 @@ export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: 
       ctx.fillText(ring.label, cx + rr + 3, cy - 3);
     }
 
-    // innermost danger zone fill
+    // innermost danger zone fill (pulsing)
     const innerR = (900 / MAX_TCA_S) * R;
-    ctx.fillStyle = 'rgba(239,68,68,0.08)';
+    const dangerPulse = 0.06 + 0.04 * Math.abs(Math.sin(time * 2));
+    ctx.fillStyle = `rgba(239,68,68,${dangerPulse})`;
     ctx.beginPath();
     ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  function drawSweepLine(ctx: CanvasRenderingContext2D, cx: number, cy: number, R: number, sweepRad: number) {
+    // Sweep trail (fading ~30 deg arc)
+    const trailDeg = 30;
+    const steps = 20;
+    for (let i = 0; i < steps; i++) {
+      const frac = i / steps;
+      const angle = sweepRad - (frac * trailDeg * Math.PI) / 180;
+      const alpha = 0.12 * (1 - frac);
+      ctx.strokeStyle = `rgba(58, 159, 232, ${alpha})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + R * Math.cos(angle), cy + R * Math.sin(angle));
+      ctx.stroke();
+    }
+
+    // Main sweep line with gradient
+    const grad = ctx.createLinearGradient(cx, cy, cx + R * Math.cos(sweepRad), cy + R * Math.sin(sweepRad));
+    grad.addColorStop(0, 'rgba(58, 159, 232, 0)');
+    grad.addColorStop(0.3, 'rgba(58, 159, 232, 0.2)');
+    grad.addColorStop(1, 'rgba(58, 159, 232, 0.5)');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + R * Math.cos(sweepRad), cy + R * Math.sin(sweepRad));
+    ctx.stroke();
   }
 
   useEffect(() => {
@@ -218,16 +284,14 @@ export function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: 
     const canvas = canvasRef.current;
     if (!canvas) return;
     const obs = new ResizeObserver(() => {
-      canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1);
-      canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1);
-      const ctx = canvas.getContext('2d');
-      if (ctx) ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
     });
     obs.observe(canvas);
-    canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1);
-    canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1);
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.offsetWidth * dpr;
+    canvas.height = canvas.offsetHeight * dpr;
     return () => obs.disconnect();
   }, []);
 

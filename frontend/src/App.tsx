@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { theme } from './styles/theme';
 import { useSnapshot, useStatus, useBurns, useConjunctions, useTrajectory } from './hooks/useApi';
 import BootSequence from './components/BootSequence';
@@ -9,6 +9,7 @@ import { StatusPanel } from './components/StatusPanel';
 import { FuelHeatmap } from './components/FuelHeatmap';
 import ManeuverGantt from './components/ManeuverGantt';
 import SimControls from './components/SimControls';
+import { GroundTrackMap } from './components/GroundTrackMap';
 
 function App() {
   // ---- boot state ----
@@ -47,58 +48,54 @@ function App() {
     [trajectory?.predicted],
   );
 
+  // ---- track history accumulation for ground track mini-map ----
+  const trackHistoryRef = useRef<Map<string, [number, number][]>>(new Map());
+  const [trackHistory, setTrackHistory] = useState<Map<string, [number, number][]>>(new Map());
+
+  useEffect(() => {
+    if (!snapshot) return;
+    const map = trackHistoryRef.current;
+    for (const sat of snapshot.satellites) {
+      let arr = map.get(sat.id);
+      if (!arr) {
+        arr = [];
+        map.set(sat.id, arr);
+      }
+      arr.push([sat.lat, sat.lon]);
+      // Keep last 200 points per satellite
+      if (arr.length > 200) arr.shift();
+    }
+    setTrackHistory(new Map(map));
+  }, [snapshot]);
+
   // ---- boot screen ----
   if (!booted) {
     return <BootSequence onComplete={handleBootComplete} />;
   }
 
-  // ---- dashboard ----
+  // ---- dashboard: full-screen globe + U-shaped cockpit HUD ----
   return (
     <div style={styles.root}>
-      {/* CRT scanline overlay on entire viewport */}
-      <div style={styles.scanlines} />
+      {/* Full-screen globe backdrop (z-index 0) */}
+      <EarthGlobe
+        satellites={satellites}
+        debris={debris}
+        selectedSatId={selectedSatId}
+        onSelectSat={onSelectSat}
+        trailPoints={trailVectors}
+        predictedPoints={predictedVectors}
+      />
 
-      {/* ---- Main grid ---- */}
-      <div style={styles.grid}>
+      {/* HUD overlay container (z-index 10) */}
+      <div style={styles.hudOverlay}>
+        {/* CRT scanline overlay -- very subtle */}
+        <div style={styles.scanlines} />
 
-        {/* Left: 3D Globe (~55%) */}
-        <GlassPanel
-          title="ORBITAL VIEW"
-          revealIndex={0}
-          bootComplete={booted}
-          noPadding
-          style={styles.globePanel}
-        >
-          <EarthGlobe
-            satellites={satellites}
-            debris={debris}
-            selectedSatId={selectedSatId}
-            onSelectSat={onSelectSat}
-            trailPoints={trailVectors}
-            predictedPoints={predictedVectors}
-          />
-        </GlassPanel>
-
-        {/* Center-right: Bullseye (~25%) */}
-        <GlassPanel
-          title="CONJUNCTION BULLSEYE"
-          revealIndex={1}
-          bootComplete={booted}
-          noPadding
-          style={styles.bullseyePanel}
-        >
-          <ConjunctionBullseye
-            conjunctions={conjList}
-            selectedSatId={selectedSatId}
-            nowEpochS={nowEpochS}
-          />
-        </GlassPanel>
-
-        {/* Right sidebar: Status + Fuel (~20%) */}
-        <div style={styles.sidebarColumn}>
+        {/* Left column: Status + Fuel + Mini-map */}
+        <div style={styles.leftColumn}>
           <GlassPanel
             title="SYSTEM STATUS"
-            revealIndex={2}
+            revealIndex={0}
             bootComplete={booted}
             style={styles.statusPanel}
           >
@@ -113,7 +110,7 @@ function App() {
 
           <GlassPanel
             title="FUEL RESERVES"
-            revealIndex={3}
+            revealIndex={1}
             bootComplete={booted}
             noPadding
             style={styles.fuelPanel}
@@ -124,32 +121,72 @@ function App() {
               onSelectSat={onSelectSat}
             />
           </GlassPanel>
+
+          <GlassPanel
+            title="GROUND TRACK"
+            revealIndex={2}
+            bootComplete={booted}
+            noPadding
+            style={styles.miniMapPanel}
+          >
+            <GroundTrackMap
+              snapshot={snapshot ?? null}
+              selectedSatId={selectedSatId}
+              onSelectSat={onSelectSat}
+              trackHistory={trackHistory}
+            />
+          </GlassPanel>
         </div>
 
-        {/* Bottom strip: Gantt timeline */}
-        <GlassPanel
-          title="MANEUVER TIMELINE"
-          revealIndex={4}
-          bootComplete={booted}
-          noPadding
-          style={styles.ganttPanel}
-        >
-          <div style={styles.ganttHeader}>
+        {/* Right column: Bullseye + Sim Controls */}
+        <div style={styles.rightColumn}>
+          <GlassPanel
+            title="CONJUNCTION BULLSEYE"
+            revealIndex={3}
+            bootComplete={booted}
+            noPadding
+            style={styles.bullseyePanel}
+          >
+            <ConjunctionBullseye
+              conjunctions={conjList}
+              selectedSatId={selectedSatId}
+              nowEpochS={nowEpochS}
+            />
+          </GlassPanel>
+
+          <GlassPanel
+            title="SIM CONTROLS"
+            revealIndex={4}
+            bootComplete={booted}
+            style={styles.simControlsPanel}
+          >
             <SimControls />
             {selectedSatId && (
-              <span style={styles.ganttSelectedLabel}>
-                Showing: {selectedSatId}
+              <div style={styles.selectedLabel}>
+                <span style={{ color: theme.colors.primary, fontSize: '10px' }}>
+                  Tracking: {selectedSatId}
+                </span>
                 <button
-                  style={styles.ganttClearBtn}
+                  style={styles.clearBtn}
                   onClick={() => onSelectSat(null)}
                 >
                   CLEAR
                 </button>
-              </span>
+              </div>
             )}
-          </div>
+          </GlassPanel>
+        </div>
+
+        {/* Bottom strip: Maneuver Timeline */}
+        <GlassPanel
+          title="MANEUVER TIMELINE"
+          revealIndex={5}
+          bootComplete={booted}
+          noPadding
+          style={styles.bottomStrip}
+        >
           <div style={styles.ganttCanvas}>
-            <ManeuverGantt burns={burns} selectedSatId={selectedSatId} />
+            <ManeuverGantt burns={burns} selectedSatId={selectedSatId} nowEpochS={nowEpochS} />
           </div>
         </GlassPanel>
       </div>
@@ -170,6 +207,12 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     fontFamily: theme.font.mono,
   },
+  hudOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 10,
+    pointerEvents: 'none',
+  },
   scanlines: {
     position: 'fixed',
     inset: 0,
@@ -183,36 +226,22 @@ const styles: Record<string, React.CSSProperties> = {
     pointerEvents: 'none',
     zIndex: 100,
   },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: '55fr 25fr 20fr',
-    gridTemplateRows: '1fr 160px',
-    gap: '6px',
-    padding: '6px',
-    width: '100%',
-    height: '100%',
-  },
-  globePanel: {
-    gridColumn: '1 / 2',
-    gridRow: '1 / 2',
-    minHeight: 0,
-  },
-  bullseyePanel: {
-    gridColumn: '2 / 3',
-    gridRow: '1 / 2',
-    minHeight: 0,
-  },
-  sidebarColumn: {
-    gridColumn: '3 / 4',
-    gridRow: '1 / 2',
+  // Left column
+  leftColumn: {
+    position: 'fixed',
+    left: '16px',
+    top: '15vh',
+    bottom: '180px',
+    width: 'clamp(240px, 18vw, 320px)',
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '6px',
-    minHeight: 0,
+    gap: '8px',
+    pointerEvents: 'auto' as const,
+    zIndex: 11,
   },
   statusPanel: {
     flex: '0 0 auto',
-    maxHeight: '50%',
+    maxHeight: '40%',
     overflow: 'auto',
   },
   fuelPanel: {
@@ -220,40 +249,61 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: 0,
     overflow: 'hidden',
   },
-  ganttPanel: {
-    gridColumn: '1 / -1',
-    gridRow: '2 / 3',
+  miniMapPanel: {
+    flex: '0 0 160px',
+    overflow: 'hidden',
+  },
+  // Right column
+  rightColumn: {
+    position: 'fixed',
+    right: '16px',
+    top: '15vh',
+    bottom: '180px',
+    width: 'clamp(260px, 20vw, 360px)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '8px',
+    pointerEvents: 'auto' as const,
+    zIndex: 11,
+  },
+  bullseyePanel: {
+    flex: '1 1 0',
     minHeight: 0,
   },
-  ganttHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '2px 12px',
-    borderBottom: `1px solid ${theme.colors.border}`,
-    flexShrink: 0,
+  simControlsPanel: {
+    flex: '0 0 auto',
   },
-  ganttSelectedLabel: {
-    fontSize: '10px',
-    color: theme.colors.primary,
-    fontFamily: theme.font.mono,
+  selectedLabel: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+    marginTop: '4px',
+    fontFamily: theme.font.mono,
   },
-  ganttClearBtn: {
+  clearBtn: {
     fontSize: '9px',
     fontFamily: theme.font.mono,
     padding: '2px 8px',
     border: `1px solid ${theme.colors.border}`,
-    borderRadius: '2px',
     background: 'transparent',
     color: theme.colors.textDim,
     cursor: 'pointer',
     letterSpacing: '0.08em',
+    clipPath: theme.chamfer.buttonClipPath,
+  },
+  // Bottom strip
+  bottomStrip: {
+    position: 'fixed',
+    bottom: '16px',
+    left: '16px',
+    right: '16px',
+    height: 'clamp(120px, 12vh, 160px)',
+    pointerEvents: 'auto' as const,
+    zIndex: 11,
   },
   ganttCanvas: {
-    flex: 1,
+    width: '100%',
+    height: '100%',
     minHeight: 0,
   },
 };
