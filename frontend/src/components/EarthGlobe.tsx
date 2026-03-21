@@ -15,6 +15,8 @@ const DEBRIS_SIZE = 1.8;         // point size in px
 const SAT_SIZE = 0.018;          // satellite mesh radius
 const AUTO_ROTATE_SPEED = 0.08;  // degrees per frame
 const CAMERA_DISTANCE = 3.2;
+const STAR_COUNT = 2500;         // background star count
+const STAR_SPHERE_RADIUS = 50;   // far-distance sphere for stars
 
 // Convert lat/lon/alt to 3D position (Y-up)
 function geoTo3D(lat: number, lon: number, altKm: number): THREE.Vector3 {
@@ -115,6 +117,73 @@ export default function EarthGlobe({
     const rim = new THREE.DirectionalLight(0x3a9fe8, 0.3);
     rim.position.set(-3, -1, -5);
     scene.add(rim);
+
+    // ---- starfield (fixed relative to camera, does NOT rotate with Earth) ----
+    {
+      const starPositions = new Float32Array(STAR_COUNT * 3);
+      const starSizes = new Float32Array(STAR_COUNT);
+      const starColors = new Float32Array(STAR_COUNT * 3);
+
+      for (let i = 0; i < STAR_COUNT; i++) {
+        // Uniform distribution on sphere surface
+        const u = Math.random();
+        const v = Math.random();
+        const theta = 2 * Math.PI * u;
+        const phi = Math.acos(2 * v - 1);
+        const r = STAR_SPHERE_RADIUS * (0.9 + 0.1 * Math.random()); // slight depth variation
+
+        starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+        starPositions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+        starPositions[i * 3 + 2] = r * Math.cos(phi);
+
+        // Varying brightness: most dim, some bright, few very bright
+        const brightness = Math.random();
+        const size = brightness < 0.85 ? 0.8 + Math.random() * 0.6
+                   : brightness < 0.97 ? 1.6 + Math.random() * 0.8
+                   : 2.5 + Math.random() * 1.0;
+        starSizes[i] = size;
+
+        // Subtle color variation: mostly white, slight blue or warm tint
+        const tint = Math.random();
+        if (tint < 0.7) {
+          // white
+          const b = 0.6 + Math.random() * 0.4;
+          starColors[i * 3] = b;
+          starColors[i * 3 + 1] = b;
+          starColors[i * 3 + 2] = b;
+        } else if (tint < 0.85) {
+          // blue-white
+          const b = 0.5 + Math.random() * 0.3;
+          starColors[i * 3] = b * 0.8;
+          starColors[i * 3 + 1] = b * 0.9;
+          starColors[i * 3 + 2] = b;
+        } else {
+          // warm
+          const b = 0.5 + Math.random() * 0.4;
+          starColors[i * 3] = b;
+          starColors[i * 3 + 1] = b * 0.85;
+          starColors[i * 3 + 2] = b * 0.6;
+        }
+      }
+
+      const starGeo = new THREE.BufferGeometry();
+      starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+      starGeo.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
+      starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+
+      const starMat = new THREE.PointsMaterial({
+        size: 1.2,
+        sizeAttenuation: true,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+
+      const stars = new THREE.Points(starGeo, starMat);
+      scene.add(stars); // added to scene, NOT earthGroup — stays fixed
+    }
 
     // earth group (for rotation)
     const earthGroup = new THREE.Group();

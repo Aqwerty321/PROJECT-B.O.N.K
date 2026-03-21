@@ -50,7 +50,16 @@ export function StatusPanel({ status, apiError, snapshotTimestamp, debrisCount, 
         </div>
         <div style={{ color: '#475569', fontSize: '10px', marginTop: '8px' }}>
           Ensure backend is running:<br />
-          <code style={{ color: '#94a3b8' }}>./build/ProjectBONK</code>
+          <code style={{
+            color: '#94a3b8',
+            fontSize: '9px',
+            display: 'block',
+            marginTop: '4px',
+            lineHeight: '1.6',
+            wordBreak: 'break-all',
+          }}>
+            PROJECTBONK_CORS_ENABLE=true PROJECTBONK_CORS_ALLOW_ORIGIN=http://localhost:5173 ./build/ProjectBONK
+          </code>
         </div>
       </div>
     );
