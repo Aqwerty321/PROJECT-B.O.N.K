@@ -1,263 +1,539 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { theme } from '../styles/theme';
+import { useSound } from '../hooks/useSound';
 
 interface BootSequenceProps {
   onComplete: () => void;
 }
 
-// ---- constants ----
+// ---- phosphor green palette ----
+const PHOSPHOR = {
+  text: '#00ff41',
+  textDim: '#00cc33',
+  bg: '#001a00',
+  bgMid: '#000d00',
+  cursor: '#00ff41',
+  glow: '0 0 8px rgba(0,255,65,0.6)',
+};
 
-const CHAR_POOL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?/~`';
-const FLURRY_ROWS = 24;
-const FLURRY_COLS = 80;
-const FLURRY_DURATION_MS = 1200;
-const FLURRY_TICK_MS = 40;
-
-const TITLE_TEXT = 'C . A . S . C . A . D . E';
-const TITLE_DELAY_MS = 1200;      // starts after flurry
-const TITLE_EXPAND_MS = 800;      // expand animation duration
-
-const BORDER_DELAY_MS = 2000;     // starts after flurry start
-const BORDER_DRAW_MS = 1000;
-
-const LOG_START_MS = 2800;        // when log lines begin
-const LOG_LINES = [
-  '[INIT]  Propagator RK4/J2 ........... OK',
-  '[INIT]  Broad-phase grid ............ OK',
-  '[INIT]  Conjunction screening ....... OK',
-  '[INIT]  Maneuver planner (CW) ....... OK',
-  '[INIT]  Fuel budget allocator ....... OK',
-  '[INIT]  NSGA-II tuner ............... OK',
-  '[INIT]  REST API server ............. BOUND :8000',
-  '[LOAD]  TLE catalog ................. 27,191 objects',
-  '[LOAD]  Satellite constellation ..... NOMINAL',
+// ---- boot log lines (creative mix) ----
+const BOOT_LINES = [
+  '[  0.000] BIOS POST ................................. OK',
+  '[  0.003] CPU: 16-core x86_64 @ 3.8 GHz ............ ONLINE',
+  '[  0.011] Memory: 65536 MiB DDR5 .................... MAPPED',
+  '[  0.015] GPU: RTX 4090 (CUDA 12.4) ................. READY',
+  '[  0.024] Loading kernel modules .....................',
+  '[  0.031]   ext4 tmpfs overlay aufs .................. OK',
+  '[  0.042]   nvidia_uvm nvidia_drm ................... OK',
+  '[  0.055] Mounting /dev/sda1 on / .................... OK',
+  '[  0.063] Network: eth0 10.0.1.42/24 ................ UP',
+  '[  0.078] Initializing CASCADE runtime v3.2.1 .......',
+  '[  0.091]   SGP4/SDP4 propagator .................... LOADED',
+  '[  0.104]   RK4/J2 numerical integrator ............. LOADED',
+  '[  0.112]   rk4_j2_substep(r, v, dt=60s, max_step=10s)',
+  '[  0.118]   Broad-phase spatial grid (200x200x100) .. INIT',
+  '[  0.131]   Narrow-phase conjunction screening ...... INIT',
+  '[  0.140]   CW relative motion solver ............... INIT',
+  '[  0.155]   NSGA-II multi-objective tuner ........... INIT',
+  '[  0.168] Loading TLE catalog ........................',
+  '  1 25544U 98067A   25080.53661689  .00016717  00000-0  10270-3 0  9025',
+  '  2 25544  51.6362 208.5684 0004209 350.7582   9.3285 15.48919755252741',
+  '  1 41335U 16011A   25079.91667824  .00000843  00000-0  37461-4 0  9993',
+  '  2 41335  97.3215 142.6543 0012078 235.1647 124.8412 15.22174312497610',
+  '[  0.201] Catalog ingested: 27,191 LEO objects',
+  '[  0.218] Orbital database mounted at /var/cascade/tle',
+  '[  0.234] Fuel budget allocator ...................... READY',
+  '[  0.248] Maneuver planner (Hill/CW frame) .......... READY',
+  '[  0.263] Recovery slot scheduler .................... READY',
+  '[  0.281] REST API server binding 0.0.0.0:8000 ...... OK',
+  '[  0.295] CORS: Allow-Origin http://localhost:5173',
+  '[  0.310] Constellation status ....................... NOMINAL',
+  '[  0.318] All subsystems initialized.',
+  '',
+  'PROJECTBONK_CORS_ENABLE=true ./build/ProjectBONK',
+  '',
+  'CASCADE ORBITAL ENGINE READY',
 ];
-const LOG_LINE_INTERVAL_MS = 220;
 
-const READY_DELAY_MS = 300;       // after last log line
-const TOTAL_DURATION_MS = 6200;   // total before onComplete fires
+const BOOT_SCROLL_INTERVAL_MS = 55;    // ms per line
+const BOOT_CURSOR_BLINK_MS = 500;      // cursor blink after scroll ends
+const BOOT_CURSOR_BLINKS = 3;          // number of blink cycles
+const BOOT_FADE_MS = 600;              // green->black fade duration
 
-// ---- helper: random string ----
-function randomLine(cols: number): string {
-  let s = '';
-  for (let i = 0; i < cols; i++) {
-    s += CHAR_POOL[Math.floor(Math.random() * CHAR_POOL.length)];
-  }
-  return s;
-}
+// ---- CASCADE title ----
+const TITLE_TEXT = 'CASCADE';
+
+// ---- init log lines (after CASCADE) ----
+const INIT_LINES = [
+  { text: '[INIT]  Propagator RK4/J2 ...........', status: 'OK' },
+  { text: '[INIT]  Broad-phase grid ............', status: 'OK' },
+  { text: '[INIT]  Conjunction screening .......', status: 'OK' },
+  { text: '[INIT]  Maneuver planner (CW) .......', status: 'OK' },
+  { text: '[INIT]  Fuel budget allocator .......', status: 'OK' },
+  { text: '[INIT]  NSGA-II tuner ...............', status: 'OK' },
+  { text: '[INIT]  REST API server .............', status: 'BOUND :8000' },
+  { text: '[LOAD]  TLE catalog 27,191 objects ..', status: 'OK' },
+  { text: '[LOAD]  Constellation ...............', status: 'NOMINAL' },
+];
+const INIT_LINE_INTERVAL_MS = 200;
+const ROTOR_CYCLE_MS = 160;            // full 360 deg Y-axis rotation period
 
 // ---- component ----
 
 export default function BootSequence({ onComplete }: BootSequenceProps) {
-  // phases
-  const [phase, setPhase] = useState<'flurry' | 'title' | 'logs' | 'ready'>('flurry');
-  const [flurryLines, setFlurryLines] = useState<string[]>([]);
+  const { play } = useSound();
+
+  // Phase state
+  const [phase, setPhase] = useState<'boot' | 'fade' | 'cascade' | 'logs' | 'ready' | 'done'>('boot');
+
+  // Boot terminal state
+  const [bootLineIndex, setBootLineIndex] = useState(0);
+  const [cursorVisible, setCursorVisible] = useState(true);
+  const [bootFading, setBootFading] = useState(false);
+
+  // CASCADE title state
   const [titleVisible, setTitleVisible] = useState(false);
   const [titleExpanded, setTitleExpanded] = useState(false);
+
+  // Log lines state
+  const [visibleLogs, setVisibleLogs] = useState(0);
+  const [completedLogs, setCompletedLogs] = useState(0);
   const [borderProgress, setBorderProgress] = useState(0);
-  const [visibleLogs, setVisibleLogs] = useState<number>(0);
+
+  // SYSTEM READY
   const [systemReady, setSystemReady] = useState(false);
 
   const bootSoundPlayed = useRef(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // play boot sound once
-  const playBootSound = useCallback(() => {
-    if (bootSoundPlayed.current) return;
-    bootSoundPlayed.current = true;
-    const audio = new Audio('/soundfx/short_terminal_dashui_load.mp3');
-    audio.volume = 0.5;
-    audio.play().catch(() => {});
-  }, []);
-
+  // ---- main timeline ----
   useEffect(() => {
-    playBootSound();
+    // Play boot sound via useSound hook
+    if (!bootSoundPlayed.current) {
+      bootSoundPlayed.current = true;
+      play('boot');
+    }
 
     const timers: ReturnType<typeof setTimeout>[] = [];
     const intervals: ReturnType<typeof setInterval>[] = [];
+    let t = 0; // running time cursor
 
-    // ---- Phase 1: CRT flurry ----
-    const flurryInterval = setInterval(() => {
-      const lines: string[] = [];
-      for (let r = 0; r < FLURRY_ROWS; r++) {
-        lines.push(randomLine(FLURRY_COLS));
-      }
-      setFlurryLines(lines);
-    }, FLURRY_TICK_MS);
-    intervals.push(flurryInterval);
+    // == Phase A: Boot terminal scroll ==
+    const scrollInterval = setInterval(() => {
+      setBootLineIndex(prev => {
+        if (prev < BOOT_LINES.length) return prev + 1;
+        return prev;
+      });
+    }, BOOT_SCROLL_INTERVAL_MS);
+    intervals.push(scrollInterval);
 
-    // stop flurry, show title
+    const scrollDuration = BOOT_LINES.length * BOOT_SCROLL_INTERVAL_MS;
+    t += scrollDuration;
+
+    // Stop scrolling, start cursor blink
     timers.push(setTimeout(() => {
-      clearInterval(flurryInterval);
-      setFlurryLines([]);
-      setPhase('title');
-      setTitleVisible(true);
-    }, FLURRY_DURATION_MS));
+      clearInterval(scrollInterval);
+    }, t));
 
-    // expand title
+    // Cursor blink phase
+    const blinkDuration = BOOT_CURSOR_BLINKS * 2 * BOOT_CURSOR_BLINK_MS;
+    const blinkInterval = setInterval(() => {
+      setCursorVisible(prev => !prev);
+    }, BOOT_CURSOR_BLINK_MS);
+    timers.push(setTimeout(() => {
+      intervals.push(blinkInterval);
+    }, t));
+
+    t += blinkDuration;
+
+    // Stop blink, start fade
+    timers.push(setTimeout(() => {
+      clearInterval(blinkInterval);
+      setCursorVisible(false);
+      setBootFading(true);
+      setPhase('fade');
+    }, t));
+
+    t += BOOT_FADE_MS;
+
+    // == Phase B: CASCADE title ==
+    timers.push(setTimeout(() => {
+      setPhase('cascade');
+      setTitleVisible(true);
+    }, t));
+
+    t += 200;
     timers.push(setTimeout(() => {
       setTitleExpanded(true);
-    }, TITLE_DELAY_MS + 200));
+    }, t));
 
-    // ---- Phase 2: SVG border trace ----
-    const borderStart = BORDER_DELAY_MS;
-    const borderSteps = 30;
-    const borderStepMs = BORDER_DRAW_MS / borderSteps;
+    t += 800; // wait for expand animation
+
+    // == Phase C: Border trace + log lines ==
+    // Border starts from mid-top AFTER cascade is expanded
+    const borderStart = t;
+    const borderSteps = 40;
+    const borderDuration = 800;
+    const borderStepMs = borderDuration / borderSteps;
     for (let i = 1; i <= borderSteps; i++) {
       timers.push(setTimeout(() => {
         setBorderProgress(i / borderSteps);
       }, borderStart + i * borderStepMs));
     }
 
-    // ---- Phase 3: Log lines ----
+    // Log lines start slightly after border begins
+    const logStart = t + 200;
     timers.push(setTimeout(() => {
       setPhase('logs');
-    }, LOG_START_MS));
+    }, logStart));
 
-    for (let i = 0; i < LOG_LINES.length; i++) {
+    for (let i = 0; i < INIT_LINES.length; i++) {
+      // Show line (with active rotor)
       timers.push(setTimeout(() => {
         setVisibleLogs(i + 1);
-      }, LOG_START_MS + i * LOG_LINE_INTERVAL_MS));
+      }, logStart + i * INIT_LINE_INTERVAL_MS));
+
+      // Complete line (rotor resolves to OK) after a short spin
+      timers.push(setTimeout(() => {
+        setCompletedLogs(i + 1);
+      }, logStart + i * INIT_LINE_INTERVAL_MS + INIT_LINE_INTERVAL_MS - 40));
     }
 
-    // ---- Phase 4: SYSTEM READY ----
-    const readyTime = LOG_START_MS + LOG_LINES.length * LOG_LINE_INTERVAL_MS + READY_DELAY_MS;
+    t = logStart + INIT_LINES.length * INIT_LINE_INTERVAL_MS;
+
+    // == Phase D: SYSTEM READY ==
+    t += 200; // 0.2s pause
     timers.push(setTimeout(() => {
       setPhase('ready');
       setSystemReady(true);
-    }, readyTime));
+    }, t));
 
-    // ---- Complete ----
+    t += 800;
     timers.push(setTimeout(() => {
+      setPhase('done');
       onComplete();
-    }, TOTAL_DURATION_MS));
+    }, t));
 
     return () => {
       timers.forEach(clearTimeout);
       intervals.forEach(clearInterval);
     };
-  }, [onComplete, playBootSound]);
+  }, [onComplete, play]);
 
-  // SVG border perimeter (approx for a rect)
-  const perim = 2 * (100 + 100); // viewBox percentage units
+  // Auto-scroll boot terminal
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [bootLineIndex]);
+
+  // ---- render ----
+
+  const showBootTerminal = phase === 'boot' || phase === 'fade';
+  const showCascade = phase === 'cascade' || phase === 'logs' || phase === 'ready' || phase === 'done';
+  const showLogs = phase === 'logs' || phase === 'ready' || phase === 'done';
 
   return (
-    <div ref={containerRef} style={styles.container}>
-      {/* CRT scanline overlay */}
-      <div style={styles.scanlines} />
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      zIndex: 9999,
+      overflow: 'hidden',
+      fontFamily: theme.font.mono,
+    }}>
+      {/* ============ BOOT TERMINAL (Phase A) ============ */}
+      {showBootTerminal && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          backgroundColor: bootFading ? '#000000' : PHOSPHOR.bg,
+          transition: `background-color ${BOOT_FADE_MS}ms ease-out`,
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 10,
+        }}>
+          {/* Scanline overlay for CRT feel */}
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            background: `repeating-linear-gradient(
+              0deg,
+              transparent,
+              transparent 2px,
+              rgba(0,255,65,0.03) 2px,
+              rgba(0,255,65,0.03) 4px
+            )`,
+            pointerEvents: 'none',
+            zIndex: 2,
+          }} />
 
-      {/* SVG border trace */}
-      <svg
-        style={styles.borderSvg}
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-      >
-        <rect
-          x="0.5"
-          y="0.5"
-          width="99"
-          height="99"
-          fill="none"
-          stroke={theme.colors.primary}
-          strokeWidth="0.3"
-          strokeDasharray={perim}
-          strokeDashoffset={perim * (1 - borderProgress)}
-          style={{ transition: 'stroke-dashoffset 0.03s linear' }}
-        />
-      </svg>
+          {/* Phosphor glow overlay */}
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'radial-gradient(ellipse at center, rgba(0,255,65,0.06) 0%, transparent 70%)',
+            pointerEvents: 'none',
+            zIndex: 1,
+            opacity: bootFading ? 0 : 1,
+            transition: `opacity ${BOOT_FADE_MS}ms ease-out`,
+          }} />
 
-      {/* Flurry */}
-      {phase === 'flurry' && (
-        <div style={styles.flurryContainer}>
-          {flurryLines.map((line, i) => (
-            <div key={i} style={styles.flurryLine}>
-              {line}
-            </div>
-          ))}
+          {/* Boot text */}
+          <div
+            ref={scrollRef}
+            style={{
+              flex: 1,
+              padding: '16px 24px',
+              overflowY: 'hidden',
+              zIndex: 3,
+              opacity: bootFading ? 0 : 1,
+              transition: `opacity ${BOOT_FADE_MS}ms ease-out`,
+            }}
+          >
+            {BOOT_LINES.slice(0, bootLineIndex).map((line, i) => (
+              <div key={i} style={{
+                fontSize: 'clamp(11px, 1.3vw, 14px)',
+                lineHeight: '1.5',
+                color: PHOSPHOR.text,
+                textShadow: PHOSPHOR.glow,
+                whiteSpace: 'pre',
+                fontFamily: theme.font.mono,
+              }}>
+                {line || '\u00A0'}
+              </div>
+            ))}
+            {/* Blinking cursor */}
+            {!bootFading && bootLineIndex >= BOOT_LINES.length && (
+              <span style={{
+                fontSize: 'clamp(11px, 1.3vw, 14px)',
+                color: cursorVisible ? PHOSPHOR.cursor : 'transparent',
+                textShadow: cursorVisible ? PHOSPHOR.glow : 'none',
+                fontFamily: theme.font.mono,
+              }}>_</span>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Title */}
-      {titleVisible && (
-        <div
-          style={{
-            ...styles.titleContainer,
+      {/* ============ CASCADE + LOGS (Phase B-D) ============ */}
+      {showCascade && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          backgroundColor: theme.colors.bg,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 5,
+        }}>
+          {/* CRT scanlines */}
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            background: `repeating-linear-gradient(
+              0deg,
+              transparent,
+              transparent 2px,
+              ${theme.colors.scanline} 2px,
+              ${theme.colors.scanline} 4px
+            )`,
+            pointerEvents: 'none',
+            zIndex: 1,
+          }} />
+
+          {/* CASCADE Title */}
+          <div style={{
+            position: 'absolute',
+            top: '16%',
+            left: 0,
+            right: 0,
+            textAlign: 'center',
+            zIndex: 3,
             opacity: titleVisible ? 1 : 0,
-          }}
-        >
-          <div
-            style={{
-              ...styles.titleText,
-              letterSpacing: titleExpanded ? '0.35em' : '0em',
+            transition: 'opacity 0.4s ease',
+          }}>
+            <div style={{
+              fontSize: 'clamp(28px, 5vw, 56px)',
+              fontWeight: 700,
+              color: theme.colors.primary,
+              letterSpacing: titleExpanded ? '0.4em' : '0em',
               opacity: titleExpanded ? 1 : 0.6,
               transform: titleExpanded ? 'scale(1)' : 'scale(0.85)',
-            }}
-          >
-            {TITLE_TEXT}
-          </div>
-          <div
-            style={{
-              ...styles.subtitle,
-              opacity: titleExpanded ? 1 : 0,
-              transitionDelay: '0.3s',
-            }}
-          >
-            CONSTELLATION AUTONOMOUS SAFETY &amp; COLLISION AVOIDANCE DECISION ENGINE
-          </div>
-        </div>
-      )}
-
-      {/* Log lines */}
-      {(phase === 'logs' || phase === 'ready') && (
-        <div style={styles.logContainer}>
-          {LOG_LINES.slice(0, visibleLogs).map((line, i) => (
-            <div
-              key={i}
-              style={{
-                ...styles.logLine,
-                animation: 'logFlipIn 0.25s ease-out forwards',
-                animationDelay: '0s',
-              }}
-            >
-              <span style={styles.logOk}>
-                {line.includes('OK') || line.includes('BOUND') || line.includes('NOMINAL')
-                  ? line.replace(/(OK|BOUND :8000|27,191 objects|NOMINAL)/, '')
-                  : line}
-              </span>
-              {line.includes('OK') && <span style={styles.logStatusOk}>OK</span>}
-              {line.includes('BOUND :8000') && <span style={styles.logStatusOk}>BOUND :8000</span>}
-              {line.includes('27,191 objects') && <span style={styles.logStatusOk}>27,191 objects</span>}
-              {line.includes('NOMINAL') && <span style={styles.logStatusOk}>NOMINAL</span>}
+              transition: 'letter-spacing 0.8s ease, opacity 0.6s ease, transform 0.8s ease',
+              textShadow: `0 0 20px ${theme.colors.primaryDim}, 0 0 40px ${theme.colors.primaryDim}`,
+              fontFamily: theme.font.mono,
+            }}>
+              {TITLE_TEXT}
             </div>
-          ))}
+            <div style={{
+              fontSize: 'clamp(8px, 1vw, 12px)',
+              fontWeight: 300,
+              color: theme.colors.textDim,
+              marginTop: '12px',
+              letterSpacing: '0.18em',
+              opacity: titleExpanded ? 1 : 0,
+              transition: 'opacity 0.5s ease',
+              transitionDelay: '0.3s',
+              fontFamily: theme.font.mono,
+            }}>
+              CONSTELLATION AUTONOMOUS SAFETY &amp; COLLISION AVOIDANCE DECISION ENGINE
+            </div>
+          </div>
+
+          {/* Log area with SVG border trace */}
+          {showLogs && (
+            <div style={{
+              position: 'absolute',
+              top: '36%',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 3,
+              width: 'min(580px, 85vw)',
+            }}>
+              {/* SVG border -- traces from mid-top */}
+              <svg
+                style={{
+                  position: 'absolute',
+                  top: '-10px',
+                  left: '-12px',
+                  width: 'calc(100% + 24px)',
+                  height: 'calc(100% + 20px)',
+                  pointerEvents: 'none',
+                  overflow: 'visible',
+                }}
+                viewBox="0 0 200 100"
+                preserveAspectRatio="none"
+              >
+                <BorderTrace progress={borderProgress} />
+              </svg>
+
+              {/* Log lines */}
+              <div style={{ padding: '8px 4px', perspective: '600px' }}>
+                {INIT_LINES.slice(0, visibleLogs).map((line, i) => {
+                  const isCompleted = i < completedLogs;
+                  return (
+                    <div key={i} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: 'clamp(10px, 1.15vw, 13px)',
+                      lineHeight: '1.9',
+                      fontFamily: theme.font.mono,
+                      color: theme.colors.textDim,
+                      whiteSpace: 'pre',
+                    }}>
+                      <span style={{ flex: 1 }}>{line.text}</span>
+                      {isCompleted ? (
+                        <span style={{
+                          color: theme.colors.textDim,
+                          fontWeight: 400,
+                          minWidth: '90px',
+                          textAlign: 'right',
+                        }}>{line.status}</span>
+                      ) : (
+                        <Rotor cycleDurationMs={ROTOR_CYCLE_MS} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* SYSTEM READY */}
+          {systemReady && (
+            <div style={{
+              position: 'absolute',
+              bottom: '16%',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              textAlign: 'center',
+              zIndex: 3,
+            }}>
+              <div style={{
+                width: '200px',
+                height: '1px',
+                background: `linear-gradient(90deg, transparent, ${theme.colors.primary}, transparent)`,
+                margin: '0 auto 14px',
+              }} />
+              <div style={{
+                fontSize: 'clamp(14px, 2vw, 22px)',
+                fontWeight: 600,
+                color: theme.colors.primary,
+                letterSpacing: '0.4em',
+                animation: 'readyPulse 1.5s ease-in-out infinite',
+                textShadow: `0 0 16px ${theme.colors.primaryDim}, 0 0 32px ${theme.colors.primaryDim}`,
+                fontFamily: theme.font.mono,
+              }}>
+                SYSTEM READY
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* SYSTEM READY */}
-      {systemReady && (
-        <div style={styles.readyContainer}>
-          <div style={styles.readyDivider} />
-          <div style={styles.readyText}>SYSTEM READY</div>
-        </div>
-      )}
-
-      {/* CSS keyframes injected via style tag */}
       <style>{keyframes}</style>
     </div>
+  );
+}
+
+// ---- Rotor: split-flap /- indicator that spins on Y-axis ----
+
+function Rotor({ cycleDurationMs }: { cycleDurationMs: number }) {
+  return (
+    <span style={{
+      display: 'inline-block',
+      minWidth: '90px',
+      textAlign: 'right',
+      fontFamily: theme.font.mono,
+      color: theme.colors.primary,
+      fontWeight: 600,
+      fontSize: 'inherit',
+      animation: `rotorSpin ${cycleDurationMs}ms linear infinite`,
+      transformStyle: 'preserve-3d',
+      perspective: '200px',
+    }}>
+      /-
+    </span>
+  );
+}
+
+// ---- SVG border trace starting from mid-top ----
+
+function BorderTrace({ progress }: { progress: number }) {
+  // Rectangle: top-left(0,0) -> top-right(200,0) -> bottom-right(200,100) -> bottom-left(0,100) -> close
+  // We start from mid-top (100,0) and trace clockwise and counter-clockwise simultaneously.
+  // Full perimeter = 2*200 + 2*100 = 600 units
+  // Half perimeter = 300 (each direction traces half)
+
+  // Path from mid-top clockwise: (100,0) -> (200,0) -> (200,100) -> (0,100) -> (0,0) -> (100,0)
+  const path = 'M 100,0 L 200,0 L 200,100 L 0,100 L 0,0 L 100,0';
+  const totalLength = 600; // 100 + 200 + 200 + 100 + 100
+
+  return (
+    <path
+      d={path}
+      fill="none"
+      stroke={theme.colors.primary}
+      strokeWidth="0.6"
+      strokeDasharray={totalLength}
+      strokeDashoffset={totalLength * (1 - progress)}
+      opacity={0.7}
+      style={{ transition: 'stroke-dashoffset 0.02s linear' }}
+    />
   );
 }
 
 // ---- keyframes ----
 
 const keyframes = `
-@keyframes logFlipIn {
+@keyframes rotorSpin {
   0% {
-    transform: rotateX(90deg);
-    opacity: 0;
+    transform: rotateY(0deg);
   }
   100% {
-    transform: rotateX(0deg);
-    opacity: 1;
+    transform: rotateY(360deg);
   }
 }
 
@@ -265,139 +541,4 @@ const keyframes = `
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
-
-@keyframes scanlineMove {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
-}
 `;
-
-// ---- styles ----
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    position: 'fixed',
-    inset: 0,
-    backgroundColor: theme.colors.bg,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: theme.font.mono,
-    color: theme.colors.primary,
-    zIndex: 9999,
-    overflow: 'hidden',
-  },
-  scanlines: {
-    position: 'absolute',
-    inset: 0,
-    background: `repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      ${theme.colors.scanline} 2px,
-      ${theme.colors.scanline} 4px
-    )`,
-    pointerEvents: 'none',
-    zIndex: 1,
-  },
-  borderSvg: {
-    position: 'absolute',
-    inset: '8px',
-    width: 'calc(100% - 16px)',
-    height: 'calc(100% - 16px)',
-    zIndex: 2,
-    pointerEvents: 'none',
-  },
-  flurryContainer: {
-    position: 'absolute',
-    inset: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 3,
-    padding: '20px',
-  },
-  flurryLine: {
-    fontSize: '11px',
-    lineHeight: '1.3',
-    color: theme.colors.primaryDim,
-    whiteSpace: 'pre',
-    letterSpacing: '0.05em',
-    fontFamily: theme.font.mono,
-  },
-  titleContainer: {
-    position: 'absolute',
-    top: '18%',
-    left: 0,
-    right: 0,
-    textAlign: 'center',
-    zIndex: 3,
-    transition: 'opacity 0.4s ease',
-  },
-  titleText: {
-    fontSize: 'clamp(24px, 4vw, 48px)',
-    fontWeight: 700,
-    color: theme.colors.primary,
-    transition: 'letter-spacing 0.8s ease, opacity 0.6s ease, transform 0.8s ease',
-    textShadow: `0 0 20px ${theme.colors.primaryDim}, 0 0 40px ${theme.colors.primaryDim}`,
-    fontFamily: theme.font.mono,
-  },
-  subtitle: {
-    fontSize: 'clamp(8px, 1.1vw, 13px)',
-    fontWeight: 300,
-    color: theme.colors.textDim,
-    marginTop: '12px',
-    letterSpacing: '0.2em',
-    transition: 'opacity 0.5s ease',
-    fontFamily: theme.font.mono,
-  },
-  logContainer: {
-    position: 'absolute',
-    top: '38%',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    zIndex: 3,
-    perspective: '800px',
-    width: 'min(600px, 85vw)',
-  },
-  logLine: {
-    fontSize: 'clamp(10px, 1.2vw, 14px)',
-    lineHeight: '1.8',
-    fontFamily: theme.font.mono,
-    color: theme.colors.textDim,
-    whiteSpace: 'pre',
-    transformOrigin: 'center left',
-  },
-  logOk: {
-    color: theme.colors.textDim,
-  },
-  logStatusOk: {
-    color: theme.colors.accent,
-    fontWeight: 600,
-  },
-  readyContainer: {
-    position: 'absolute',
-    bottom: '18%',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    textAlign: 'center',
-    zIndex: 3,
-  },
-  readyDivider: {
-    width: '200px',
-    height: '1px',
-    background: `linear-gradient(90deg, transparent, ${theme.colors.primary}, transparent)`,
-    margin: '0 auto 16px',
-  },
-  readyText: {
-    fontSize: 'clamp(14px, 2vw, 22px)',
-    fontWeight: 600,
-    color: theme.colors.accent,
-    letterSpacing: '0.4em',
-    animation: 'readyPulse 1.5s ease-in-out infinite',
-    textShadow: `0 0 12px ${theme.colors.accent}`,
-    fontFamily: theme.font.mono,
-  },
-};
