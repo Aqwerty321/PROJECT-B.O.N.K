@@ -25,6 +25,7 @@ function burnColor(burn: ExecutedBurn | PendingBurn, isPending: boolean): string
 
 export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: ManeuverGanttProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drawRef = useRef<() => void>(() => {});
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -278,12 +279,15 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     }
   }
 
+  // Keep drawRef pointing at the latest draw function
+  drawRef.current = draw;
+
   // Redraw when data changes (no RAF loop needed -- data updates at ~1Hz)
   useEffect(() => {
     draw();
   }, [draw]);
 
-  // Resize observer
+  // Resize observer — uses drawRef so the observer never needs re-subscribing
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -291,6 +295,7 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       const dpr = window.devicePixelRatio || 1;
       canvas.width = canvas.offsetWidth * dpr;
       canvas.height = canvas.offsetHeight * dpr;
+      drawRef.current();
     });
     obs.observe(canvas);
     const dpr = window.devicePixelRatio || 1;

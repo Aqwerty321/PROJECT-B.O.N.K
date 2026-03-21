@@ -56,3 +56,13 @@ frontend/dist/
 # Documentation (except groundstations.csv, copied explicitly)
 *.md
 LICENSE
+
+# Docker files themselves (avoid recursive context)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Editor backup files
+*~
+*.swp
+*.swo

@@ -22,7 +22,10 @@ const MAX_DEBRIS_COUNT = 25000;  // pre-allocated capacity for debris positions
 // After scaling, the actual Earth mesh radius is 1/sqrt(3), NOT 1.0.
 const EARTH_VISUAL_RADIUS = 1 / Math.sqrt(3);  // ≈ 0.577
 
-// Convert lat/lon/alt to 3D position (Y-up)
+// Convert lat/lon/alt to 3D position (Y-up).
+// Reusable scratch vector eliminates per-call heap allocations in hot loops.
+const _scratch = new THREE.Vector3();
+
 function geoTo3D(lat: number, lon: number, altKm: number): THREE.Vector3 {
   const r = (EARTH_RADIUS + altKm) * SCALE;
   const phi = THREE.MathUtils.degToRad(90 - lat);
@@ -32,6 +35,19 @@ function geoTo3D(lat: number, lon: number, altKm: number): THREE.Vector3 {
     r * Math.cos(phi),
     r * Math.sin(phi) * Math.sin(theta),
   );
+}
+
+/** Write geo coords directly into _scratch — avoids allocation in tight loops. */
+function geoTo3DInto(lat: number, lon: number, altKm: number): THREE.Vector3 {
+  const r = (EARTH_RADIUS + altKm) * SCALE;
+  const phi = THREE.MathUtils.degToRad(90 - lat);
+  const theta = THREE.MathUtils.degToRad(lon + 180);
+  _scratch.set(
+    -r * Math.sin(phi) * Math.cos(theta),
+    r * Math.cos(phi),
+    r * Math.sin(phi) * Math.sin(theta),
+  );
+  return _scratch;
 }
 
 // Create a circular star texture (32x32) to replace square default
@@ -509,10 +525,10 @@ export default function EarthGlobe({
 
     for (let i = 0; i < count; i++) {
       const [, lat, lon, alt] = debrisData[i];
-      const p = geoTo3D(lat, lon, alt);
-      arr[i * 3] = p.x;
-      arr[i * 3 + 1] = p.y;
-      arr[i * 3 + 2] = p.z;
+      geoTo3DInto(lat, lon, alt);
+      arr[i * 3] = _scratch.x;
+      arr[i * 3 + 1] = _scratch.y;
+      arr[i * 3 + 2] = _scratch.z;
     }
 
     posAttr.needsUpdate = true;
@@ -610,22 +626,10 @@ export default function EarthGlobe({
     const s = sceneRef.current;
     if (!s) return;
 
-    // cleanup old lines
-    if (s.trailLine) {
-      s.earthGroup.remove(s.trailLine);
-      s.trailLine.geometry.dispose();
-      (s.trailLine.material as THREE.Material).dispose();
-      s.trailLine = null;
-    }
-    if (s.predictedLine) {
-      s.earthGroup.remove(s.predictedLine);
-      s.predictedLine.geometry.dispose();
-      (s.predictedLine.material as THREE.Material).dispose();
-      s.predictedLine = null;
-    }
-
-    if (trail && trail.length > 1) {
-      const geo = new THREE.BufferGeometry().setFromPoints(trail);
+    // Lazily create the two line objects once; subsequent updates
+    // just replace the geometry data in-place (avoids dispose/recreate).
+    if (!s.trailLine) {
+      const geo = new THREE.BufferGeometry();
       const mat = new THREE.LineBasicMaterial({
         color: 0x3a9fe8,
         transparent: true,
@@ -633,11 +637,11 @@ export default function EarthGlobe({
         linewidth: 1,
       });
       s.trailLine = new THREE.Line(geo, mat);
+      s.trailLine.visible = false;
       s.earthGroup.add(s.trailLine);
     }
-
-    if (predicted && predicted.length > 1) {
-      const geo = new THREE.BufferGeometry().setFromPoints(predicted);
+    if (!s.predictedLine) {
+      const geo = new THREE.BufferGeometry();
       const mat = new THREE.LineDashedMaterial({
         color: 0xeab308,
         transparent: true,
@@ -646,10 +650,24 @@ export default function EarthGlobe({
         gapSize: 0.01,
         linewidth: 1,
       });
-      const line = new THREE.Line(geo, mat);
-      line.computeLineDistances();
-      s.predictedLine = line;
-      s.earthGroup.add(line);
+      s.predictedLine = new THREE.Line(geo, mat);
+      s.predictedLine.visible = false;
+      s.earthGroup.add(s.predictedLine);
+    }
+
+    if (trail && trail.length > 1) {
+      s.trailLine.geometry.setFromPoints(trail);
+      s.trailLine.visible = true;
+    } else {
+      s.trailLine.visible = false;
+    }
+
+    if (predicted && predicted.length > 1) {
+      s.predictedLine.geometry.setFromPoints(predicted);
+      s.predictedLine.computeLineDistances();
+      s.predictedLine.visible = true;
+    } else {
+      s.predictedLine.visible = false;
     }
   }, []);
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { theme } from '../styles/theme';
 import { useSound } from '../hooks/useSound';
 

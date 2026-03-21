@@ -49,8 +49,9 @@ function App() {
   );
 
   // ---- track history accumulation for ground track mini-map ----
+  // Use a version counter to trigger redraws instead of cloning the Map every second.
   const trackHistoryRef = useRef<Map<string, [number, number][]>>(new Map());
-  const [trackHistory, setTrackHistory] = useState<Map<string, [number, number][]>>(new Map());
+  const [trackVersion, setTrackVersion] = useState(0);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -65,7 +66,7 @@ function App() {
       // Keep last 200 points per satellite
       if (arr.length > 200) arr.shift();
     }
-    setTrackHistory(new Map(map));
+    setTrackVersion(v => v + 1);
   }, [snapshot]);
 
   // ---- boot screen ----
@@ -133,7 +134,8 @@ function App() {
               snapshot={snapshot ?? null}
               selectedSatId={selectedSatId}
               onSelectSat={onSelectSat}
-              trackHistory={trackHistory}
+              trackHistory={trackHistoryRef.current}
+              trackVersion={trackVersion}
             />
           </GlassPanel>
         </div>

@@ -9,6 +9,7 @@ interface Props {
   selectedSatId: string | null;
   onSelectSat: (id: string | null) => void;
   trackHistory: Map<string, [number, number][]>;
+  trackVersion: number;  // triggers redraw without cloning the Map
 }
 
 // World map colors
@@ -98,8 +99,9 @@ function drawGroundStations(ctx: CanvasRenderingContext2D, w: number, h: number)
   ctx.restore();
 }
 
-export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHistory }: Props) {
+export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHistory, trackVersion }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drawRef = useRef<() => void>(() => {});
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -222,21 +224,26 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
     }
 
     ctx.restore();
-  }, [snapshot, selectedSatId, trackHistory]);
+  }, [snapshot, selectedSatId, trackHistory, trackVersion]);
+
+  // Keep drawRef pointing at the latest draw function
+  drawRef.current = draw;
 
   // Redraw when data changes (no RAF loop needed -- data updates at ~1Hz)
   useEffect(() => {
     draw();
   }, [draw]);
 
-  // Handle canvas resize (DPR-aware)
+  // Handle canvas resize (DPR-aware) — uses drawRef to avoid re-subscribing
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
     const obs = new ResizeObserver(() => {
-      canvas.width = canvas.offsetWidth * dpr;
-      canvas.height = canvas.offsetHeight * dpr;
+      const curDpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.offsetWidth * curDpr;
+      canvas.height = canvas.offsetHeight * curDpr;
+      drawRef.current();
     });
     obs.observe(canvas);
     canvas.width = canvas.offsetWidth * dpr;

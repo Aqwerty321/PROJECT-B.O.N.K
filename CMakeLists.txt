@@ -15,8 +15,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# B2: Explicit Release flags — -O3, NDEBUG, LTO
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG" CACHE STRING "Release flags" FORCE)
+# B2: Explicit Release flags — -O3, NDEBUG, LTO, -funroll-loops
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -funroll-loops" CACHE STRING "Release flags" FORCE)
 
 include(CheckIPOSupported)
 check_ipo_supported(RESULT PROJECTBONK_IPO_SUPPORTED)

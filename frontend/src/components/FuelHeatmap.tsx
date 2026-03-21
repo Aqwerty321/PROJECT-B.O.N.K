@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { SatelliteSnapshot } from '../types/api';
 import { statusColor } from '../types/api';
 import { fuelColor, hexColor } from '../utils/geo';
@@ -77,8 +77,11 @@ export const FuelHeatmap = React.memo(function FuelHeatmap({ satellites, selecte
     return <EmptyState />;
   }
 
-  // Sort by fuel ascending (most critical first)
-  const sorted = [...satellites].sort((a, b) => a.fuel_kg - b.fuel_kg);
+  // Sort by fuel ascending (most critical first) — memoized to avoid re-sorting on every render
+  const sorted = useMemo(
+    () => [...satellites].sort((a, b) => a.fuel_kg - b.fuel_kg),
+    [satellites],
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px', overflowY: 'auto', maxHeight: '100%' }}>

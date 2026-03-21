@@ -8,9 +8,8 @@ ENV CC=/usr/bin/gcc-12
 ENV CXX=/usr/bin/g++-12
 
 # ---------------------------------------------------------------------------
-# 1. System packages — A2: libboost-dev (headers-only suffices)
-#                       A4: sccache for compiler caching
-#                       A5: removed curl, wget (unused)
+# 1. System packages + sccache (merged into single layer to avoid extra
+#    apt-get update round-trip).  curl stays in builder stage (discarded).
 # ---------------------------------------------------------------------------
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
@@ -18,19 +17,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         build-essential \
         ca-certificates \
         cmake \
+        curl \
         gcc-12 \
         g++-12 \
         git \
-        libboost-dev
-
-# A4: Install sccache — download a static binary
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends curl \
+        libboost-dev \
     && curl -fsSL https://github.com/mozilla/sccache/releases/download/v0.8.1/sccache-v0.8.1-x86_64-unknown-linux-musl.tar.gz \
        | tar xz -C /usr/local/bin --strip-components=1 sccache-v0.8.1-x86_64-unknown-linux-musl/sccache \
-    && chmod +x /usr/local/bin/sccache \
-    && apt-get purge -y curl && apt-get autoremove -y
+    && chmod +x /usr/local/bin/sccache
 
 ENV CMAKE_C_COMPILER_LAUNCHER=sccache
 ENV CMAKE_CXX_COMPILER_LAUNCHER=sccache
@@ -80,7 +74,7 @@ RUN --mount=type=cache,target=/workspace/build,sharing=locked \
 # ============================================================================
 # Stage 2: Frontend — build the React dashboard
 # ============================================================================
-FROM node:20-slim AS frontend
+FROM node:24-slim AS frontend
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json* ./
@@ -100,12 +94,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Non-root user for security
+RUN groupadd --system bonk && useradd --system --no-create-home --no-log-init -g bonk bonk
+
 WORKDIR /app
 
-# P2.3: Enable CORS by default for frontend integration.
-# The allow-origin defaults to http://localhost:5173 when CORS is enabled
-# but no specific origin is set.  Override PROJECTBONK_CORS_ALLOW_ORIGIN
-# at runtime for production deployments.
+# Enable CORS by default for frontend integration.
 ENV PROJECTBONK_CORS_ENABLE=1
 
 # Copy the server binary (extracted from cache mount in builder stage)
@@ -116,6 +110,9 @@ COPY --from=builder /workspace/docs/groundstations.csv /app/docs/groundstations.
 
 # Copy built frontend assets (served by cpp-httplib set_mount_point)
 COPY --from=frontend /frontend/dist /app/static
+
+# Switch to non-root user
+USER bonk
 
 EXPOSE 8000
 
