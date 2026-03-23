@@ -1,0 +1,9 @@
+services:
+  cascade:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cascade:local
+    ports:
+      - "${PROJECTBONK_PORT:-8000}:8000"
+    restart: unless-stopped

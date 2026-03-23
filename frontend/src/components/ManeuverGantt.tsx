@@ -109,7 +109,7 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       // Draw basic grid even with no data
       drawEmptyGrid(ctx, lw, lh, chartWidth);
 
-      drawEmptyState(ctx, lw, lh, chartWidth, selectedSatId);
+      drawEmptyState(ctx, chartWidth, selectedSatId);
       ctx.restore();
       return;
     }
@@ -348,8 +348,6 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
 
   function drawEmptyState(
     ctx: CanvasRenderingContext2D,
-    lw: number,
-    lh: number,
     chartWidth: number,
     selectedSatId: string | null,
   ) {
