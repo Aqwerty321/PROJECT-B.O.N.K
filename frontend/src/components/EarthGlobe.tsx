@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -130,6 +130,7 @@ interface EarthGlobeProps {
   onSelectSat: (id: string | null) => void;
   trailPoints?: THREE.Vector3[];     // optional trajectory trail
   predictedPoints?: THREE.Vector3[]; // optional predicted path
+  style?: CSSProperties;
 }
 
 // ---- component ----
@@ -141,6 +142,7 @@ export default function EarthGlobe({
   onSelectSat,
   trailPoints,
   predictedPoints,
+  style,
 }: EarthGlobeProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
@@ -165,8 +167,8 @@ export default function EarthGlobe({
     const container = mountRef.current;
     if (!container) return;
 
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = container.clientWidth || window.innerWidth;
+    const height = container.clientHeight || window.innerHeight;
 
     // renderer -- opaque cosmic black, NOT transparent
     const renderer = new THREE.WebGLRenderer({
@@ -422,15 +424,18 @@ export default function EarthGlobe({
     }
     animate();
 
-    // resize handler -- use window dimensions for full viewport
+    // resize handler -- prefer container size so the globe can live in a panel
     const onResize = () => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
+      const w = container.clientWidth || window.innerWidth;
+      const h = container.clientHeight || window.innerHeight;
       state.camera.aspect = w / h;
       state.camera.updateProjectionMatrix();
       state.renderer.setSize(w, h);
     };
     window.addEventListener('resize', onResize);
+
+    const resizeObserver = new ResizeObserver(onResize);
+    resizeObserver.observe(container);
 
     // click handler for satellite picking
     const onClick = (event: MouseEvent) => {
@@ -457,6 +462,7 @@ export default function EarthGlobe({
 
     return () => {
       window.removeEventListener('resize', onResize);
+      resizeObserver.disconnect();
       renderer.domElement.removeEventListener('click', onClick);
       renderer.domElement.removeEventListener('pointerdown', onInteract);
       cancelAnimationFrame(state.animId);
@@ -688,9 +694,10 @@ export default function EarthGlobe({
     <div
       ref={mountRef}
       style={{
-        position: 'fixed',
+        position: 'absolute',
         inset: 0,
         zIndex: 0,
+        ...style,
       }}
     />
   );

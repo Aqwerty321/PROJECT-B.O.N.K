@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import type { VisualizationSnapshot, SatelliteSnapshot } from '../types/api';
+import type { VisualizationSnapshot, SatelliteSnapshot, TrajectoryResponse } from '../types/api';
 import { latLonToMercator, computeTerminator, hexColor } from '../utils/geo';
 import { GROUND_STATIONS, statusColor } from '../types/api';
 import { theme } from '../styles/theme';
@@ -10,6 +10,7 @@ interface Props {
   onSelectSat: (id: string | null) => void;
   trackHistory: Map<string, [number, number][]>;
   trackVersion: number;  // triggers redraw without cloning the Map
+  trajectory: TrajectoryResponse | null;
 }
 
 // World map colors
@@ -18,6 +19,44 @@ const COLOR_GRID = 'rgba(255,255,255,0.06)';
 const COLOR_TERMINATOR = 'rgba(0,0,0,0.45)';
 const COLOR_DEBRIS = 'rgba(239,68,68,0.55)';
 const COLOR_GS = '#7dd3fc';
+
+function drawWrappedPath(
+  ctx: CanvasRenderingContext2D,
+  points: Array<[number, number]>,
+  w: number,
+  h: number,
+  options: { color: string; width: number; dash?: number[]; alpha?: number },
+) {
+  if (points.length < 2) return;
+
+  ctx.save();
+  ctx.strokeStyle = options.color;
+  ctx.lineWidth = options.width;
+  ctx.globalAlpha = options.alpha ?? 1;
+  if (options.dash) ctx.setLineDash(options.dash);
+  ctx.beginPath();
+
+  let firstPoint = true;
+  let prevX = 0;
+  for (const [lat, lon] of points) {
+    const [px, py] = latLonToMercator(lat, lon, w, h);
+    if (firstPoint) {
+      ctx.moveTo(px, py);
+      firstPoint = false;
+    } else if (Math.abs(px - prevX) > w * 0.5) {
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+    } else {
+      ctx.lineTo(px, py);
+    }
+    prevX = px;
+  }
+
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
 
 // Simple Mercator world outline -- draw graticule lines
 function drawGraticule(ctx: CanvasRenderingContext2D, w: number, h: number) {
@@ -99,7 +138,60 @@ function drawGroundStations(ctx: CanvasRenderingContext2D, w: number, h: number)
   ctx.restore();
 }
 
-export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHistory, trackVersion }: Props) {
+function drawEmptyMapState(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  ctx.save();
+
+  const pad = 22;
+  const legendY = h - 18;
+
+  ctx.strokeStyle = 'rgba(58, 159, 232, 0.14)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
+
+  ctx.strokeStyle = 'rgba(58, 159, 232, 0.12)';
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(pad, h * 0.5);
+  ctx.lineTo(w - pad, h * 0.5);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.12)';
+  ctx.font = `11px ${theme.font.mono}`;
+  ctx.textAlign = 'center';
+  ctx.fillText('GROUND TRACK STANDBY', w / 2, h * 0.42);
+
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.55)';
+  ctx.font = `9px ${theme.font.mono}`;
+  ctx.fillText('Awaiting live snapshot / 90-minute trail / forecast path', w / 2, h * 0.42 + 18);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(58, 159, 232, 0.72)';
+  ctx.fillRect(pad, legendY - 5, 10, 2);
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.42)';
+  ctx.fillText('Historical trail', pad + 16, legendY);
+
+  ctx.strokeStyle = 'rgba(234, 179, 8, 0.72)';
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.moveTo(pad + 118, legendY - 4);
+  ctx.lineTo(pad + 136, legendY - 4);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.42)';
+  ctx.fillText('Predicted path', pad + 142, legendY);
+
+  ctx.fillStyle = 'rgba(125, 211, 252, 0.9)';
+  ctx.beginPath();
+  ctx.arc(w - pad - 126, legendY - 4, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.42)';
+  ctx.fillText('Ground stations', w - pad - 116, legendY);
+
+  ctx.restore();
+}
+
+export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHistory, trackVersion, trajectory }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawRef = useRef<() => void>(() => {});
 
@@ -136,7 +228,11 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
 
     drawGroundStations(ctx, w, h);
 
-    if (!snapshot) return;
+    if (!snapshot) {
+      drawEmptyMapState(ctx, w, h);
+      ctx.restore();
+      return;
+    }
 
     // --- Debris cloud (draw first, under satellites) ---
     ctx.save();
@@ -148,39 +244,49 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
     }
     ctx.restore();
 
+    const trajectoryTargetId = trajectory?.satellite_id ?? null;
+
     // --- Satellite tracks ---
     for (const sat of snapshot.satellites) {
+      if (trajectoryTargetId && sat.id === trajectoryTargetId) continue;
       const history = trackHistory.get(sat.id);
       if (history && history.length > 1) {
-        ctx.save();
-        ctx.strokeStyle = `${hexColor(statusColor(sat.status))}88`;
-        ctx.lineWidth = 0.8;
-        ctx.setLineDash([3, 2]);
-        ctx.beginPath();
-        let firstPoint = true;
-        let prevX = 0;
-        for (const [hLat, hLon] of history) {
-          const [px, py] = latLonToMercator(hLat, hLon, w, h);
-          if (firstPoint) {
-            ctx.moveTo(px, py);
-            firstPoint = false;
-            prevX = px;
-          } else {
-            // Break track if we cross the antimeridian (large x jump)
-            if (Math.abs(px - prevX) > w * 0.5) {
-              ctx.stroke();
-              ctx.beginPath();
-              ctx.moveTo(px, py);
-            } else {
-              ctx.lineTo(px, py);
-            }
-            prevX = px;
-          }
-        }
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
+        drawWrappedPath(ctx, history, w, h, {
+          color: `${hexColor(statusColor(sat.status))}88`,
+          width: 0.8,
+          dash: [3, 2],
+          alpha: 0.8,
+        });
       }
+    }
+
+    if (trajectory?.trail && trajectory.trail.length > 1) {
+      drawWrappedPath(
+        ctx,
+        trajectory.trail.map(point => [point.lat, point.lon]),
+        w,
+        h,
+        {
+          color: 'rgba(58, 159, 232, 0.95)',
+          width: 1.8,
+          alpha: 0.95,
+        },
+      );
+    }
+
+    if (trajectory?.predicted && trajectory.predicted.length > 1) {
+      drawWrappedPath(
+        ctx,
+        trajectory.predicted.map(point => [point.lat, point.lon]),
+        w,
+        h,
+        {
+          color: 'rgba(234, 179, 8, 0.95)',
+          width: 1.3,
+          dash: [6, 4],
+          alpha: 0.95,
+        },
+      );
     }
 
     // --- Satellites ---
@@ -224,7 +330,7 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
     }
 
     ctx.restore();
-  }, [snapshot, selectedSatId, trackHistory, trackVersion]);
+  }, [snapshot, selectedSatId, trackHistory, trackVersion, trajectory]);
 
   // Keep drawRef pointing at the latest draw function
   drawRef.current = draw;

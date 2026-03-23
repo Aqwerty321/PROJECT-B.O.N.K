@@ -10,6 +10,8 @@ interface GlassPanelProps {
   style?: React.CSSProperties;
   className?: string;
   noPadding?: boolean;
+  priority?: 'primary' | 'secondary' | 'support';
+  accentColor?: string;
 }
 
 // Unique ID for keyframes injection
@@ -51,6 +53,8 @@ export const GlassPanel = React.memo(function GlassPanel({
   style,
   className,
   noPadding = false,
+  priority = 'secondary',
+  accentColor = theme.colors.primary,
 }: GlassPanelProps) {
   const [revealed, setRevealed] = useState(false);
   const [flashDone, setFlashDone] = useState(false);
@@ -78,16 +82,36 @@ export const GlassPanel = React.memo(function GlassPanel({
       ? 'glassBorderFlash 0.4s ease-out forwards'
       : `glassBorderPulse ${theme.animation.borderPulseDuration} ease-in-out infinite`;
 
+  const isPrimary = priority === 'primary';
+  const isSupport = priority === 'support';
+  const panelBackground = isPrimary
+    ? 'linear-gradient(180deg, rgba(7, 14, 28, 0.80), rgba(3, 8, 16, 0.78))'
+    : isSupport
+      ? 'linear-gradient(180deg, rgba(4, 10, 20, 0.68), rgba(2, 6, 14, 0.74))'
+      : theme.glassmorphism.background;
+  const panelBorder = isPrimary ? '1px solid rgba(58, 159, 232, 0.34)' : '1px solid rgba(58, 159, 232, 0.22)';
+  const panelShadow = isPrimary
+    ? '0 0 24px rgba(58, 159, 232, 0.10), inset 0 0 36px rgba(5, 10, 20, 0.34)'
+    : isSupport
+      ? '0 0 10px rgba(58, 159, 232, 0.05), inset 0 0 22px rgba(5, 10, 20, 0.25)'
+      : '0 0 15px rgba(58, 159, 232, 0.08), inset 0 0 30px rgba(5, 10, 20, 0.3)';
+  const titleBackground = isPrimary
+    ? `linear-gradient(90deg, ${accentColor}18, rgba(58, 159, 232, 0.05) 45%, transparent 100%)`
+    : isSupport
+      ? 'linear-gradient(90deg, rgba(58, 159, 232, 0.05), transparent 40%)'
+      : 'linear-gradient(90deg, rgba(58, 159, 232, 0.08), transparent 36%)';
+  const titleColor = isPrimary ? theme.colors.text : accentColor;
+
   return (
     <div
       ref={panelRef}
       className={className}
       style={{
-        background: theme.glassmorphism.background,
+        background: panelBackground,
         backdropFilter: theme.glassmorphism.backdropFilter,
         WebkitBackdropFilter: theme.glassmorphism.backdropFilter,
-        border: '1px solid rgba(58, 159, 232, 0.25)',
-        boxShadow: '0 0 15px rgba(58, 159, 232, 0.08), inset 0 0 30px rgba(5, 10, 20, 0.3)',
+        border: panelBorder,
+        boxShadow: panelShadow,
         clipPath: theme.chamfer.clipPath,
         position: 'relative',
         overflow: 'hidden',
@@ -100,6 +124,20 @@ export const GlassPanel = React.memo(function GlassPanel({
         ...style,
       }}
     >
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: '18px',
+          right: '18px',
+          height: isPrimary ? '2px' : '1px',
+          background: `linear-gradient(90deg, transparent 0%, ${accentColor} 18%, ${accentColor} 82%, transparent 100%)`,
+          opacity: isPrimary ? 0.75 : 0.45,
+          zIndex: 2,
+        }}
+      />
+
       {/* CRT scanline overlay -- subtler */}
       <div
         style={{
@@ -122,11 +160,12 @@ export const GlassPanel = React.memo(function GlassPanel({
         style={{
           padding: '6px 14px',
           borderBottom: `1px solid ${theme.colors.border}`,
+          background: titleBackground,
           fontFamily: theme.font.mono,
           fontSize: '11px',
           letterSpacing: '0.12em',
           textTransform: 'uppercase',
-          color: theme.colors.primary,
+          color: titleColor,
           flexShrink: 0,
           display: 'flex',
           alignItems: 'center',
@@ -138,8 +177,8 @@ export const GlassPanel = React.memo(function GlassPanel({
           width: '6px',
           height: '6px',
           borderRadius: '50%',
-          background: theme.colors.primary,
-          boxShadow: `0 0 6px ${theme.colors.primary}, 0 0 12px ${theme.colors.primary}`,
+          background: accentColor,
+          boxShadow: `0 0 6px ${accentColor}, 0 0 12px ${accentColor}`,
         }} />
         {title}
       </div>

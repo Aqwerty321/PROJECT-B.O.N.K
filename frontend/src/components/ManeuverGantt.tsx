@@ -14,6 +14,7 @@ const HEADER_HEIGHT = 24;
 const LABEL_WIDTH = 90;
 const MIN_BLOCK_WIDTH = 4;
 const BURN_DURATION_S = 120; // assume 2min burn for display
+const COOLDOWN_DURATION_S = 600;
 
 function burnColor(burn: ExecutedBurn | PendingBurn, isPending: boolean): string {
   if (isPending) return theme.colors.primary;
@@ -21,6 +22,62 @@ function burnColor(burn: ExecutedBurn | PendingBurn, isPending: boolean): string
   if (b.graveyard_burn) return '#6b7280';
   if (b.recovery_burn) return theme.colors.warning;
   return theme.colors.accent;
+}
+
+function drawCooldownWindow(
+  ctx: CanvasRenderingContext2D,
+  xStart: number,
+  y: number,
+  width: number,
+  rowHeight: number,
+) {
+  ctx.save();
+  ctx.setLineDash([3, 3]);
+  ctx.strokeStyle = 'rgba(58, 159, 232, 0.62)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(xStart, y + 4, Math.max(width, 6), rowHeight - 8);
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(58, 159, 232, 0.08)';
+  ctx.fillRect(xStart, y + 4, Math.max(width, 6), rowHeight - 8);
+  ctx.restore();
+}
+
+function drawBurnMarkers(
+  ctx: CanvasRenderingContext2D,
+  x1: number,
+  x2: number,
+  y: number,
+  rowHeight: number,
+  color: string,
+  pending: boolean,
+) {
+  const top = y + 2;
+  const bottom = y + rowHeight - 2;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = pending ? 0.9 : 1;
+
+  ctx.beginPath();
+  ctx.moveTo(x1, top);
+  ctx.lineTo(x1, bottom);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(x2, top);
+  ctx.lineTo(x2, bottom);
+  ctx.stroke();
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x1, top + 2, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(x2, top + 2, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: ManeuverGanttProps) {
@@ -52,15 +109,7 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       // Draw basic grid even with no data
       drawEmptyGrid(ctx, lw, lh, chartWidth);
 
-      // Empty state text (CSS animation handles pulsing)
-      ctx.save();
-      ctx.fillStyle = theme.colors.textMuted;
-      ctx.font = `11px ${theme.font.mono}`;
-      ctx.textAlign = 'center';
-      ctx.globalAlpha = 0.7;
-      ctx.fillText('AWAITING BURN DATA', lw / 2, lh / 2);
-      ctx.globalAlpha = 1;
-      ctx.restore();
+      drawEmptyState(ctx, lw, lh, chartWidth, selectedSatId);
       ctx.restore();
       return;
     }
@@ -154,7 +203,10 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         const x1 = timeToX(t);
         const x2 = Math.max(x1 + MIN_BLOCK_WIDTH, timeToX(t + BURN_DURATION_S));
         const bw = x2 - x1;
+        const cooldownEnd = timeToX(t + BURN_DURATION_S + COOLDOWN_DURATION_S);
         const color = burnColor(burn, false);
+
+        drawCooldownWindow(ctx, x2, y, cooldownEnd - x2, ROW_HEIGHT);
 
         // Outer glow pass
         ctx.save();
@@ -175,6 +227,8 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         ctx.strokeStyle = color;
         ctx.lineWidth = 0.8;
         ctx.strokeRect(x1, y + 3, bw, ROW_HEIGHT - 6);
+
+        drawBurnMarkers(ctx, x1, x2, y, ROW_HEIGHT, color, false);
       }
 
       // draw pending burns (dashed outline + glow)
@@ -184,7 +238,10 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         const x1 = timeToX(t);
         const x2 = Math.max(x1 + MIN_BLOCK_WIDTH, timeToX(t + BURN_DURATION_S));
         const bw = x2 - x1;
+        const cooldownEnd = timeToX(t + BURN_DURATION_S + COOLDOWN_DURATION_S);
         const color = burnColor(burn, true);
+
+        drawCooldownWindow(ctx, x2, y, cooldownEnd - x2, ROW_HEIGHT);
 
         ctx.setLineDash([3, 3]);
         ctx.save();
@@ -200,6 +257,8 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         ctx.globalAlpha = 0.2;
         ctx.fillRect(x1, y + 3, bw, ROW_HEIGHT - 6);
         ctx.globalAlpha = 1;
+
+        drawBurnMarkers(ctx, x1, x2, y, ROW_HEIGHT, color, true);
       }
     }
 
@@ -238,13 +297,21 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       { label: 'Recovery', color: theme.colors.warning },
       { label: 'Graveyard', color: '#6b7280' },
       { label: 'Pending', color: theme.colors.primary },
+      { label: 'Cooldown', color: 'rgba(58, 159, 232, 0.55)' },
     ];
     let lx = LABEL_WIDTH;
     ctx.font = `9px ${theme.font.mono}`;
     ctx.textAlign = 'left';
     for (const item of legendItems) {
-      ctx.fillStyle = item.color;
-      ctx.fillRect(lx, legendY - 6, 10, 8);
+      if (item.label === 'Cooldown') {
+        ctx.strokeStyle = item.color;
+        ctx.setLineDash([3, 2]);
+        ctx.strokeRect(lx, legendY - 6, 10, 8);
+        ctx.setLineDash([]);
+      } else {
+        ctx.fillStyle = item.color;
+        ctx.fillRect(lx, legendY - 6, 10, 8);
+      }
       ctx.fillStyle = theme.colors.textMuted;
       ctx.fillText(item.label, lx + 14, legendY + 1);
       lx += ctx.measureText(item.label).width + 28;
@@ -277,6 +344,53 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       ctx.lineTo(lw, y);
       ctx.stroke();
     }
+  }
+
+  function drawEmptyState(
+    ctx: CanvasRenderingContext2D,
+    lw: number,
+    lh: number,
+    chartWidth: number,
+    selectedSatId: string | null,
+  ) {
+    const top = HEADER_HEIGHT + 20;
+    const rowY = top + 24;
+    const baseX = LABEL_WIDTH + Math.max(24, chartWidth * 0.22);
+    const burnWidth = Math.max(30, chartWidth * 0.12);
+    const cooldownWidth = Math.max(44, (COOLDOWN_DURATION_S / 3600) * chartWidth * 0.4);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.12)';
+    ctx.font = `11px ${theme.font.mono}`;
+    ctx.textAlign = 'left';
+    ctx.fillText(selectedSatId ? `${selectedSatId} STANDBY` : 'FLEET SCHEDULER STANDBY', LABEL_WIDTH + 18, top);
+
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.52)';
+    ctx.font = `9px ${theme.font.mono}`;
+    ctx.fillText('Burn lanes, cooldown windows, and command timing appear once the queue becomes active.', LABEL_WIDTH + 18, top + 16);
+
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.28)';
+    ctx.fillRect(baseX, rowY, burnWidth, ROW_HEIGHT - 8);
+    ctx.strokeStyle = 'rgba(34, 197, 94, 0.75)';
+    ctx.strokeRect(baseX, rowY, burnWidth, ROW_HEIGHT - 8);
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.4)';
+    ctx.fillText('Burn Start/End', baseX, rowY - 6);
+
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = 'rgba(58, 159, 232, 0.7)';
+    ctx.strokeRect(baseX + burnWidth + 16, rowY, cooldownWidth, ROW_HEIGHT - 8);
+    ctx.setLineDash([]);
+    ctx.fillText('Cooldown Window', baseX + burnWidth + 16, rowY - 6);
+
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.65)';
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.moveTo(baseX + burnWidth + cooldownWidth + 42, rowY - 4);
+    ctx.lineTo(baseX + burnWidth + cooldownWidth + 42, rowY + ROW_HEIGHT + 8);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText('Conflict / blackout marker', baseX + burnWidth + cooldownWidth + 50, rowY + 7);
+    ctx.restore();
   }
 
   // Keep drawRef pointing at the latest draw function
