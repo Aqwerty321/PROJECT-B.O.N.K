@@ -1,6 +1,9 @@
 // Utility functions for orbital visualization math
 
-/** Convert geodetic lat/lon to Mercator pixel coordinates on a canvas */
+const MAX_MERCATOR_LAT = 85;
+const MAX_MERCATOR_N = Math.log(Math.tan(Math.PI / 4 + (MAX_MERCATOR_LAT * Math.PI) / 360));
+
+/** Convert geodetic lat/lon to fitted Mercator pixel coordinates on a canvas */
 export function latLonToMercator(
   lat: number,
   lon: number,
@@ -8,11 +11,11 @@ export function latLonToMercator(
   height: number
 ): [number, number] {
   // Clamp latitude to valid Mercator range
-  const clampedLat = Math.max(-85, Math.min(85, lat));
+  const clampedLat = Math.max(-MAX_MERCATOR_LAT, Math.min(MAX_MERCATOR_LAT, lat));
   const x = ((lon + 180) / 360) * width;
   const latRad = (clampedLat * Math.PI) / 180;
   const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
-  const y = (height / 2) - (width * mercN) / (2 * Math.PI);
+  const y = ((MAX_MERCATOR_N - mercN) / (2 * MAX_MERCATOR_N)) * height;
   return [x, y];
 }
 

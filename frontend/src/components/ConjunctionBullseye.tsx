@@ -311,7 +311,7 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
   return (
     <canvas
       ref={canvasRef}
-      style={{ width: '100%', height: '100%', display: 'block' }}
+      style={{ flex: 1, width: '100%', height: '100%', minHeight: 0, display: 'block' }}
     />
   );
 });

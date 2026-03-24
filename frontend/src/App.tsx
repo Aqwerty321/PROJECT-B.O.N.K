@@ -80,23 +80,23 @@ function SummaryCard({
   return (
     <div
       style={{
-        background: 'linear-gradient(180deg, rgba(8, 15, 30, 0.78), rgba(4, 10, 20, 0.64))',
+        background: 'linear-gradient(180deg, rgba(17, 19, 23, 0.94), rgba(8, 9, 12, 0.96))',
         border: `1px solid ${tone === 'neutral' ? theme.colors.border : `${color}55`}`,
-        boxShadow: `0 0 16px ${tone === 'neutral' ? 'rgba(58, 159, 232, 0.07)' : `${color}16`}`,
+        boxShadow: `0 0 24px ${tone === 'neutral' ? 'rgba(88, 184, 255, 0.08)' : `${color}18`}`,
         clipPath: theme.chamfer.clipPath,
-        padding: '10px 12px',
-        minHeight: '76px',
+        padding: '14px 16px',
+        minHeight: '92px',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
-        gap: '6px',
+        gap: '10px',
       }}
     >
       <span
         style={{
           color: theme.colors.textMuted,
-          fontSize: '9px',
-          letterSpacing: '0.16em',
+          fontSize: '10px',
+          letterSpacing: '0.18em',
           textTransform: 'uppercase',
         }}
       >
@@ -105,9 +105,9 @@ function SummaryCard({
       <span
         style={{
           color,
-          fontSize: '20px',
+          fontSize: '24px',
           fontWeight: 700,
-          letterSpacing: '-0.01em',
+          letterSpacing: '-0.02em',
           fontVariantNumeric: 'tabular-nums',
           textWrap: 'balance',
         }}
@@ -117,7 +117,7 @@ function SummaryCard({
       <span
         style={{
           color: theme.colors.textDim,
-          fontSize: '9px',
+          fontSize: '10px',
           lineHeight: 1.45,
         }}
       >
@@ -143,18 +143,18 @@ function InfoChip({
       style={{
         display: 'inline-flex',
         flexDirection: 'column',
-        gap: '3px',
-        minWidth: '82px',
-        padding: '6px 9px',
+        gap: '4px',
+        minWidth: '96px',
+        padding: '9px 11px',
         border: `1px solid ${tone === 'neutral' ? theme.colors.border : `${color}55`}`,
-        background: 'rgba(5, 10, 20, 0.5)',
+        background: 'rgba(10, 11, 14, 0.88)',
         clipPath: theme.chamfer.buttonClipPath,
       }}
     >
       <span
         style={{
           color: theme.colors.textMuted,
-          fontSize: '8px',
+          fontSize: '9px',
           letterSpacing: '0.14em',
           textTransform: 'uppercase',
         }}
@@ -164,13 +164,67 @@ function InfoChip({
       <span
         style={{
           color: tone === 'neutral' ? theme.colors.text : color,
-          fontSize: '12px',
+          fontSize: '14px',
           fontWeight: 600,
           fontVariantNumeric: 'tabular-nums',
         }}
       >
         {value}
       </span>
+    </div>
+  );
+}
+
+function HeroMetric({
+  label,
+  value,
+  detail,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: Tone;
+}) {
+  const color = toneColor(tone);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <span style={{ color: theme.colors.textMuted, fontSize: '10px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>
+        {label}
+      </span>
+      <span style={{ color, fontSize: '18px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </span>
+      <span style={{ color: theme.colors.textDim, fontSize: '11px', lineHeight: 1.5 }}>
+        {detail}
+      </span>
+    </div>
+  );
+}
+
+function SectionHeader({
+  title,
+  kicker,
+  description,
+}: {
+  title: string;
+  kicker: string;
+  description: string;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <span style={{ color: theme.colors.primary, fontSize: '10px', letterSpacing: '0.2em', textTransform: 'uppercase' }}>
+        {kicker}
+      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <h2 style={{ fontSize: '28px', lineHeight: 1.05, color: theme.colors.text, fontWeight: 700 }}>
+          {title}
+        </h2>
+        <p style={{ color: theme.colors.textDim, fontSize: '13px', lineHeight: 1.6, maxWidth: '68ch' }}>
+          {description}
+        </p>
+      </div>
     </div>
   );
 }
@@ -333,9 +387,9 @@ function App() {
     timeZone: 'UTC',
   }), []);
 
-  const isStacked = viewportWidth < 1240;
+  const isNarrow = viewportWidth < 980;
   const isCompact = viewportWidth < 760;
-  const styles = buildStyles(isStacked, isCompact);
+  const styles = buildStyles(isNarrow, isCompact);
 
   if (!booted) {
     return <BootSequence onComplete={handleBootComplete} />;
@@ -356,9 +410,6 @@ function App() {
     ? `Next burn ${formatWithFormatter(shortTimeFormatter, nextPendingBurn.burn_epoch)} UTC`
     : 'No pending burns scheduled for the current view';
 
-  const watchStateValue = selectedSatId ?? 'Fleet';
-  const watchStateTone: Tone = selectedSatId ? 'accent' : 'primary';
-
   const resourceValue = satellites.length > 0 ? `${avgFuelKg.toFixed(1)} kg avg` : 'Awaiting telemetry';
   const resourceDetail = lowestFuelSatellite
     ? `Lowest fuel ${lowestFuelSatellite.id} at ${lowestFuelSatellite.fuel_kg.toFixed(1)} kg`
@@ -368,6 +419,9 @@ function App() {
     ? `${formatWithFormatter(missionFormatter, snapshot.timestamp)} UTC`
     : 'Link Pending';
   const missionDetail = `Tick ${status?.tick_count.toLocaleString() ?? '--'} / ${satellites.length.toLocaleString()} sats / ${debris.length.toLocaleString()} debris`;
+
+  const heroModeValue = selectedSatId ?? 'Fleet';
+  const heroPathValue = trajectory?.satellite_id ?? 'Standby';
 
   const operationsLiveSummary = selectedSatId
     ? `Tracking ${selectedSatId}. ${threatCounts.red} critical conjunctions. ${watchedPendingBurns.length} pending burns in focus.`
@@ -379,16 +433,17 @@ function App() {
       <div style={styles.scanlines} aria-hidden="true" />
 
       <main id="operations-main" style={styles.shell}>
-        <header style={styles.header}>
+        <header style={styles.heroHeader}>
           <div style={styles.headerLead}>
             <span style={styles.eyebrow}>Orbital Insight / Flight Dynamics Console</span>
-            <h1 style={styles.title}>2D Operations Dashboard</h1>
+            <h1 style={styles.title}>Orbital Operations Dashboard</h1>
             <p style={styles.subtitle}>
-              Ground-track awareness and maneuver scheduling now anchor the layout so the mission-control view stays primary.
-              The 3D globe remains available as supporting orbital context instead of the main stage.
+              Live flight-dynamics view for constellation posture, conjunction pressure, maneuver timing, and propellant health.
             </p>
           </div>
+        </header>
 
+        <div style={styles.stickySummaryRail}>
           <div style={styles.summaryGrid}>
             <SummaryCard label="Mission Time" value={missionValue} detail={missionDetail} tone="primary" />
             <SummaryCard label="Watch Target" value={watchTargetValue} detail={watchTargetDetail} tone={selectedSatId ? 'accent' : 'neutral'} />
@@ -396,101 +451,104 @@ function App() {
             <SummaryCard label="Burn Queue" value={burnValue} detail={burnDetail} tone={watchedPendingBurns.length > 0 ? 'warning' : 'accent'} />
             <SummaryCard label="Resource Posture" value={resourceValue} detail={resourceDetail} tone={lowestFuelSatellite && lowestFuelSatellite.fuel_kg < 10 ? 'critical' : 'warning'} />
           </div>
-        </header>
+        </div>
 
-        <div style={isStacked ? styles.contentStack : styles.contentGrid}>
-          <section aria-labelledby="ground-track-heading" style={styles.mapSlot}>
-            <h2 id="ground-track-heading" style={styles.visuallyHidden}>Ground Track Operations</h2>
+        <section aria-labelledby="hero-heading" style={styles.heroSection}>
+          <h2 id="hero-heading" style={styles.visuallyHidden}>Orbital Hero And Mission Rail</h2>
+          <div style={styles.heroGrid}>
             <GlassPanel
-              title="GROUND TRACK OPERATIONS"
+              title="3D ORBITAL COMMAND VIEW"
               revealIndex={0}
               bootComplete={booted}
               noPadding
               priority="primary"
               accentColor={theme.colors.primary}
-              style={styles.mapPanel}
+              style={styles.heroGlobePanel}
             >
-              <div style={styles.primaryPanelBody}>
-                <div style={styles.panelLead}>
-                  <div style={styles.primaryCopyBlock}>
-                    <span style={styles.primaryTagline}>Primary mission surface</span>
-                    <p style={styles.panelBrief}>
-                      Live fleet map, debris field, line-of-sight context, and selection control in one command surface.
+              <div style={styles.heroPanelBody}>
+                <div style={styles.heroLeadRow}>
+                  <div style={styles.heroCopyBlock}>
+                    <span style={styles.heroKicker}>Live orbital picture</span>
+                    <h3 style={styles.heroTitle}>Mission Theatre</h3>
+                    <p style={styles.heroDescription}>
+                      Fleet geometry, debris corridors, and selected-vehicle trajectory in one view. Use the globe to set context before drilling into
+                      track, conjunction, and burn planning.
                     </p>
                   </div>
-                  <div style={styles.chipRow}>
-                    <InfoChip label="Mode" value={watchStateValue} tone={watchStateTone} />
-                    <InfoChip label="Objects" value={satellites.length.toLocaleString()} tone="primary" />
+                  <div style={styles.heroChipWrap}>
+                    <InfoChip label="Mode" value={heroModeValue} tone={selectedSatId ? 'accent' : 'primary'} />
+                    <InfoChip label="Path" value={heroPathValue} tone={trajectory?.satellite_id ? 'primary' : 'neutral'} />
+                    <InfoChip label="Satellites" value={satellites.length.toLocaleString()} tone="accent" />
                     <InfoChip label="Debris" value={debris.length.toLocaleString()} tone="warning" />
-                    <InfoChip label="Path" value={trajectory?.satellite_id ?? 'Standby'} tone={trajectory?.satellite_id ? (selectedSatId ? 'accent' : 'primary') : 'neutral'} />
                   </div>
                 </div>
 
-                <div style={styles.primaryCanvasFrame}>
-                  <GroundTrackMap
-                    snapshot={snapshot ?? null}
+                <div style={styles.heroViewportFrame}>
+                  <EarthGlobe
+                    satellites={satellites}
+                    debris={debris}
                     selectedSatId={selectedSatId}
                     onSelectSat={onSelectSat}
-                    trackHistory={trackHistoryRef.current}
-                    trackVersion={trackVersion}
-                    trajectory={trajectory}
+                    trailPoints={trailVectors}
+                    predictedPoints={predictedVectors}
+                    style={styles.heroViewport}
                   />
                 </div>
 
-                <div style={styles.panelFooter}>
-                  <span>Select on-map to drive the watchlist, bullseye, timeline, and 3D context.</span>
-                  <span>Focused spacecraft renders a 90-minute trail and a dashed 90-minute forecast.</span>
+                <div style={styles.heroFooterRow}>
+                  <span>Select on the globe, map, or watchlist to lock the dashboard to one spacecraft.</span>
+                  <span>Focused views share the same 90-minute trail, forecast path, conjunction plot, and burn clock.</span>
                 </div>
               </div>
             </GlassPanel>
-          </section>
 
-          <section aria-labelledby="timeline-heading" style={styles.timelineSlot}>
-            <h2 id="timeline-heading" style={styles.visuallyHidden}>Predictive Maneuver Timeline</h2>
-            <GlassPanel
-              title="PREDICTIVE MANEUVER TIMELINE"
-              revealIndex={1}
-              bootComplete={booted}
-              noPadding
-              priority="primary"
-              accentColor={theme.colors.warning}
-              style={styles.timelinePanel}
-            >
-              <div style={styles.primaryPanelBody}>
-                <div style={styles.panelLead}>
-                  <div style={styles.primaryCopyBlock}>
-                    <span style={styles.primaryTagline}>Predictive scheduler</span>
-                    <p style={styles.panelBrief}>
-                      Pending actions, executed burns, and future maneuver windows stay on the main deck for immediate review.
+            <div style={styles.heroRail}>
+              <GlassPanel
+                title="MISSION RAIL"
+                revealIndex={1}
+                bootComplete={booted}
+                noPadding
+                priority="secondary"
+                accentColor={theme.colors.accent}
+                style={styles.heroRailPanel}
+              >
+                <div style={styles.railBody}>
+                  <div style={styles.railSection}>
+                    <span style={styles.selectionLabel}>Context Target</span>
+                    <div style={styles.selectionValueRow}>
+                      <span style={styles.heroRailValue}>{selectedSatId ?? 'Fleet Overview'}</span>
+                      {selectedSatId && (
+                        <button
+                          style={styles.clearBtn}
+                          onClick={() => onSelectSat(null)}
+                          aria-label="Clear selected satellite"
+                        >
+                          CLEAR
+                        </button>
+                      )}
+                    </div>
+                    <span style={styles.selectionMeta}>
+                      {activeSatellite
+                        ? `${activeSatellite.status} / ${activeSatellite.fuel_kg.toFixed(1)} kg fuel remaining`
+                        : 'Select a spacecraft to center the deck on one vehicle.'}
+                    </span>
+                  </div>
+
+                  <div style={styles.heroMetricGrid}>
+                    <HeroMetric label="Threat Watch" value={threatValue} detail={threatDetail} tone={threatCounts.red > 0 ? 'critical' : threatCounts.yellow > 0 ? 'warning' : 'accent'} />
+                    <HeroMetric label="Burn Window" value={burnValue} detail={burnDetail} tone={watchedPendingBurns.length > 0 ? 'warning' : 'primary'} />
+                    <HeroMetric label="Fuel Posture" value={resourceValue} detail={resourceDetail} tone={lowestFuelSatellite && lowestFuelSatellite.fuel_kg < 10 ? 'critical' : 'warning'} />
+                  </div>
+
+                  <div style={styles.heroControlsWrap}>
+                    <SimControls />
+                    <p style={styles.commandHint}>
+                      Advance the sim here, then confirm track, conjunction, and burn status below.
                     </p>
                   </div>
-                  <div style={styles.chipRow}>
-                    <InfoChip label="View" value={watchStateValue} tone={watchStateTone} />
-                    <InfoChip label="Pending" value={watchedPendingBurns.length.toString()} tone={watchedPendingBurns.length > 0 ? 'warning' : 'accent'} />
-                    <InfoChip label="Executed" value={watchedExecutedBurns.length.toString()} tone="primary" />
-                    <InfoChip
-                      label="Next Burn"
-                      value={nextPendingBurn ? `${formatWithFormatter(shortTimeFormatter, nextPendingBurn.burn_epoch)} UTC` : 'None'}
-                      tone={nextPendingBurn ? 'primary' : 'neutral'}
-                    />
-                  </div>
                 </div>
+              </GlassPanel>
 
-                <div style={styles.timelineFrame}>
-                  <ManeuverGantt burns={burns} selectedSatId={selectedSatId} nowEpochS={nowEpochS} />
-                </div>
-
-                <div style={styles.panelFooter}>
-                  <span>Burn chronology stays adjacent to the map instead of dropping into the support rail.</span>
-                  <span>Markers show burn start/end while dashed spans reserve the 600-second cooldown window.</span>
-                </div>
-              </div>
-            </GlassPanel>
-          </section>
-
-          <aside style={styles.sideColumn}>
-            <section aria-labelledby="conjunction-heading" style={styles.sideSlot}>
-              <h2 id="conjunction-heading" style={styles.visuallyHidden}>Conjunction Watch</h2>
               <GlassPanel
                 title="CONJUNCTION WATCH"
                 revealIndex={2}
@@ -498,7 +556,7 @@ function App() {
                 noPadding
                 priority="secondary"
                 accentColor={theme.colors.primary}
-                style={styles.sidePanel}
+                style={styles.watchPanel}
               >
                 <div style={styles.sidePanelBody}>
                   <div style={styles.chipRowLeft}>
@@ -517,127 +575,164 @@ function App() {
 
                   <p style={styles.sideNote}>
                     {selectedSatId
-                      ? `Relative approach view locked to ${selectedSatId}.`
-                      : 'Fleet-wide approach watch. Select a spacecraft for a centered bullseye view.'}
+                      ? `Relative approach plot centered on ${selectedSatId}.`
+                      : 'Fleet relative-approach watch. Select a spacecraft to center the plot.'}
                   </p>
                 </div>
               </GlassPanel>
-            </section>
+            </div>
+          </div>
+        </section>
 
-            <section aria-labelledby="mission-control-heading" style={styles.sideSlot}>
-              <h2 id="mission-control-heading" style={styles.visuallyHidden}>Mission Status And Resources</h2>
-              <GlassPanel
-                title="MISSION STATUS & RESOURCES"
-                revealIndex={3}
-                bootComplete={booted}
-                noPadding
-                priority="secondary"
-                accentColor={theme.colors.accent}
-                style={styles.commandPanel}
-              >
-                <div style={styles.commandPanelBody}>
-                  <div style={styles.commandHeader}>
-                    <div style={styles.selectionBlock}>
-                      <span style={styles.selectionLabel}>Watch Target</span>
-                      <div style={styles.selectionValueRow}>
-                        <span style={styles.selectionValue}>{selectedSatId ?? 'Fleet View'}</span>
-                        {selectedSatId && (
-                          <button
-                            style={styles.clearBtn}
-                            onClick={() => onSelectSat(null)}
-                            aria-label="Clear selected satellite"
-                          >
-                            CLEAR
-                          </button>
-                        )}
-                      </div>
-                      <span style={styles.selectionMeta}>
-                        {activeSatellite
-                          ? `${activeSatellite.status} / ${activeSatellite.fuel_kg.toFixed(1)} kg fuel`
-                          : 'Choose a spacecraft from the map, fuel watchlist, or globe to narrow the deck.'}
-                      </span>
-                    </div>
-
-                    <div style={styles.commandControls}>
-                      <SimControls />
-                      <p style={styles.commandHint}>
-                        Step the sim while keeping the map and scheduler in frame.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div style={styles.statusFrame}>
-                    <StatusPanel
-                      status={status}
-                      apiError={statusError || snapError}
-                      snapshotTimestamp={snapshot?.timestamp}
-                      debrisCount={debris.length}
-                      satCount={satellites.length}
-                    />
-                  </div>
-
-                  <div style={styles.resourceLead}>
-                    <p style={styles.panelBriefCompact}>
-                      Keep degraded assets visible before collision-avoidance demand spikes.
-                    </p>
-                    <div style={styles.chipRowLeft}>
-                      <InfoChip label="Average Fuel" value={satellites.length > 0 ? `${avgFuelKg.toFixed(1)} kg` : '--'} tone="warning" />
-                      <InfoChip label="Nominal" value={statusCounts.nominal.toString()} tone="accent" />
-                      <InfoChip label="Degraded" value={statusCounts.degraded.toString()} tone={statusCounts.degraded > 0 ? 'critical' : 'neutral'} />
-                    </div>
-                  </div>
-
-                  <div style={styles.fuelFrame}>
-                    <FuelHeatmap
-                      satellites={satellites}
-                      selectedSatId={selectedSatId}
-                      onSelectSat={onSelectSat}
-                    />
-                  </div>
-                </div>
-              </GlassPanel>
-            </section>
-
-            <section aria-labelledby="orbital-context-heading" style={styles.sideSlot}>
-              <h2 id="orbital-context-heading" style={styles.visuallyHidden}>Orbital Context Globe</h2>
-              <GlassPanel
-                title="3D ORBITAL CONTEXT"
-                revealIndex={4}
-                bootComplete={booted}
-                noPadding
-                priority="support"
-                accentColor={theme.colors.primary}
-                style={styles.globePanel}
-              >
-                <div style={styles.sidePanelBody}>
-                  <div style={styles.globeHeaderRow}>
-                    <div style={styles.globeSelectionBlock}>
-                      <span style={styles.selectionLabel}>Context Target</span>
-                      <span style={styles.globeTargetValue}>{selectedSatId ?? 'Fleet Overview'}</span>
-                    </div>
-                    <div style={styles.chipRowLeft}>
-                      <InfoChip label="Trail" value={selectedSatId ? 'Enabled' : 'Fleet'} tone={selectedSatId ? 'accent' : 'neutral'} />
-                    </div>
-                  </div>
-                  <p style={styles.panelBriefCompact}>
-                    Supporting orbital context only. It reinforces selection and trajectory awareness without taking command priority.
+        <section aria-labelledby="ground-track-heading" style={styles.sectionStack}>
+          <h2 id="ground-track-heading" style={styles.visuallyHidden}>Ground Track Operations</h2>
+          <SectionHeader
+            kicker="Section 01"
+            title="Ground Track Operations"
+            description="Global track view with trail history, forecast path, and station context for rapid spacecraft handoff."
+          />
+          <GlassPanel
+            title="GROUND TRACK OPERATIONS"
+            revealIndex={3}
+            bootComplete={booted}
+            noPadding
+            priority="primary"
+            accentColor={theme.colors.primary}
+            style={styles.fullWidthPanel}
+          >
+            <div style={styles.primaryPanelBodyLarge}>
+              <div style={styles.panelLeadLarge}>
+                <div style={styles.primaryCopyBlockLarge}>
+                  <span style={styles.primaryTagline}>2D tactical track</span>
+                  <p style={styles.panelBriefLarge}>
+                    Select any spacecraft to sync the track, conjunction view, and burn schedule. Focused vehicles show the last 90 minutes and the next 90-minute prediction.
                   </p>
-                  <div style={styles.globeFrame}>
-                    <EarthGlobe
-                      satellites={satellites}
-                      debris={debris}
-                      selectedSatId={selectedSatId}
-                      onSelectSat={onSelectSat}
-                      trailPoints={trailVectors}
-                      predictedPoints={predictedVectors}
-                      style={styles.globeViewport}
-                    />
-                  </div>
                 </div>
-              </GlassPanel>
-            </section>
-          </aside>
-        </div>
+                <div style={styles.chipRow}>
+                  <InfoChip label="Mode" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'accent' : 'primary'} />
+                  <InfoChip label="Objects" value={satellites.length.toLocaleString()} tone="accent" />
+                  <InfoChip label="Debris" value={debris.length.toLocaleString()} tone="warning" />
+                  <InfoChip label="Path" value={trajectory?.satellite_id ?? 'Standby'} tone={trajectory?.satellite_id ? 'primary' : 'neutral'} />
+                </div>
+              </div>
+
+              <div style={styles.primaryCanvasFrameLarge}>
+                <GroundTrackMap
+                  snapshot={snapshot ?? null}
+                  selectedSatId={selectedSatId}
+                  onSelectSat={onSelectSat}
+                  trackHistory={trackHistoryRef.current}
+                  trackVersion={trackVersion}
+                  trajectory={trajectory}
+                />
+              </div>
+            </div>
+          </GlassPanel>
+        </section>
+
+        <section aria-labelledby="timeline-heading" style={styles.sectionStack}>
+          <h2 id="timeline-heading" style={styles.visuallyHidden}>Predictive Maneuver Timeline</h2>
+          <SectionHeader
+            kicker="Section 02"
+            title="Predictive Maneuver Timeline"
+            description="Executed burns, queued maneuvers, and cooldown reservations aligned on one command timeline."
+          />
+          <GlassPanel
+            title="PREDICTIVE MANEUVER TIMELINE"
+            revealIndex={4}
+            bootComplete={booted}
+            noPadding
+            priority="primary"
+            accentColor={theme.colors.warning}
+            style={styles.timelineHeroPanel}
+          >
+            <div style={styles.primaryPanelBodyLarge}>
+              <div style={styles.panelLeadLarge}>
+                <div style={styles.primaryCopyBlockLarge}>
+                  <span style={styles.primaryTagline}>Burn scheduler</span>
+                  <p style={styles.panelBriefLarge}>
+                    Review executed burns, queued maneuvers, and cooldown holds on one continuous clock for rapid go or hold decisions.
+                  </p>
+                </div>
+                <div style={styles.chipRow}>
+                  <InfoChip label="View" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'accent' : 'primary'} />
+                  <InfoChip label="Pending" value={watchedPendingBurns.length.toString()} tone={watchedPendingBurns.length > 0 ? 'warning' : 'accent'} />
+                  <InfoChip label="Executed" value={watchedExecutedBurns.length.toString()} tone="primary" />
+                  <InfoChip
+                    label="Next Burn"
+                    value={nextPendingBurn ? `${formatWithFormatter(shortTimeFormatter, nextPendingBurn.burn_epoch)} UTC` : 'None'}
+                    tone={nextPendingBurn ? 'warning' : 'neutral'}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.timelineFrameLarge}>
+                <ManeuverGantt burns={burns} selectedSatId={selectedSatId} nowEpochS={nowEpochS} />
+              </div>
+            </div>
+          </GlassPanel>
+        </section>
+
+        <section aria-labelledby="support-heading" style={styles.sectionStack}>
+          <h2 id="support-heading" style={styles.visuallyHidden}>Mission Support Modules</h2>
+          <SectionHeader
+            kicker="Section 03"
+            title="Mission Status And Resources"
+            description="System state, live telemetry, and propellant watchlists for quick readiness checks."
+          />
+          <div style={styles.supportGrid}>
+            <GlassPanel
+              title="MISSION STATUS"
+              revealIndex={5}
+              bootComplete={booted}
+              noPadding
+              priority="secondary"
+              accentColor={theme.colors.accent}
+              style={styles.supportPanel}
+            >
+              <div style={styles.statusFrameWide}>
+                <StatusPanel
+                  status={status}
+                  apiError={statusError || snapError}
+                  snapshotTimestamp={snapshot?.timestamp}
+                  debrisCount={debris.length}
+                  satCount={satellites.length}
+                />
+              </div>
+            </GlassPanel>
+
+            <GlassPanel
+              title="FUEL WATCHLIST"
+              revealIndex={6}
+              bootComplete={booted}
+              noPadding
+              priority="secondary"
+              accentColor={theme.colors.warning}
+              style={styles.supportPanel}
+            >
+              <div style={styles.commandPanelBody}>
+                <div style={styles.resourceLeadLarge}>
+                  <div style={styles.chipRowLeft}>
+                    <InfoChip label="Average Fuel" value={satellites.length > 0 ? `${avgFuelKg.toFixed(1)} kg` : '--'} tone="warning" />
+                    <InfoChip label="Nominal" value={statusCounts.nominal.toString()} tone="accent" />
+                    <InfoChip label="Degraded" value={statusCounts.degraded.toString()} tone={statusCounts.degraded > 0 ? 'critical' : 'neutral'} />
+                  </div>
+                  <p style={styles.panelBriefCompactLarge}>
+                    Scan degraded or low-fuel vehicles here after resolving track and maneuver priorities.
+                  </p>
+                </div>
+
+                <div style={styles.fuelFrameWide}>
+                  <FuelHeatmap
+                    satellites={satellites}
+                    selectedSatId={selectedSatId}
+                    onSelectSat={onSelectSat}
+                  />
+                </div>
+              </div>
+            </GlassPanel>
+          </div>
+        </section>
 
         <div aria-live="polite" style={styles.visuallyHidden}>
           {operationsLiveSummary}
@@ -649,11 +744,11 @@ function App() {
 
 export default App;
 
-function buildStyles(isStacked: boolean, isCompact: boolean): Record<string, CSSProperties> {
+function buildStyles(isNarrow: boolean, isCompact: boolean): Record<string, CSSProperties> {
   return {
     root: {
       width: '100%',
-      height: '100%',
+      minHeight: '100vh',
       position: 'relative',
       overflow: 'hidden',
       background: theme.colors.bg,
@@ -664,10 +759,9 @@ function buildStyles(isStacked: boolean, isCompact: boolean): Record<string, CSS
       position: 'absolute',
       inset: 0,
       background: `
-        radial-gradient(circle at 14% 18%, rgba(58, 159, 232, 0.20), transparent 30%),
-        radial-gradient(circle at 88% 12%, rgba(34, 197, 94, 0.10), transparent 22%),
-        radial-gradient(circle at 72% 82%, rgba(234, 179, 8, 0.08), transparent 24%),
-        linear-gradient(180deg, rgba(10, 18, 36, 0.96), rgba(5, 10, 20, 0.98))
+        radial-gradient(circle at 22% 8%, rgba(88, 184, 255, 0.12), transparent 24%),
+        radial-gradient(circle at 84% 10%, rgba(255, 194, 71, 0.08), transparent 18%),
+        linear-gradient(180deg, rgba(9, 10, 13, 1), rgba(6, 6, 7, 1))
       `,
       zIndex: 0,
     },
@@ -687,233 +781,175 @@ function buildStyles(isStacked: boolean, isCompact: boolean): Record<string, CSS
     shell: {
       position: 'relative',
       zIndex: 1,
-      height: '100%',
+      minHeight: '100vh',
       display: 'flex',
       flexDirection: 'column',
-      gap: isCompact ? '8px' : '10px',
-      padding: isCompact ? '12px' : '16px',
-      overflow: 'auto',
+      gap: isCompact ? '18px' : '24px',
+      padding: isCompact ? '16px 14px 28px' : '22px 24px 36px',
+      overflow: 'visible',
     },
-    header: {
+    heroHeader: {
       display: 'flex',
       flexDirection: 'column',
-      gap: '10px',
-      flex: '0 0 auto',
+      gap: '12px',
     },
     headerLead: {
       display: 'flex',
       flexDirection: 'column',
-      gap: '4px',
-      maxWidth: isStacked ? '100%' : '64%',
+      gap: '8px',
+      maxWidth: isNarrow ? '100%' : '72ch',
     },
     eyebrow: {
-      fontSize: '9px',
-      letterSpacing: '0.2em',
+      fontSize: '10px',
+      letterSpacing: '0.22em',
       textTransform: 'uppercase',
       color: theme.colors.primary,
-      textShadow: `0 0 14px ${theme.colors.primaryDim}`,
+      textShadow: `0 0 18px ${theme.colors.primaryDim}`,
     },
     title: {
-      fontSize: isCompact ? '24px' : '30px',
+      fontSize: isCompact ? '36px' : '54px',
       fontWeight: 700,
-      lineHeight: 1.05,
-      letterSpacing: '-0.02em',
+      lineHeight: 0.98,
+      letterSpacing: '-0.04em',
       color: theme.colors.text,
       textWrap: 'balance',
     },
     subtitle: {
-      fontSize: isCompact ? '10px' : '11px',
-      lineHeight: 1.55,
+      fontSize: isCompact ? '13px' : '15px',
+      lineHeight: 1.6,
       color: theme.colors.textDim,
-      maxWidth: '64ch',
+      maxWidth: '70ch',
+    },
+    stickySummaryRail: {
+      position: 'sticky',
+      top: 0,
+      zIndex: 4,
+      paddingTop: '2px',
+      paddingBottom: '4px',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
+      background: 'linear-gradient(180deg, rgba(6, 6, 7, 0.92), rgba(6, 6, 7, 0.76))',
+      marginInline: '-6px',
+      paddingInline: '6px',
     },
     summaryGrid: {
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(164px, 1fr))',
-      gap: '8px',
-    },
-    contentGrid: {
-      flex: 1,
-      minHeight: 0,
-      display: 'grid',
-      gridTemplateColumns: 'minmax(0, 1.8fr) minmax(320px, 0.82fr)',
-      gridTemplateRows: 'minmax(390px, 1.15fr) minmax(300px, 0.95fr)',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
       gap: '12px',
+    },
+    heroSection: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '14px',
+    },
+    heroGrid: {
+      display: 'grid',
+      gridTemplateColumns: isNarrow ? '1fr' : 'minmax(0, 1.45fr) minmax(320px, 0.72fr)',
+      gap: '18px',
       alignItems: 'stretch',
     },
-    contentStack: {
+    heroGlobePanel: {
+      minHeight: isCompact ? '560px' : '720px',
+    },
+    heroRail: {
       display: 'flex',
       flexDirection: 'column',
-      gap: '12px',
-      minHeight: 0,
+      gap: '18px',
+    },
+    heroRailPanel: {
+      minHeight: isCompact ? '320px' : '370px',
+    },
+    watchPanel: {
+      minHeight: isCompact ? '320px' : '360px',
+    },
+    heroPanelBody: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '14px',
       flex: 1,
-    },
-    mapSlot: isStacked ? {} : {
-      gridColumn: 1,
-      gridRow: 1,
       minHeight: 0,
+      padding: '14px 16px 16px',
     },
-    timelineSlot: isStacked ? {} : {
-      gridColumn: 1,
-      gridRow: 2,
-      minHeight: 0,
-    },
-    sideColumn: isStacked ? {
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '12px',
-    } : {
-      gridColumn: 2,
-      gridRow: '1 / span 2',
-      minHeight: 0,
-      display: 'grid',
-      gridTemplateRows: 'minmax(220px, 0.92fr) minmax(330px, 1.16fr) minmax(210px, 0.82fr)',
-      gap: '12px',
-    },
-    sideSlot: {
-      minHeight: 0,
-    },
-    mapPanel: {
-      height: isStacked ? 'clamp(360px, 58vh, 540px)' : '100%',
-    },
-    timelinePanel: {
-      height: isStacked ? 'clamp(300px, 44vh, 410px)' : '100%',
-    },
-    sidePanel: {
-      height: isStacked ? 'clamp(280px, 42vh, 360px)' : '100%',
-    },
-    commandPanel: {
-      height: isStacked ? 'clamp(420px, 70vh, 560px)' : '100%',
-    },
-    globePanel: {
-      height: isStacked ? 'clamp(280px, 42vh, 360px)' : '100%',
-    },
-    primaryPanelBody: {
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '8px',
-      height: '100%',
-      minHeight: 0,
-      padding: '8px 10px 10px',
-    },
-    panelLead: {
+    heroLeadRow: {
       display: 'flex',
       flexDirection: isCompact ? 'column' : 'row',
       alignItems: isCompact ? 'stretch' : 'flex-start',
       justifyContent: 'space-between',
-      gap: '8px',
+      gap: '14px',
     },
-    primaryCopyBlock: {
+    heroCopyBlock: {
       display: 'flex',
       flexDirection: 'column',
-      gap: '3px',
+      gap: '6px',
       minWidth: 0,
+      maxWidth: '64ch',
     },
-    primaryTagline: {
+    heroKicker: {
       color: theme.colors.primary,
-      fontSize: '9px',
-      letterSpacing: '0.16em',
-      textTransform: 'uppercase',
-      opacity: 0.85,
-    },
-    panelBrief: {
-      flex: 1,
-      minWidth: 0,
-      color: '#94a8c7',
       fontSize: '10px',
-      lineHeight: 1.45,
-      maxWidth: isCompact ? '100%' : '54ch',
+      letterSpacing: '0.18em',
+      textTransform: 'uppercase',
     },
-    panelBriefCompact: {
+    heroTitle: {
+      color: theme.colors.text,
+      fontSize: isCompact ? '26px' : '34px',
+      lineHeight: 1.02,
+      fontWeight: 700,
+      letterSpacing: '-0.03em',
+    },
+    heroDescription: {
       color: theme.colors.textDim,
-      fontSize: '9px',
-      lineHeight: 1.45,
+      fontSize: isCompact ? '13px' : '14px',
+      lineHeight: 1.65,
     },
-    chipRow: {
+    heroChipWrap: {
       display: 'flex',
       flexWrap: 'wrap',
-      gap: '6px',
+      gap: '8px',
       justifyContent: isCompact ? 'flex-start' : 'flex-end',
+      maxWidth: isCompact ? '100%' : '360px',
     },
-    chipRowLeft: {
-      display: 'flex',
-      flexWrap: 'wrap',
-      gap: '6px',
-      justifyContent: 'flex-start',
-    },
-    primaryCanvasFrame: {
+    heroViewportFrame: {
       flex: 1,
-      minHeight: 0,
       overflow: 'hidden',
       clipPath: theme.chamfer.clipPath,
-      border: '1px solid rgba(58, 159, 232, 0.32)',
-      background: 'linear-gradient(180deg, rgba(4, 10, 20, 0.80), rgba(2, 7, 14, 0.94))',
-      boxShadow: 'inset 0 0 28px rgba(2, 8, 16, 0.6), 0 0 20px rgba(58, 159, 232, 0.08)',
+      border: '1px solid rgba(88, 184, 255, 0.34)',
+      background: 'radial-gradient(circle at 50% 28%, rgba(16, 18, 24, 0.95), rgba(6, 7, 10, 0.98))',
+      boxShadow: 'inset 0 0 36px rgba(0, 0, 0, 0.52), 0 0 28px rgba(88, 184, 255, 0.08)',
+      position: 'relative',
+      minHeight: isCompact ? '420px' : '520px',
     },
-    timelineFrame: {
-      flex: 1,
-      minHeight: 0,
-      overflow: 'hidden',
-      clipPath: theme.chamfer.clipPath,
-      border: '1px solid rgba(234, 179, 8, 0.24)',
-      background: 'linear-gradient(180deg, rgba(4, 10, 20, 0.78), rgba(2, 7, 14, 0.94))',
-      boxShadow: 'inset 0 0 28px rgba(2, 8, 16, 0.6), 0 0 18px rgba(234, 179, 8, 0.05)',
+    heroViewport: {
+      position: 'relative',
+      width: '100%',
+      height: '100%',
     },
-    panelFooter: {
+    heroFooterRow: {
       display: 'flex',
       flexDirection: isCompact ? 'column' : 'row',
       justifyContent: 'space-between',
-      gap: '8px',
-      color: theme.colors.textMuted,
-      fontSize: '9px',
-      lineHeight: 1.4,
-    },
-    sidePanelBody: {
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '8px',
-      height: '100%',
-      minHeight: 0,
-      padding: '8px 10px 10px',
-    },
-    sideCanvasFrame: {
-      flex: 1,
-      minHeight: 0,
-      overflow: 'hidden',
-      clipPath: theme.chamfer.clipPath,
-      border: `1px solid ${theme.colors.border}`,
-      background: 'linear-gradient(180deg, rgba(3, 8, 16, 0.68), rgba(2, 7, 14, 0.88))',
-    },
-    sideNote: {
-      color: theme.colors.textMuted,
-      fontSize: '9px',
-      lineHeight: 1.45,
-    },
-    commandPanelBody: {
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '8px',
-      height: '100%',
-      minHeight: 0,
-      padding: '8px 10px 10px',
-    },
-    commandHeader: {
-      display: 'flex',
-      flexDirection: isCompact ? 'column' : 'row',
-      justifyContent: 'space-between',
-      alignItems: isCompact ? 'stretch' : 'flex-start',
       gap: '10px',
+      color: theme.colors.textMuted,
+      fontSize: '11px',
+      lineHeight: 1.5,
     },
-    selectionBlock: {
+    railBody: {
       display: 'flex',
       flexDirection: 'column',
-      gap: '4px',
-      minWidth: 0,
+      gap: '16px',
+      flex: 1,
+      minHeight: 0,
+      padding: '14px 16px 16px',
+    },
+    railSection: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '6px',
     },
     selectionLabel: {
       color: theme.colors.textMuted,
-      fontSize: '9px',
-      letterSpacing: '0.14em',
+      fontSize: '10px',
+      letterSpacing: '0.16em',
       textTransform: 'uppercase',
     },
     selectionValueRow: {
@@ -922,95 +958,199 @@ function buildStyles(isStacked: boolean, isCompact: boolean): Record<string, CSS
       alignItems: 'center',
       gap: '8px',
     },
-    selectionValue: {
+    heroRailValue: {
       color: theme.colors.text,
-      fontSize: '15px',
+      fontSize: '24px',
       fontWeight: 700,
-      minWidth: 0,
+      lineHeight: 1.05,
+      letterSpacing: '-0.03em',
       textWrap: 'balance',
     },
     selectionMeta: {
       color: theme.colors.textDim,
-      fontSize: '9px',
-      lineHeight: 1.4,
-      maxWidth: '52ch',
+      fontSize: '11px',
+      lineHeight: 1.55,
     },
-    commandControls: {
+    heroMetricGrid: {
+      display: 'grid',
+      gridTemplateColumns: '1fr',
+      gap: '14px',
+      paddingTop: '8px',
+      borderTop: `1px solid ${theme.colors.border}`,
+    },
+    heroControlsWrap: {
+      marginTop: 'auto',
       display: 'flex',
       flexDirection: 'column',
-      gap: '6px',
-      alignItems: isCompact ? 'flex-start' : 'flex-end',
+      gap: '10px',
+      paddingTop: '12px',
+      borderTop: `1px solid ${theme.colors.border}`,
     },
     commandHint: {
       color: theme.colors.textMuted,
-      fontSize: '9px',
-      lineHeight: 1.45,
-      maxWidth: isCompact ? '100%' : '28ch',
-      textAlign: isCompact ? 'left' : 'right',
+      fontSize: '11px',
+      lineHeight: 1.55,
+      maxWidth: '36ch',
     },
-    clearBtn: {
-      fontSize: '9px',
-      fontFamily: theme.font.mono,
-      padding: '4px 9px',
-      border: `1px solid ${theme.colors.border}`,
-      background: 'rgba(5, 10, 20, 0.6)',
-      color: theme.colors.textDim,
-      cursor: 'pointer',
-      letterSpacing: '0.1em',
-      clipPath: theme.chamfer.buttonClipPath,
-    },
-    statusFrame: {
-      flex: '1 1 0',
-      minHeight: 0,
-      overflow: 'auto',
-      clipPath: theme.chamfer.clipPath,
-      border: `1px solid ${theme.colors.border}`,
-      background: 'rgba(255, 255, 255, 0.015)',
-    },
-    resourceLead: {
+    sectionStack: {
       display: 'flex',
       flexDirection: 'column',
-      gap: '8px',
+      gap: '14px',
     },
-    fuelFrame: {
-      flex: '0 0 148px',
-      minHeight: '148px',
+    fullWidthPanel: {
+      height: 'auto',
+    },
+    timelineHeroPanel: {
+      height: 'auto',
+    },
+    primaryPanelBodyLarge: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '14px',
+      flex: 1,
+      minHeight: 0,
+      padding: '14px 16px 16px',
+    },
+    panelLeadLarge: {
+      display: 'flex',
+      flexDirection: isCompact ? 'column' : 'row',
+      alignItems: isCompact ? 'stretch' : 'flex-start',
+      justifyContent: 'space-between',
+      gap: '14px',
+    },
+    primaryCopyBlockLarge: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '5px',
+      minWidth: 0,
+      maxWidth: '74ch',
+    },
+    primaryTagline: {
+      color: theme.colors.primary,
+      fontSize: '10px',
+      letterSpacing: '0.16em',
+      textTransform: 'uppercase',
+      opacity: 0.95,
+    },
+    panelBriefLarge: {
+      color: theme.colors.textDim,
+      fontSize: '13px',
+      lineHeight: 1.65,
+    },
+    chipRow: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '8px',
+      justifyContent: isCompact ? 'flex-start' : 'flex-end',
+    },
+    chipRowLeft: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '8px',
+      justifyContent: 'flex-start',
+    },
+    primaryCanvasFrameLarge: {
+      width: '100%',
+      flex: '0 0 auto',
+      display: 'flex',
+      flexDirection: 'column',
+      alignSelf: 'center',
+      maxWidth: isCompact ? '100%' : 'min(100%, 1840px)',
+      aspectRatio: isCompact ? '4 / 3' : '20 / 7',
+      minHeight: isCompact ? '320px' : '420px',
+      maxHeight: isCompact ? '420px' : '640px',
+      minWidth: 0,
       overflow: 'hidden',
       clipPath: theme.chamfer.clipPath,
-      border: `1px solid ${theme.colors.border}`,
-      background: 'rgba(255, 255, 255, 0.02)',
+      border: '1px solid rgba(88, 184, 255, 0.34)',
+      background: 'linear-gradient(180deg, rgba(11, 13, 17, 0.92), rgba(7, 8, 10, 0.98))',
+      boxShadow: 'inset 0 0 32px rgba(0, 0, 0, 0.62), 0 0 24px rgba(88, 184, 255, 0.06)',
     },
-    globeHeaderRow: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'flex-start',
-      gap: '8px',
-      flexWrap: 'wrap',
-    },
-    globeSelectionBlock: {
+    timelineFrameLarge: {
+      width: '100%',
+      flex: '0 0 auto',
       display: 'flex',
       flexDirection: 'column',
-      gap: '2px',
+      height: isCompact ? '320px' : '460px',
+      minWidth: 0,
+      overflow: 'hidden',
+      clipPath: theme.chamfer.clipPath,
+      border: '1px solid rgba(255, 194, 71, 0.28)',
+      background: 'linear-gradient(180deg, rgba(11, 13, 17, 0.92), rgba(7, 8, 10, 0.98))',
+      boxShadow: 'inset 0 0 32px rgba(0, 0, 0, 0.62), 0 0 22px rgba(255, 194, 71, 0.05)',
     },
-    globeTargetValue: {
-      color: theme.colors.text,
-      fontSize: '12px',
-      fontWeight: 600,
+    sidePanelBody: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '10px',
+      flex: 1,
+      minHeight: 0,
+      padding: '12px 14px 14px',
     },
-    globeFrame: {
+    sideCanvasFrame: {
       flex: 1,
       minHeight: 0,
       overflow: 'hidden',
       clipPath: theme.chamfer.clipPath,
       border: `1px solid ${theme.colors.border}`,
-      background: 'radial-gradient(circle at 50% 35%, rgba(22, 34, 64, 0.95), rgba(3, 8, 16, 0.94))',
-      position: 'relative',
+      background: 'linear-gradient(180deg, rgba(10, 11, 14, 0.92), rgba(7, 8, 10, 0.98))',
     },
-    globeViewport: {
-      position: 'relative',
-      inset: 'auto',
-      width: '100%',
-      height: '100%',
+    sideNote: {
+      color: theme.colors.textMuted,
+      fontSize: '11px',
+      lineHeight: 1.55,
+    },
+    supportGrid: {
+      display: 'grid',
+      gridTemplateColumns: isNarrow ? '1fr' : 'minmax(0, 1fr) minmax(320px, 1fr)',
+      gap: '18px',
+    },
+    supportPanel: {
+      minHeight: isCompact ? '320px' : '380px',
+    },
+    statusFrameWide: {
+      flex: 1,
+      overflow: 'auto',
+      clipPath: theme.chamfer.clipPath,
+      border: `1px solid ${theme.colors.border}`,
+      background: 'rgba(255, 255, 255, 0.02)',
+    },
+    commandPanelBody: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '12px',
+      flex: 1,
+      minHeight: 0,
+      padding: '14px 16px 16px',
+    },
+    resourceLeadLarge: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '10px',
+    },
+    panelBriefCompactLarge: {
+      color: theme.colors.textDim,
+      fontSize: '12px',
+      lineHeight: 1.6,
+    },
+    fuelFrameWide: {
+      flex: 1,
+      minHeight: '220px',
+      overflow: 'hidden',
+      clipPath: theme.chamfer.clipPath,
+      border: `1px solid ${theme.colors.border}`,
+      background: 'rgba(255, 255, 255, 0.02)',
+    },
+    clearBtn: {
+      fontSize: '9px',
+      fontFamily: theme.font.mono,
+      padding: '5px 10px',
+      border: `1px solid ${theme.colors.border}`,
+      background: 'rgba(10, 11, 14, 0.88)',
+      color: theme.colors.text,
+      cursor: 'pointer',
+      letterSpacing: '0.12em',
+      clipPath: theme.chamfer.buttonClipPath,
     },
     visuallyHidden: {
       position: 'absolute',

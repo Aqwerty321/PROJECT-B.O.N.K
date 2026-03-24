@@ -22,7 +22,7 @@ const metricRowStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  padding: '3px 0',
+  padding: '6px 0',
   borderBottom: '1px solid rgba(255,255,255,0.04)',
 };
 
@@ -33,11 +33,11 @@ const metricLabelStyle: React.CSSProperties = {
 };
 
 const sectionLabelStyle: React.CSSProperties = {
-  fontSize: '10px',
+  fontSize: '11px',
   color: theme.colors.textMuted,
   textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  marginBottom: '2px',
+  letterSpacing: '0.1em',
+  marginBottom: '4px',
   fontFamily: theme.font.mono,
 };
 
@@ -120,9 +120,9 @@ export const StatusPanel = React.memo(function StatusPanel({ status, apiError, s
   if (!status) {
     return (
       <div style={{
-        padding: '12px',
+        padding: '18px',
         color: theme.colors.textDim,
-        fontSize: '12px',
+        fontSize: '14px',
         fontFamily: theme.font.mono,
         letterSpacing: '0.08em',
       }}>
@@ -135,17 +135,17 @@ export const StatusPanel = React.memo(function StatusPanel({ status, apiError, s
   const isNominal = status.status === 'NOMINAL';
 
   return (
-    <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
+    <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '3px 0',
+        padding: '6px 0',
         borderBottom: '1px solid rgba(255,255,255,0.04)',
       }}>
-        <span style={{ fontSize: '11px', color: theme.colors.textDim, fontFamily: theme.font.mono }}>System Status</span>
+        <span style={{ fontSize: '12px', color: theme.colors.textDim, fontFamily: theme.font.mono }}>System Status</span>
         <span style={{
-          fontSize: '12px',
+          fontSize: '14px',
           fontFamily: theme.font.mono,
           color: isNominal ? theme.colors.accent : theme.colors.critical,
           fontWeight: 600,

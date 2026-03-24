@@ -390,8 +390,10 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
       ref={canvasRef}
       onClick={handleClick}
       style={{
+        flex: 1,
         width: '100%',
         height: '100%',
+        minHeight: 0,
         display: 'block',
         cursor: 'crosshair',
       }}

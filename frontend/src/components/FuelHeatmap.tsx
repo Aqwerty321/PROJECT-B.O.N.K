@@ -29,7 +29,7 @@ function EmptyState() {
   }, []);
 
   return (
-    <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+    <div style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
       {[0.6, 0.4, 0.8, 0.3].map((w, i) => (
         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
@@ -58,7 +58,7 @@ function EmptyState() {
       ))}
       <div style={{
         textAlign: 'center',
-        fontSize: '10px',
+        fontSize: '12px',
         color: theme.colors.textMuted,
         fontFamily: theme.font.mono,
         letterSpacing: '0.1em',
@@ -84,7 +84,7 @@ export const FuelHeatmap = React.memo(function FuelHeatmap({ satellites, selecte
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px', overflowY: 'auto', maxHeight: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '8px', overflowY: 'auto', maxHeight: '100%' }}>
       {sorted.map((sat) => {
         const fraction = Math.min(1, Math.max(0, sat.fuel_kg / maxFuelKg));
         const isSelected = sat.id === selectedSatId;
@@ -99,11 +99,11 @@ export const FuelHeatmap = React.memo(function FuelHeatmap({ satellites, selecte
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              padding: '5px 8px',
+              gap: '10px',
+              padding: '9px 10px',
               cursor: 'pointer',
-              background: isSelected ? 'rgba(255,255,255,0.06)' : 'transparent',
-              border: isSelected ? '1px solid rgba(255,255,255,0.15)' : '1px solid transparent',
+              background: isSelected ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.01)',
+              border: isSelected ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(255,255,255,0.03)',
               transition: 'background 0.1s',
               clipPath: theme.chamfer.buttonClipPath,
             }}
@@ -111,8 +111,8 @@ export const FuelHeatmap = React.memo(function FuelHeatmap({ satellites, selecte
             {/* Status indicator dot with glow */}
             <div
               style={{
-                width: '8px',
-                height: '8px',
+                width: '10px',
+                height: '10px',
                 borderRadius: '50%',
                 flexShrink: 0,
                 background: statusHex,
@@ -122,10 +122,10 @@ export const FuelHeatmap = React.memo(function FuelHeatmap({ satellites, selecte
 
             {/* Satellite ID */}
             <div style={{
-              fontSize: '11px',
+              fontSize: '12px',
               fontFamily: theme.font.mono,
-              color: '#cbd5e1',
-              width: '80px',
+              color: theme.colors.text,
+              width: '112px',
               flexShrink: 0,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -137,7 +137,7 @@ export const FuelHeatmap = React.memo(function FuelHeatmap({ satellites, selecte
             {/* Fuel bar with glow */}
             <div style={{
               flex: 1,
-              height: '8px',
+              height: '10px',
               background: 'rgba(255,255,255,0.08)',
               borderRadius: '4px',
               overflow: 'hidden',
@@ -154,10 +154,10 @@ export const FuelHeatmap = React.memo(function FuelHeatmap({ satellites, selecte
 
             {/* Fuel value */}
             <div style={{
-              fontSize: '10px',
+              fontSize: '12px',
               fontFamily: theme.font.mono,
               color: fuelCol,
-              width: '42px',
+              width: '58px',
               textAlign: 'right',
               flexShrink: 0,
             }}>

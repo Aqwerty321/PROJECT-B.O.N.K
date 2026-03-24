@@ -388,9 +388,35 @@ docker build -t cascade:local .
 docker run --rm -p 8000:8000 cascade:local
 ```
 
+Or with Compose:
+
+```bash
+docker compose up --build -d
+```
+
+If you already have a container running, use `--build` after frontend changes so
+the baked `frontend/dist` bundle is refreshed inside the image.
+
 Base image: `ubuntu:22.04`. Port `8000` bound to `0.0.0.0`.
 Dockerfile is layered for fast incremental rebuilds (deps cached separately
 from source).
+
+### Local Catalog Replay (`data.txt`)
+
+For local UI/backend smoke testing, you can replay the gitignored `data.txt`
+catalog through the normal telemetry API without changing the judged runtime path:
+
+```bash
+python3 scripts/replay_data_catalog.py --api-base http://localhost:8000
+```
+
+What this does:
+- seeds a small local test constellation as `SAT-LOCAL-*`
+- injects the rest of the filtered catalog as `DEBRIS`
+- uses the existing `POST /api/telemetry` and `POST /api/simulate/step` endpoints
+
+This replay path is intended only for local demos and UI smoke testing. It does
+not add a judged API surface and does not change default runtime behavior.
 
 ---
 

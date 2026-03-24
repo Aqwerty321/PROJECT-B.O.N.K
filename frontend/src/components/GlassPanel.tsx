@@ -189,6 +189,9 @@ export const GlassPanel = React.memo(function GlassPanel({
         padding: noPadding ? 0 : '8px 12px',
         overflow: 'auto',
         minHeight: 0,
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: 'column',
       }}>
         {children}
       </div>

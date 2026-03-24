@@ -11,8 +11,8 @@
   line-height: 1.4;
   font-weight: 400;
   color-scheme: dark;
-  color: #e2e8f0;
-  background-color: #050a14;
+  color: #f3f6fb;
+  background-color: #060607;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -21,33 +21,37 @@
 
 html, body, #root {
   width: 100%;
-  height: 100%;
-  overflow: hidden;
+  min-height: 100%;
 }
 
 body {
   margin: 0;
-  background-color: #050a14;
+  background-color: #060607;
+  overflow-y: auto;
+}
+
+#root {
+  min-height: 100vh;
 }
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 4px;
+  width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.02);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(58, 159, 232, 0.3);
-  border-radius: 2px;
+  background: rgba(88, 184, 255, 0.35);
+  border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(58, 159, 232, 0.5);
+  background: rgba(88, 184, 255, 0.55);
 }
 
 /* Selection color */
 ::selection {
-  background: rgba(58, 159, 232, 0.35);
+  background: rgba(88, 184, 255, 0.35);
   color: #ffffff;
 }
 

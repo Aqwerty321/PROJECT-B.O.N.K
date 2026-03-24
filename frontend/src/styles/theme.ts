@@ -1,28 +1,28 @@
 export const theme = {
   colors: {
-    bg: '#050a14',           // deep space black
-    bgPanel: 'rgba(8, 15, 30, 0.85)',
-    bgPanelHover: 'rgba(12, 22, 42, 0.92)',
-    primary: '#3A9FE8',      // electric blue
-    primaryDim: 'rgba(58, 159, 232, 0.25)',
-    accent: '#22c55e',       // green nominal
-    warning: '#eab308',      // amber warning
-    critical: '#ef4444',     // red critical
-    text: '#e2e8f0',
-    textDim: '#64748b',
-    textMuted: '#475569',
-    border: 'rgba(58, 159, 232, 0.18)',
-    borderHover: 'rgba(58, 159, 232, 0.35)',
-    scanline: 'rgba(58, 159, 232, 0.015)',  // subtler scanlines for glassmorphism
+    bg: '#060607',
+    bgPanel: 'rgba(12, 13, 16, 0.92)',
+    bgPanelHover: 'rgba(18, 20, 24, 0.96)',
+    primary: '#58b8ff',
+    primaryDim: 'rgba(88, 184, 255, 0.28)',
+    accent: '#39d98a',
+    warning: '#ffc247',
+    critical: '#ff6262',
+    text: '#f3f6fb',
+    textDim: '#99a9bc',
+    textMuted: '#68778b',
+    border: 'rgba(88, 184, 255, 0.22)',
+    borderHover: 'rgba(88, 184, 255, 0.42)',
+    scanline: 'rgba(255, 255, 255, 0.012)',
   },
   font: {
     mono: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
   },
   glassmorphism: {
-    background: 'rgba(5, 10, 20, 0.18)',
-    backdropFilter: 'blur(12px) saturate(1.3)',
-    border: '1px solid rgba(58, 159, 232, 0.18)',
-    boxShadow: '0 0 15px rgba(58, 159, 232, 0.08)',
+    background: 'rgba(10, 11, 13, 0.76)',
+    backdropFilter: 'blur(10px) saturate(1.08)',
+    border: '1px solid rgba(88, 184, 255, 0.20)',
+    boxShadow: '0 0 20px rgba(88, 184, 255, 0.08)',
   },
   chamfer: {
     // 45deg chamfer on top-right and bottom-left (panels)
