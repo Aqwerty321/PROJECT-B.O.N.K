@@ -981,13 +981,17 @@ std::string build_trajectory_json(const StateStore& store,
                                   const std::deque<TrackPoint>& trail,
                                   double current_epoch_s)
 {
+    constexpr double kTrailWindowSeconds = 90.0 * 60.0;
+    constexpr double kTrailSampleIntervalSeconds = 60.0;
+    constexpr double kTrajectoryPropMaxStepSeconds = 10.0;
+
     std::string out;
     out.reserve(8192);
     out += "{\"satellite_id\":";
     append_json_string(out, satellite_id);
     out += ",\"trail\":[";
     bool first = true;
-    for (const auto& tp : trail) {
+    const auto append_track_point = [&](const TrackPoint& tp) {
         if (!first) out += ',';
         first = false;
         out += "{\"epoch_s\":";
@@ -1005,22 +1009,88 @@ std::string build_trajectory_json(const StateStore& store,
         out += ',';
         out += fmt_double(tp.eci_km.z, 6);
         out += "]}";
+    };
+
+    const std::size_t sat_idx = store.find(satellite_id);
+    bool built_exact_trail = false;
+    if (sat_idx < store.size()) {
+        std::vector<TrackPoint> exact_trail;
+        exact_trail.reserve(static_cast<std::size_t>(kTrailWindowSeconds / kTrailSampleIntervalSeconds) + 1U);
+
+        Vec3 r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+        Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+
+        auto push_track_point = [&](double epoch_s_value, const Vec3& eci) {
+            const Vec3 ecef = eci_to_ecef(eci, epoch_s_value);
+            double lat = 0.0;
+            double lon = 0.0;
+            double alt = 0.0;
+            ecef_to_geodetic(ecef, lat, lon, alt);
+
+            TrackPoint tp;
+            tp.epoch_s = epoch_s_value;
+            tp.lat_deg = lat;
+            tp.lon_deg = lon;
+            tp.alt_km = alt;
+            tp.eci_km = eci;
+            tp.vel_km_s = v;
+            exact_trail.push_back(std::move(tp));
+        };
+
+        push_track_point(current_epoch_s, r);
+
+        built_exact_trail = true;
+        const int kTrailPoints = static_cast<int>(kTrailWindowSeconds / kTrailSampleIntervalSeconds);
+        for (int p = 0; p < kTrailPoints; ++p) {
+            Vec3 rp = r;
+            Vec3 vp = v;
+            const bool ok = propagate_rk4_j2_substep(
+                rp,
+                vp,
+                -kTrailSampleIntervalSeconds,
+                kTrajectoryPropMaxStepSeconds
+            );
+            if (!ok) {
+                built_exact_trail = false;
+                break;
+            }
+            r = rp;
+            v = vp;
+            push_track_point(current_epoch_s - kTrailSampleIntervalSeconds * static_cast<double>(p + 1), r);
+        }
+
+        if (built_exact_trail) {
+            std::reverse(exact_trail.begin(), exact_trail.end());
+            for (const auto& tp : exact_trail) {
+                append_track_point(tp);
+            }
+        }
+    }
+
+    if (!built_exact_trail) {
+        const double trail_start_epoch = current_epoch_s - kTrailWindowSeconds;
+        for (const auto& tp : trail) {
+            if (tp.epoch_s + 1e-9 < trail_start_epoch) {
+                continue;
+            }
+            append_track_point(tp);
+        }
     }
     out += "],\"predicted\":[";
 
-    // Forward-propagate current state for 90 min (90 points @ 60s intervals)
-    const std::size_t sat_idx = store.find(satellite_id);
+    // Forward-propagate current state for the next 90 minutes.
     first = true;
     if (sat_idx < store.size()) {
         Vec3 r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
         Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
-        constexpr int kPredictPoints = 90;
-        constexpr double kPredictInterval_s = 60.0;
+        constexpr int kPredictPoints =
+            static_cast<int>(kTrailWindowSeconds / kTrailSampleIntervalSeconds);
+        constexpr double kPredictInterval_s = kTrailSampleIntervalSeconds;
 
         for (int p = 0; p < kPredictPoints; ++p) {
             Vec3 rp = r;
             Vec3 vp = v;
-            const bool ok = propagate_rk4_j2_substep(rp, vp, kPredictInterval_s, 10.0);
+            const bool ok = propagate_rk4_j2_substep(rp, vp, kPredictInterval_s, kTrajectoryPropMaxStepSeconds);
             if (!ok) break;
             r = rp;
             v = vp;
@@ -2048,9 +2118,10 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
             conjunction_history_.pop_front();
         }
 
-        // --- Phase 0D: Record trajectory track points for all satellites ---
+        // --- Phase 0D: Record 90-minute trajectory history for all satellites ---
         {
             const double epoch_s = clock_.epoch_s();
+            const double trail_start_epoch = epoch_s - (90.0 * 60.0);
             for (std::size_t i = 0; i < store_.size(); ++i) {
                 if (store_.type(i) != ObjectType::SATELLITE) continue;
                 const auto& sid = store_.id(i);
@@ -2066,6 +2137,13 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
                 tp.eci_km = eci;
                 tp.vel_km_s = {store_.vx(i), store_.vy(i), store_.vz(i)};
                 auto& trail = trajectory_by_sat_[sid];
+                while (!trail.empty() && trail.front().epoch_s + 1e-9 < trail_start_epoch) {
+                    trail.pop_front();
+                }
+                if (!trail.empty() && std::abs(trail.back().epoch_s - tp.epoch_s) < 1e-6) {
+                    trail.back() = std::move(tp);
+                    continue;
+                }
                 trail.push_back(std::move(tp));
                 while (trail.size() > kMaxTrackPointsPerSat) {
                     trail.pop_front();

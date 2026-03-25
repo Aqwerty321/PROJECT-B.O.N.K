@@ -20,6 +20,7 @@ import SimControls from './components/SimControls';
 import { GroundTrackMap } from './components/GroundTrackMap';
 
 type Tone = 'primary' | 'accent' | 'warning' | 'critical' | 'neutral';
+const TRACK_HISTORY_WINDOW_S = 90 * 60;
 
 function toneColor(tone: Tone): string {
   switch (tone) {
@@ -272,7 +273,7 @@ function App() {
     [selectedTrajectory?.predicted],
   );
 
-  const trackHistoryRef = useRef<Map<string, [number, number][]>>(new Map());
+  const trackHistoryRef = useRef<Map<string, [number, number, number][]>>(new Map());
   const [trackVersion, setTrackVersion] = useState(0);
 
   useEffect(() => {
@@ -285,17 +286,31 @@ function App() {
     if (!snapshot) return;
 
     const map = trackHistoryRef.current;
+    const snapshotEpochS = new Date(snapshot.timestamp).getTime() / 1000;
+
+    if (!Number.isFinite(snapshotEpochS)) return;
+
     for (const satellite of snapshot.satellites) {
       let history = map.get(satellite.id);
       if (!history) {
         history = [];
         map.set(satellite.id, history);
       }
-      history.push([satellite.lat, satellite.lon]);
-      if (history.length > 200) {
+      history.push([snapshotEpochS, satellite.lat, satellite.lon]);
+      while (history.length > 0 && snapshotEpochS - history[0][0] > TRACK_HISTORY_WINDOW_S) {
         history.shift();
       }
     }
+
+    for (const [satelliteId, history] of map) {
+      while (history.length > 0 && snapshotEpochS - history[0][0] > TRACK_HISTORY_WINDOW_S) {
+        history.shift();
+      }
+      if (history.length === 0) {
+        map.delete(satelliteId);
+      }
+    }
+
     setTrackVersion(version => version + 1);
   }, [snapshot]);
 

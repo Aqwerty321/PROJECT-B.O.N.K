@@ -8,10 +8,12 @@ interface Props {
   snapshot: VisualizationSnapshot | null;
   selectedSatId: string | null;
   onSelectSat: (id: string | null) => void;
-  trackHistory: Map<string, [number, number][]>;
+  trackHistory: Map<string, [number, number, number][]>;
   trackVersion: number;  // triggers redraw without cloning the Map
   trajectory: TrajectoryResponse | null;
 }
+
+const MAX_TRAIL_GAP_S = 120;
 
 // World map colors
 const BG_OCEAN  = '#0a1628';
@@ -54,6 +56,56 @@ function drawWrappedPath(
   }
 
   ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function toTimedPath(points: TrajectoryResponse['trail']): Array<[number, number, number]> {
+  return points.map(point => [point.epoch_s, point.lat, point.lon]);
+}
+
+function drawTimedWrappedPath(
+  ctx: CanvasRenderingContext2D,
+  points: Array<[number, number, number]>,
+  w: number,
+  h: number,
+  options: { color: string; width: number; dash?: number[]; alpha?: number; maxGapS: number },
+) {
+  if (points.length < 2) return;
+
+  ctx.save();
+  ctx.strokeStyle = options.color;
+  ctx.lineWidth = options.width;
+  ctx.globalAlpha = options.alpha ?? 1;
+  if (options.dash) ctx.setLineDash(options.dash);
+
+  let hasOpenSegment = false;
+  let prevEpochS = 0;
+  let prevX = 0;
+
+  for (const [epochS, lat, lon] of points) {
+    const [px, py] = latLonToMercator(lat, lon, w, h);
+    const hasLargeGap = hasOpenSegment && (epochS - prevEpochS > options.maxGapS);
+    const wrapsAcrossMap = hasOpenSegment && Math.abs(px - prevX) > w * 0.5;
+
+    if (!hasOpenSegment || hasLargeGap || wrapsAcrossMap) {
+      if (hasOpenSegment) {
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      hasOpenSegment = true;
+    } else {
+      ctx.lineTo(px, py);
+    }
+
+    prevEpochS = epochS;
+    prevX = px;
+  }
+
+  if (hasOpenSegment) {
+    ctx.stroke();
+  }
   ctx.setLineDash([]);
   ctx.restore();
 }
@@ -249,27 +301,29 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
     // --- Satellite tracks ---
     for (const sat of snapshot.satellites) {
       if (trajectoryTargetId && sat.id === trajectoryTargetId) continue;
-      const history = trackHistory.get(sat.id);
-      if (history && history.length > 1) {
-        drawWrappedPath(ctx, history, w, h, {
-          color: `${hexColor(statusColor(sat.status))}88`,
-          width: 0.8,
-          dash: [3, 2],
-          alpha: 0.8,
-        });
+        const history = trackHistory.get(sat.id);
+        if (history && history.length > 1) {
+          drawTimedWrappedPath(ctx, history, w, h, {
+            color: `${hexColor(statusColor(sat.status))}88`,
+            width: 0.8,
+            dash: [3, 2],
+            alpha: 0.8,
+            maxGapS: MAX_TRAIL_GAP_S,
+          });
+        }
       }
-    }
 
     if (trajectory?.trail && trajectory.trail.length > 1) {
-      drawWrappedPath(
+      drawTimedWrappedPath(
         ctx,
-        trajectory.trail.map(point => [point.lat, point.lon]),
+        toTimedPath(trajectory.trail),
         w,
         h,
         {
           color: 'rgba(58, 159, 232, 0.95)',
           width: 1.8,
           alpha: 0.95,
+          maxGapS: MAX_TRAIL_GAP_S,
         },
       );
     }

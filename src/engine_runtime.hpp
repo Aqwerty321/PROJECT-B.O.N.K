@@ -338,7 +338,7 @@ private:
     // --- Phase 0B: Ring buffers for debug/visualization endpoints ---
     static constexpr std::size_t kMaxExecutedBurnHistory = 512;
     static constexpr std::size_t kMaxConjunctionHistory = 1024;
-    static constexpr std::size_t kMaxTrackPointsPerSat = 5400;  // 90 min at 1s intervals
+    static constexpr std::size_t kMaxTrackPointsPerSat = 5400;
 
     std::deque<ExecutedBurn> executed_burn_history_;
     std::deque<ConjunctionRecord> conjunction_history_;

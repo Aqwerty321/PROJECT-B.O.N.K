@@ -68,7 +68,7 @@ struct ConjunctionRecord {
 
 // ---------------------------------------------------------------------------
 // TrackPoint — per-satellite position sample for trajectory visualization.
-// Stored in a per-satellite ring buffer (5400 entries = 90 min @ 1 sample/s).
+// Stored in a per-satellite ring buffer trimmed to the active 90-minute window.
 // ---------------------------------------------------------------------------
 struct TrackPoint {
     double epoch_s = 0.0;
