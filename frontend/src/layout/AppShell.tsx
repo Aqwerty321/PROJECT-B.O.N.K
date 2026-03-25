@@ -159,48 +159,48 @@ export function AppShell({
             pointerEvents: sidebarOpen ? 'auto' : 'none',
           }}
         >
-            <div style={styles.sidebarHeaderExpanded}>
-              <HamburgerIcon open={sidebarOpen} onClick={() => setSidebarOpen(false)} />
-              <span style={styles.sidebarBrand}>C.A.S.C.A.D.E</span>
-            </div>
-
-            <nav aria-label="Primary dashboard navigation overlay" style={styles.sidebarNavExpanded}>
-              {NAV_ITEMS.map(item => {
-                const active = item.id === pageId;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => { navigate(item.id); if (isCompact) setSidebarOpen(false); }}
-                    aria-current={active ? 'page' : undefined}
-                    style={{
-                      ...styles.navButtonExpanded,
-                      borderColor: active ? `${theme.colors.primary}55` : 'transparent',
-                      color: active ? theme.colors.primary : theme.colors.textDim,
-                      background: active ? 'rgba(88, 184, 255, 0.10)' : 'transparent',
-                      boxShadow: active ? `inset 3px 0 0 ${theme.colors.primary}, 0 0 14px rgba(88, 184, 255, 0.08)` : 'none',
-                    }}
-                  >
-                    <span style={{
-                      fontSize: '16px',
-                      flexShrink: 0,
-                      width: '24px',
-                      textAlign: 'center',
-                      filter: active ? `drop-shadow(0 0 4px ${theme.colors.primary})` : 'none',
-                    }}>{navIcon(item.id)}</span>
-                    <div style={styles.navTextGroup}>
-                      <span style={styles.navLabel}>{labelForNav(item)}</span>
-                      <span style={styles.navBlurb}>{item.blurb}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </nav>
-
-            <div style={styles.sidebarFooterExpanded}>
-              <GlobalStepStatus />
-            </div>
+          <div style={styles.sidebarHeaderExpanded}>
+            <HamburgerIcon open={sidebarOpen} onClick={() => setSidebarOpen(false)} />
+            <span style={styles.sidebarBrand}>C.A.S.C.A.D.E</span>
           </div>
+
+          <nav aria-label="Primary dashboard navigation overlay" style={styles.sidebarNavExpanded}>
+            {NAV_ITEMS.map(item => {
+              const active = item.id === pageId;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => { navigate(item.id); if (isCompact) setSidebarOpen(false); }}
+                  aria-current={active ? 'page' : undefined}
+                  style={{
+                    ...styles.navButtonExpanded,
+                    borderColor: active ? `${theme.colors.primary}55` : 'transparent',
+                    color: active ? theme.colors.primary : theme.colors.textDim,
+                    background: active ? 'rgba(88, 184, 255, 0.10)' : 'transparent',
+                    boxShadow: active ? `inset 3px 0 0 ${theme.colors.primary}, 0 0 14px rgba(88, 184, 255, 0.08)` : 'none',
+                  }}
+                >
+                  <span style={{
+                    fontSize: '16px',
+                    flexShrink: 0,
+                    width: '24px',
+                    textAlign: 'center',
+                    filter: active ? `drop-shadow(0 0 4px ${theme.colors.primary})` : 'none',
+                  }}>{navIcon(item.id)}</span>
+                  <div style={styles.navTextGroup}>
+                    <span style={styles.navLabel}>{labelForNav(item)}</span>
+                    <span style={styles.navBlurb}>{item.blurb}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div style={styles.sidebarFooterExpanded}>
+            <GlobalStepStatus />
+          </div>
+        </div>
       </aside>
 
       {/* ── Main Content Area ── */}
