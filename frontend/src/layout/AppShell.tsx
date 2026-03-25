@@ -86,8 +86,7 @@ export function AppShell({
   const { model } = useDashboard();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const sidebarWidth = sidebarOpen ? SIDEBAR_EXPANDED : SIDEBAR_COLLAPSED;
-  const showPageDescription = !isCompact && !isShellCondensed && sidebarOpen;
+  const showPageDescription = !isCompact && !isShellCondensed;
   const title = isCompact ? labelForNav(NAV_ITEMS.find(i => i.id === pageId)!) : 'Orbital Operations Dashboard';
 
   return (
@@ -95,71 +94,120 @@ export function AppShell({
       <div style={styles.backgroundLayer} aria-hidden="true" />
       <div style={styles.scanlines} aria-hidden="true" />
 
+      <button
+        type="button"
+        aria-label="Close navigation overlay"
+        onClick={() => setSidebarOpen(false)}
+        style={{
+          ...styles.sidebarBackdrop,
+          opacity: sidebarOpen ? 1 : 0,
+          pointerEvents: sidebarOpen ? 'auto' : 'none',
+        }}
+      />
+
       {/* ── Sidebar ── */}
       <aside
         aria-label="Primary navigation sidebar"
-        style={{
-          ...styles.sidebar,
-          width: `${sidebarWidth}px`,
-        }}
+        style={styles.sidebar}
       >
-        {/* Hamburger */}
-        <div style={styles.sidebarHeader}>
-          <HamburgerIcon open={sidebarOpen} onClick={() => setSidebarOpen(prev => !prev)} />
-          {sidebarOpen && (
-            <span style={styles.sidebarBrand}>C.A.S.C.A.D.E</span>
-          )}
+        <div style={styles.sidebarRail}>
+          <div style={styles.sidebarHeaderRail}>
+            <HamburgerIcon open={sidebarOpen} onClick={() => setSidebarOpen(prev => !prev)} />
+          </div>
+
+          <nav aria-label="Primary dashboard navigation" style={styles.sidebarNav}>
+            {NAV_ITEMS.map(item => {
+              const active = item.id === pageId;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => navigate(item.id)}
+                  aria-current={active ? 'page' : undefined}
+                  title={labelForNav(item)}
+                  style={{
+                    ...styles.navButtonRail,
+                    borderColor: active ? `${theme.colors.primary}55` : 'transparent',
+                    color: active ? theme.colors.primary : theme.colors.textDim,
+                    background: active ? 'rgba(88, 184, 255, 0.10)' : 'transparent',
+                    boxShadow: active ? `inset 3px 0 0 ${theme.colors.primary}, 0 0 14px rgba(88, 184, 255, 0.08)` : 'none',
+                  }}
+                >
+                  <span style={{
+                    fontSize: '16px',
+                    flexShrink: 0,
+                    width: '24px',
+                    textAlign: 'center',
+                    filter: active ? `drop-shadow(0 0 4px ${theme.colors.primary})` : 'none',
+                  }}>{navIcon(item.id)}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div style={styles.sidebarFooter}>
+            <GlobalStepStatus compact />
+          </div>
         </div>
 
-        {/* Nav items */}
-        <nav aria-label="Primary dashboard navigation" style={styles.sidebarNav}>
-          {NAV_ITEMS.map(item => {
-            const active = item.id === pageId;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => { navigate(item.id); if (isCompact) setSidebarOpen(false); }}
-                aria-current={active ? 'page' : undefined}
-                title={!sidebarOpen ? labelForNav(item) : undefined}
-                style={{
-                  ...styles.navButton,
-                  justifyContent: sidebarOpen ? 'flex-start' : 'center',
-                  borderColor: active ? `${theme.colors.primary}55` : 'transparent',
-                  color: active ? theme.colors.primary : theme.colors.textDim,
-                  background: active ? 'rgba(88, 184, 255, 0.10)' : 'transparent',
-                  boxShadow: active ? `inset 3px 0 0 ${theme.colors.primary}, 0 0 14px rgba(88, 184, 255, 0.08)` : 'none',
-                }}
-              >
-                <span style={{
-                  fontSize: '16px',
-                  flexShrink: 0,
-                  width: '24px',
-                  textAlign: 'center',
-                  filter: active ? `drop-shadow(0 0 4px ${theme.colors.primary})` : 'none',
-                }}>{navIcon(item.id)}</span>
-                {sidebarOpen && (
-                  <div style={styles.navTextGroup}>
-                    <span style={styles.navLabel}>{labelForNav(item)}</span>
-                    <span style={styles.navBlurb}>{item.blurb}</span>
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </nav>
+        <div
+          aria-hidden={!sidebarOpen}
+          style={{
+            ...styles.sidebarOverlayPanel,
+            opacity: sidebarOpen ? 1 : 0,
+            transform: sidebarOpen ? 'translateX(0)' : 'translateX(-18px)',
+            pointerEvents: sidebarOpen ? 'auto' : 'none',
+          }}
+        >
+            <div style={styles.sidebarHeaderExpanded}>
+              <HamburgerIcon open={sidebarOpen} onClick={() => setSidebarOpen(false)} />
+              <span style={styles.sidebarBrand}>C.A.S.C.A.D.E</span>
+            </div>
 
-        {/* Command status at bottom of sidebar */}
-        <div style={styles.sidebarFooter}>
-          <GlobalStepStatus compact={!sidebarOpen} />
-        </div>
+            <nav aria-label="Primary dashboard navigation overlay" style={styles.sidebarNavExpanded}>
+              {NAV_ITEMS.map(item => {
+                const active = item.id === pageId;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => { navigate(item.id); if (isCompact) setSidebarOpen(false); }}
+                    aria-current={active ? 'page' : undefined}
+                    style={{
+                      ...styles.navButtonExpanded,
+                      borderColor: active ? `${theme.colors.primary}55` : 'transparent',
+                      color: active ? theme.colors.primary : theme.colors.textDim,
+                      background: active ? 'rgba(88, 184, 255, 0.10)' : 'transparent',
+                      boxShadow: active ? `inset 3px 0 0 ${theme.colors.primary}, 0 0 14px rgba(88, 184, 255, 0.08)` : 'none',
+                    }}
+                  >
+                    <span style={{
+                      fontSize: '16px',
+                      flexShrink: 0,
+                      width: '24px',
+                      textAlign: 'center',
+                      filter: active ? `drop-shadow(0 0 4px ${theme.colors.primary})` : 'none',
+                    }}>{navIcon(item.id)}</span>
+                    <div style={styles.navTextGroup}>
+                      <span style={styles.navLabel}>{labelForNav(item)}</span>
+                      <span style={styles.navBlurb}>{item.blurb}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div style={styles.sidebarFooterExpanded}>
+              <GlobalStepStatus />
+            </div>
+          </div>
       </aside>
 
       {/* ── Main Content Area ── */}
       <div
         style={{
           ...styles.mainArea,
-          marginLeft: `${sidebarWidth}px`,
+          marginLeft: `${SIDEBAR_COLLAPSED}px`,
         }}
       >
         {/* Top header bar */}
@@ -170,7 +218,7 @@ export function AppShell({
           }}
         >
           <div style={{ ...styles.topBarLead, gap: '8px' }}>
-            {!isShellCondensed && !isCompact && sidebarOpen && (
+            {!isShellCondensed && !isCompact && (
               <span style={styles.eyebrow}>Orbital Insight / Flight Dynamics Console</span>
             )}
             <h1 style={styles.title}>
@@ -266,18 +314,68 @@ const styles: Record<string, CSSProperties> = {
     top: 0,
     left: 0,
     height: '100dvh',
+    width: `${SIDEBAR_COLLAPSED}px`,
     zIndex: 100,
+    overflow: 'visible',
+  },
+  sidebarBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 90,
+    border: 'none',
+    background: 'rgba(4, 7, 12, 0.18)',
+    cursor: 'pointer',
+    padding: 0,
+    transition: 'opacity 0.22s ease',
+  },
+  sidebarRail: {
+    width: `${SIDEBAR_COLLAPSED}px`,
+    height: '100dvh',
     display: 'flex',
     flexDirection: 'column',
     background: 'rgba(6, 7, 10, 0.96)',
     borderRight: `1px solid ${theme.colors.border}`,
     backdropFilter: 'blur(16px) saturate(1.2)',
     WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
-    transition: 'width 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+    overflow: 'hidden',
+    boxShadow: '4px 0 24px rgba(0, 0, 0, 0.35)',
+  },
+  sidebarOverlayPanel: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: `${SIDEBAR_EXPANDED}px`,
+    height: '100dvh',
+    display: 'flex',
+    flexDirection: 'column',
+    background: 'rgba(6, 7, 10, 0.96)',
+    borderRight: `1px solid ${theme.colors.border}`,
+    backdropFilter: 'blur(16px) saturate(1.2)',
+    WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
     overflow: 'hidden',
     boxShadow: '4px 0 24px rgba(0, 0, 0, 0.5), 0 0 40px rgba(88, 184, 255, 0.04)',
+    transition: 'transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+    willChange: 'transform, opacity',
   },
   sidebarHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '10px',
+    borderBottom: `1px solid ${theme.colors.border}`,
+    flexShrink: 0,
+    minHeight: '56px',
+  },
+  sidebarHeaderRail: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '10px',
+    borderBottom: `1px solid ${theme.colors.border}`,
+    flexShrink: 0,
+    minHeight: '56px',
+  },
+  sidebarHeaderExpanded: {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
@@ -304,7 +402,48 @@ const styles: Record<string, CSSProperties> = {
     overflowY: 'auto',
     overflowX: 'hidden',
   },
+  sidebarNavExpanded: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    padding: '8px 6px',
+    flex: 1,
+    overflowY: 'auto',
+    overflowX: 'hidden',
+  },
   navButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '8px 10px',
+    border: '1px solid transparent',
+    background: 'transparent',
+    color: theme.colors.textDim,
+    cursor: 'pointer',
+    borderRadius: '6px',
+    textAlign: 'left',
+    fontFamily: theme.font.mono,
+    transition: 'all 0.25s ease',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    minHeight: '40px',
+  },
+  navButtonRail: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '8px 10px',
+    border: '1px solid transparent',
+    background: 'transparent',
+    color: theme.colors.textDim,
+    cursor: 'pointer',
+    borderRadius: '6px',
+    fontFamily: theme.font.mono,
+    transition: 'all 0.25s ease',
+    overflow: 'hidden',
+    minHeight: '40px',
+  },
+  navButtonExpanded: {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
@@ -347,6 +486,11 @@ const styles: Record<string, CSSProperties> = {
     borderTop: `1px solid ${theme.colors.border}`,
     flexShrink: 0,
   },
+  sidebarFooterExpanded: {
+    padding: '8px 6px 10px',
+    borderTop: `1px solid ${theme.colors.border}`,
+    flexShrink: 0,
+  },
 
   /* Main area */
   mainArea: {
@@ -357,7 +501,6 @@ const styles: Record<string, CSSProperties> = {
     height: '100dvh',
     flex: 1,
     overflow: 'hidden',
-    transition: 'margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
   },
   topBar: {
     display: 'flex',
