@@ -8,14 +8,10 @@ import { theme } from '../styles/theme';
 const SIDEBAR_EXPANDED = 216;
 const SIDEBAR_COLLAPSED = 52;
 
-function pageDescription(pageId: PageId): string {
-  const item = NAV_ITEMS.find(entry => entry.id === pageId);
-  return item?.blurb ?? 'Orbital operations workspace';
-}
-
 /* ─── Hamburger Icon ─── */
 function HamburgerIcon({ open, onClick }: { open: boolean; onClick: () => void }) {
   const barBase: CSSProperties = {
+    position: 'absolute',
     display: 'block',
     width: '22px',
     height: '2px',
@@ -33,10 +29,9 @@ function HamburgerIcon({ open, onClick }: { open: boolean; onClick: () => void }
       aria-label={open ? 'Close navigation' : 'Open navigation'}
       style={{
         display: 'flex',
-        flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-        gap: open ? '0px' : '5px',
+        position: 'relative',
         width: '40px',
         height: '40px',
         background: 'transparent',
@@ -49,9 +44,25 @@ function HamburgerIcon({ open, onClick }: { open: boolean; onClick: () => void }
         boxShadow: open ? `0 0 12px ${theme.colors.primaryDim}` : 'none',
       }}
     >
-      <span style={{ ...barBase, transform: open ? 'rotate(45deg) translateY(1px)' : 'none' }} />
-      <span style={{ ...barBase, opacity: open ? 0 : 1, transform: open ? 'scaleX(0)' : 'none' }} />
-      <span style={{ ...barBase, transform: open ? 'rotate(-45deg) translateY(-1px)' : 'none' }} />
+      <span
+        style={{
+          ...barBase,
+          transform: open ? 'rotate(45deg)' : 'translateY(-6px)',
+        }}
+      />
+      <span
+        style={{
+          ...barBase,
+          opacity: open ? 0 : 1,
+          transform: open ? 'scaleX(0)' : 'translateY(0)',
+        }}
+      />
+      <span
+        style={{
+          ...barBase,
+          transform: open ? 'rotate(-45deg)' : 'translateY(6px)',
+        }}
+      />
     </button>
   );
 }
@@ -73,21 +84,16 @@ export function AppShell({
   navigate,
   isNarrow,
   isCompact,
-  isShellCondensed,
   children,
 }: {
   pageId: PageId;
   navigate: (page: PageId) => void;
   isNarrow: boolean;
   isCompact: boolean;
-  isShellCondensed: boolean;
   children: ReactNode;
 }) {
   const { model } = useDashboard();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const showPageDescription = !isCompact && !isShellCondensed;
-  const title = isCompact ? labelForNav(NAV_ITEMS.find(i => i.id === pageId)!) : 'Orbital Operations Dashboard';
 
   return (
     <div style={styles.root}>
@@ -210,28 +216,6 @@ export function AppShell({
           marginLeft: `${SIDEBAR_COLLAPSED}px`,
         }}
       >
-        {/* Top header bar */}
-        <header
-          style={{
-            ...styles.topBar,
-            alignItems: 'center',
-          }}
-        >
-          <div style={{ ...styles.topBarLead, gap: '8px' }}>
-            {!isShellCondensed && !isCompact && (
-              <span style={styles.eyebrow}>Orbital Insight / Flight Dynamics Console</span>
-            )}
-            <h1 style={styles.title}>
-              {title}
-            </h1>
-          </div>
-          <div style={{ ...styles.topBarRight, width: isCompact ? '100%' : 'auto' }}>
-            {showPageDescription && (
-              <span style={styles.pageDesc}>{pageDescription(pageId)}</span>
-            )}
-          </div>
-        </header>
-
         {/* Summary rail */}
         <div
           style={{
@@ -323,7 +307,9 @@ const styles: Record<string, CSSProperties> = {
     inset: 0,
     zIndex: 90,
     border: 'none',
-    background: 'rgba(4, 7, 12, 0.18)',
+    background: 'linear-gradient(90deg, rgba(5, 9, 16, 0.48), rgba(3, 6, 11, 0.34) 38%, rgba(2, 4, 8, 0.18) 100%)',
+    backdropFilter: 'blur(4px) saturate(0.86) brightness(0.72)',
+    WebkitBackdropFilter: 'blur(4px) saturate(0.86) brightness(0.72)',
     cursor: 'pointer',
     padding: 0,
     transition: 'opacity 0.22s ease',
@@ -333,12 +319,13 @@ const styles: Record<string, CSSProperties> = {
     height: '100dvh',
     display: 'flex',
     flexDirection: 'column',
-    background: 'rgba(6, 7, 10, 0.96)',
-    borderRight: `1px solid ${theme.colors.border}`,
-    backdropFilter: 'blur(16px) saturate(1.2)',
-    WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+    background: 'linear-gradient(180deg, rgba(8, 12, 18, 0.72), rgba(5, 8, 13, 0.62))',
+    borderRight: '1px solid rgba(140, 190, 255, 0.18)',
+    borderLeft: '1px solid rgba(255, 255, 255, 0.05)',
+    backdropFilter: 'blur(20px) saturate(1.18)',
+    WebkitBackdropFilter: 'blur(20px) saturate(1.18)',
     overflow: 'hidden',
-    boxShadow: '4px 0 24px rgba(0, 0, 0, 0.35)',
+    boxShadow: '6px 0 30px rgba(0, 0, 0, 0.28), inset -1px 0 0 rgba(255, 255, 255, 0.035), inset 0 1px 0 rgba(255, 255, 255, 0.04)',
   },
   sidebarOverlayPanel: {
     position: 'absolute',
@@ -348,12 +335,13 @@ const styles: Record<string, CSSProperties> = {
     height: '100dvh',
     display: 'flex',
     flexDirection: 'column',
-    background: 'rgba(6, 7, 10, 0.96)',
-    borderRight: `1px solid ${theme.colors.border}`,
-    backdropFilter: 'blur(16px) saturate(1.2)',
-    WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+    background: 'linear-gradient(180deg, rgba(10, 15, 24, 0.78), rgba(5, 8, 14, 0.72))',
+    borderRight: '1px solid rgba(140, 190, 255, 0.2)',
+    borderLeft: '1px solid rgba(255, 255, 255, 0.05)',
+    backdropFilter: 'blur(24px) saturate(1.2)',
+    WebkitBackdropFilter: 'blur(24px) saturate(1.2)',
     overflow: 'hidden',
-    boxShadow: '4px 0 24px rgba(0, 0, 0, 0.5), 0 0 40px rgba(88, 184, 255, 0.04)',
+    boxShadow: '18px 0 42px rgba(0, 0, 0, 0.34), 0 0 44px rgba(88, 184, 255, 0.05), inset -1px 0 0 rgba(255, 255, 255, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
     transition: 'transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
     willChange: 'transform, opacity',
   },
@@ -371,18 +359,20 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: '10px',
-    borderBottom: `1px solid ${theme.colors.border}`,
+    borderBottom: '1px solid rgba(140, 190, 255, 0.14)',
     flexShrink: 0,
     minHeight: '56px',
+    background: 'linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01))',
   },
   sidebarHeaderExpanded: {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
     padding: '10px',
-    borderBottom: `1px solid ${theme.colors.border}`,
+    borderBottom: '1px solid rgba(140, 190, 255, 0.16)',
     flexShrink: 0,
     minHeight: '56px',
+    background: 'linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015))',
   },
   sidebarBrand: {
     fontSize: '12px',
@@ -445,7 +435,7 @@ const styles: Record<string, CSSProperties> = {
   },
   navButtonExpanded: {
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: '10px',
     padding: '8px 10px',
     border: '1px solid transparent',
@@ -456,16 +446,15 @@ const styles: Record<string, CSSProperties> = {
     textAlign: 'left',
     fontFamily: theme.font.mono,
     transition: 'all 0.25s ease',
-    whiteSpace: 'nowrap',
     overflow: 'hidden',
-    minHeight: '40px',
+    minHeight: '56px',
   },
   navTextGroup: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '2px',
-    overflow: 'hidden',
+    gap: '3px',
     minWidth: 0,
+    flex: 1,
   },
   navLabel: {
     fontSize: '11px',
@@ -476,20 +465,21 @@ const styles: Record<string, CSSProperties> = {
   navBlurb: {
     fontSize: '9px',
     color: theme.colors.textMuted,
-    lineHeight: 1.3,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
+    lineHeight: 1.4,
+    whiteSpace: 'normal',
+    overflowWrap: 'anywhere',
   },
   sidebarFooter: {
     padding: '8px 6px 10px',
-    borderTop: `1px solid ${theme.colors.border}`,
+    borderTop: '1px solid rgba(140, 190, 255, 0.14)',
     flexShrink: 0,
+    background: 'linear-gradient(0deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01))',
   },
   sidebarFooterExpanded: {
     padding: '8px 6px 10px',
-    borderTop: `1px solid ${theme.colors.border}`,
+    borderTop: '1px solid rgba(140, 190, 255, 0.16)',
     flexShrink: 0,
+    background: 'linear-gradient(0deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012))',
   },
 
   /* Main area */
@@ -501,61 +491,6 @@ const styles: Record<string, CSSProperties> = {
     height: '100dvh',
     flex: 1,
     overflow: 'hidden',
-  },
-  topBar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: '10px',
-    padding: '8px 14px',
-    minHeight: '44px',
-    flexShrink: 0,
-    borderBottom: `1px solid ${theme.colors.border}`,
-    background: 'rgba(6, 7, 10, 0.88)',
-    backdropFilter: 'blur(8px)',
-    zIndex: 10,
-  },
-  topBarLead: {
-    display: 'flex',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    minWidth: 0,
-    flex: '1 1 360px',
-  },
-  eyebrow: {
-    fontSize: '8px',
-    letterSpacing: '0.18em',
-    textTransform: 'uppercase' as const,
-    color: theme.colors.primary,
-    textShadow: `0 0 14px ${theme.colors.primaryDim}`,
-    whiteSpace: 'nowrap',
-    flexShrink: 0,
-  },
-  title: {
-    fontSize: 'clamp(14px, 1vw, 17px)',
-    fontWeight: 700,
-    lineHeight: 1,
-    letterSpacing: '-0.02em',
-    color: theme.colors.text,
-    minWidth: 0,
-  },
-  topBarRight: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    flexWrap: 'wrap',
-    gap: '14px',
-    minWidth: 0,
-    flex: '0 1 auto',
-  },
-  pageDesc: {
-    fontSize: '10px',
-    color: theme.colors.textDim,
-    whiteSpace: 'normal',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    maxWidth: '280px',
-    textAlign: 'right',
   },
 
   /* Summary rail */

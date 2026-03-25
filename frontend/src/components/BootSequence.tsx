@@ -19,9 +19,9 @@ const PHOSPHOR = {
 // ---- boot log lines (creative mix) ----
 const BOOT_LINES = [
   '[  0.000] BIOS POST ................................. OK',
-  '[  0.003] CPU: 16-core x86_64 @ 3.8 GHz ............ ONLINE',
+  '[  0.003] CPU: Infel 9800X3D x86_64 @ 6.9 GHz ............ ONLINE',
   '[  0.011] Memory: 65536 MiB DDR5 .................... MAPPED',
-  '[  0.015] GPU: RTX 4090 (CUDA 12.4) ................. READY',
+  '[  0.015] GPU: RTX 6090 (CUDA 12.4) ................. READY',
   '[  0.024] Loading kernel modules .....................',
   '[  0.031]   ext4 tmpfs overlay aufs .................. OK',
   '[  0.042]   nvidia_uvm nvidia_drm ................... OK',

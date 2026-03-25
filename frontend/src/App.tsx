@@ -23,7 +23,6 @@ function DashboardApp() {
 
   const isNarrow = viewportWidth < 1080;
   const isCompact = viewportWidth < 760;
-  const isShellCondensed = viewportWidth < 1360;
 
   if (!booted) {
     return <BootSequence onComplete={() => setBooted(true)} />;
@@ -35,7 +34,6 @@ function DashboardApp() {
       navigate={navigate}
       isNarrow={isNarrow}
       isCompact={isCompact}
-      isShellCondensed={isShellCondensed}
     >
       {pageId === 'command' && <CommandPage isNarrow={isNarrow} isCompact={isCompact} />}
       {pageId === 'track' && <TrackPage isNarrow={isNarrow} isCompact={isCompact} />}
