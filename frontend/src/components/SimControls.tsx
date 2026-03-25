@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, memo } from 'react';
 import { theme } from '../styles/theme';
 import { useSound } from '../hooks/useSound';
+import { useDashboard } from '../dashboard/DashboardContext';
 
 interface SimControlsProps {
   disabled?: boolean;
@@ -12,8 +13,6 @@ type StepResponse = {
   collisions_detected: number;
   maneuvers_executed: number;
 };
-
-type StatusTone = 'idle' | 'busy' | 'ok' | 'warning' | 'error';
 
 const STEP_OPTIONS = [
   { label: '1H', hours: 1 },
@@ -35,7 +34,7 @@ function formatStepTimestamp(timestamp: string): string {
   }).format(date)} UTC`;
 }
 
-function statusToneColor(tone: StatusTone): string {
+function statusToneColor(tone: 'idle' | 'busy' | 'ok' | 'warning' | 'error'): string {
   switch (tone) {
     case 'busy':
       return theme.colors.primary;
@@ -62,17 +61,13 @@ async function postStep(hours: number): Promise<StepResponse> {
 
 export default memo(function SimControls({ disabled = false }: SimControlsProps) {
   const { play } = useSound();
+  const { stepStatus, setStepStatus } = useDashboard();
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
   const [flashBtn, setFlashBtn] = useState<string | null>(null);
-  const [isStepping, setIsStepping] = useState(false);
-  const [activeStepLabel, setActiveStepLabel] = useState<string | null>(null);
   const [spinnerFrame, setSpinnerFrame] = useState(0);
-  const [lastStatus, setLastStatus] = useState<{ tone: Exclude<StatusTone, 'busy'>; title: string; detail: string }>({
-    tone: 'idle',
-    title: 'COMMAND READY',
-    detail: 'Advance the simulation clock and sync the mission views.',
-  });
   const flashTimeoutRef = useRef<number | null>(null);
+  const isStepping = stepStatus.tone === 'busy';
+  const activeStepLabel = stepStatus.activeLabel ?? null;
 
   useEffect(() => {
     return () => {
@@ -101,43 +96,48 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
     play('buttonPress');
     setHoveredBtn(null);
     setFlashBtn(label);
-    setActiveStepLabel(label);
+    setStepStatus({
+      tone: 'busy',
+      title: `STEPPING ${label}`,
+      detail: 'Command in flight. Mission time, track, conjunction, and burn views will refresh on ACK.',
+      activeLabel: label,
+      updatedAt: Date.now(),
+    });
     if (flashTimeoutRef.current !== null) {
       window.clearTimeout(flashTimeoutRef.current);
     }
     flashTimeoutRef.current = window.setTimeout(() => setFlashBtn(null), 200);
-    setIsStepping(true);
 
     try {
       const step = await postStep(hours);
-      setLastStatus({
+      setStepStatus({
         tone: step.collisions_detected > 0 || step.maneuvers_executed > 0 ? 'warning' : 'ok',
         title: 'STEP COMPLETE',
         detail: `${label} committed / ${formatStepTimestamp(step.new_timestamp)} / ${step.maneuvers_executed} maneuvers / ${step.collisions_detected} collisions`,
+        activeLabel: null,
+        updatedAt: Date.now(),
       });
     } catch (error) {
       play('nullClick');
       const detail = error instanceof Error && error.message === 'HTTP 400'
         ? 'Load telemetry before stepping the simulation.'
         : `The step command was rejected${error instanceof Error ? ` (${error.message})` : ''}.`;
-      setLastStatus({
+      setStepStatus({
         tone: 'error',
         title: 'STEP REJECTED',
         detail,
+        activeLabel: null,
+        updatedAt: Date.now(),
       });
-    } finally {
-      setActiveStepLabel(null);
-      setIsStepping(false);
     }
-  }, [disabled, isStepping, play]);
+  }, [disabled, isStepping, play, setStepStatus]);
 
   const liveStatus = isStepping
     ? {
-        tone: 'busy' as const,
+        ...stepStatus,
         title: `STEPPING ${activeStepLabel ?? '--'} ${SPINNER_FRAMES[spinnerFrame]}`,
-        detail: 'Command in flight. Mission time, track, conjunction, and burn views will refresh on ACK.',
       }
-    : lastStatus;
+    : stepStatus;
   const liveStatusColor = statusToneColor(liveStatus.tone);
 
   return (

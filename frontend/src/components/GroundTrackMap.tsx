@@ -301,17 +301,17 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
     // --- Satellite tracks ---
     for (const sat of snapshot.satellites) {
       if (trajectoryTargetId && sat.id === trajectoryTargetId) continue;
-        const history = trackHistory.get(sat.id);
-        if (history && history.length > 1) {
-          drawTimedWrappedPath(ctx, history, w, h, {
-            color: `${hexColor(statusColor(sat.status))}88`,
-            width: 0.8,
-            dash: [3, 2],
-            alpha: 0.8,
-            maxGapS: MAX_TRAIL_GAP_S,
-          });
-        }
+      const history = trackHistory.get(sat.id);
+      if (history && history.length > 1) {
+        drawTimedWrappedPath(ctx, history, w, h, {
+          color: `${hexColor(statusColor(sat.status))}88`,
+          width: 0.8,
+          dash: [3, 2],
+          alpha: 0.8,
+          maxGapS: MAX_TRAIL_GAP_S,
+        });
       }
+    }
 
     if (trajectory?.trail && trajectory.trail.length > 1) {
       drawTimedWrappedPath(
