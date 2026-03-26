@@ -41,6 +41,7 @@ class PayloadThreatSummary:
     payload: OmmRecord
     score: float
     min_miss_km: float
+    best_miss_epoch_s: float
     avg_top3_miss_km: float
     critical_count: int
     warning_count: int
@@ -56,7 +57,36 @@ class PayloadThreatSummary:
     shell_tag: str
     shell_density_count: int
     phase_density_count: int
-    top_debris: list[tuple[str, float]]
+    top_debris: list["ThreatOpportunity"]
+
+
+@dataclass
+class ThreatOpportunity:
+    norad_id: str
+    min_miss_km: float
+    tca_epoch_s: float
+
+
+@dataclass
+class AnchorPrefilterSummary:
+    payload: OmmRecord
+    pre_score: float
+    shell_density_count: int
+    phase_density_count: int
+    family_tag: str
+    shell_tag: str
+
+
+@dataclass
+class EncounterWindow:
+    target_epoch_s: float
+    cluster_start_epoch_s: float
+    cluster_end_epoch_s: float
+    cluster_peak_epoch_s: float
+    cluster_score: float
+    min_miss_km: float
+    focus_satellite_norad: list[str]
+    focus_debris_norad: list[str]
 
 
 @dataclass
@@ -129,9 +159,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--backend-cdm-startup-timeout", type=float, default=20.0, help="Startup timeout in seconds for backend CDM feedback (default: 20)")
     parser.add_argument("--feedback-file", default="", help="Optional JSON file carrying learned miner feedback weights")
     parser.add_argument("--feedback-output", default="", help="Optional JSON file to write updated miner feedback weights")
-    parser.add_argument("--satellite-mode", choices=("synthetic", "catalog"), default=DEFAULT_SATELLITE_MODE, help="Manifest satellite mode (default: synthetic)")
+    parser.add_argument("--satellite-mode", choices=("synthetic", "catalog"), default="catalog", help="Manifest satellite mode (default: catalog)")
     parser.add_argument("--warmup-steps", type=int, default=DEFAULT_WARMUP_STEPS, help="Warmup steps stored in manifest (default: 3)")
     parser.add_argument("--warmup-step-seconds", type=int, default=DEFAULT_WARMUP_STEP_SECONDS, help="Warmup step seconds stored in manifest (default: 60)")
+    parser.add_argument("--encounter-cluster-hours", type=float, default=3.0, help="Time bucket used to cluster close opportunities into a replay window (default: 3)")
+    parser.add_argument("--encounter-lead-seconds", type=int, default=7200, help="How far ahead of the chosen encounter cluster the replay should start (default: 7200)")
     parser.add_argument("--backend-rank-cmd", default="", help="Optional backend command for live ranking of emitted manifests")
     parser.add_argument("--backend-rank-api-base", default=DEFAULT_API_BASE, help="Backend base URL for live ranking (default: http://localhost:8000)")
     parser.add_argument("--backend-rank-extra-steps", type=int, default=1, help="Extra steps for live manifest ranking (default: 1)")
@@ -189,6 +221,118 @@ def anchor_density(record: OmmRecord,
                 if angle_delta_deg(record.M_rad, other.M_rad) <= phase_window_deg and angle_delta_deg(record.raan_rad, other.raan_rad) <= raan_window_deg:
                     phase_count += 1
     return shell_count, phase_count
+
+
+def anchor_prefilter_score(shell_density_count: int, phase_density_count: int) -> float:
+    return phase_density_count * 18.0 + shell_density_count * 0.9
+
+
+def prefilter_payload_anchors(payloads: list[OmmRecord],
+                              buckets: dict[tuple[int, int], list[OmmRecord]],
+                              shell_a_km: float,
+                              shell_i_deg: float,
+                              phase_window_deg: float,
+                              raan_window_deg: float) -> list[AnchorPrefilterSummary]:
+    prefiltered: list[AnchorPrefilterSummary] = []
+    for payload in payloads:
+        shell_density_count, phase_density_count = anchor_density(
+            payload,
+            buckets,
+            shell_a_km,
+            shell_i_deg,
+            phase_window_deg,
+            raan_window_deg,
+        )
+        prefiltered.append(
+            AnchorPrefilterSummary(
+                payload=payload,
+                pre_score=anchor_prefilter_score(shell_density_count, phase_density_count),
+                shell_density_count=shell_density_count,
+                phase_density_count=phase_density_count,
+                family_tag=family_tag(payload),
+                shell_tag=shell_tag(payload),
+            )
+        )
+    prefiltered.sort(
+        key=lambda item: (
+            -item.pre_score,
+            -item.phase_density_count,
+            -item.shell_density_count,
+            item.payload.norad_id,
+        )
+    )
+    return prefiltered
+
+
+def select_anchor_candidates(prefiltered: list[AnchorPrefilterSummary],
+                             target_count: int,
+                             feedback_weights: FeedbackWeights) -> list[AnchorPrefilterSummary]:
+    if not prefiltered:
+        return []
+
+    selected: list[AnchorPrefilterSummary] = []
+    seen: set[str] = set()
+    target = max(1, target_count)
+
+    def append_candidate(candidate: AnchorPrefilterSummary) -> None:
+        if candidate.payload.norad_id in seen or len(selected) >= target:
+            return
+        selected.append(candidate)
+        seen.add(candidate.payload.norad_id)
+
+    unique_shell_reps: list[AnchorPrefilterSummary] = []
+    seen_shells: set[str] = set()
+    for candidate in prefiltered:
+        if candidate.shell_tag in seen_shells:
+            continue
+        unique_shell_reps.append(candidate)
+        seen_shells.add(candidate.shell_tag)
+
+    seed_target = min(target, max(4, target // 2))
+    for candidate in unique_shell_reps:
+        append_candidate(candidate)
+        if len(selected) >= seed_target:
+            break
+
+    if len(selected) < seed_target:
+        seen_families = {candidate.family_tag for candidate in selected}
+        for candidate in prefiltered:
+            if candidate.family_tag in seen_families:
+                continue
+            append_candidate(candidate)
+            seen_families.add(candidate.family_tag)
+            if len(selected) >= seed_target:
+                break
+
+    while len(selected) < target:
+        best_candidate: AnchorPrefilterSummary | None = None
+        best_score = -float("inf")
+        family_counts = {item.family_tag: sum(1 for chosen in selected if chosen.family_tag == item.family_tag) for item in selected}
+        shell_counts = {item.shell_tag: sum(1 for chosen in selected if chosen.shell_tag == item.shell_tag) for item in selected}
+
+        for candidate in prefiltered:
+            norad_id = candidate.payload.norad_id
+            if norad_id in seen:
+                continue
+            family_penalty = family_counts.get(candidate.family_tag, 0) * 18.0 * feedback_weights.family_balance_multiplier
+            shell_penalty = shell_counts.get(candidate.shell_tag, 0) * 14.0 * feedback_weights.shell_balance_multiplier
+            diversity_bonus = 0.0
+            if family_counts.get(candidate.family_tag, 0) == 0:
+                diversity_bonus += 16.0 * feedback_weights.diversity_bonus_multiplier
+            if shell_counts.get(candidate.shell_tag, 0) == 0:
+                diversity_bonus += 16.0 * feedback_weights.diversity_bonus_multiplier
+            score = candidate.pre_score + diversity_bonus - family_penalty - shell_penalty
+            if score > best_score:
+                best_score = score
+                best_candidate = candidate
+
+        if best_candidate is None:
+            break
+
+        selected.append(best_candidate)
+        seen.add(best_candidate.payload.norad_id)
+
+    return selected
 
 
 def family_tag(record: OmmRecord) -> str:
@@ -395,17 +539,53 @@ def position_series(record: OmmRecord,
     return series
 
 
-def min_distance_km(anchor_series: list[tuple[float, float, float]],
-                    threat_series: list[tuple[float, float, float]]) -> float:
+def point_distance_km(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+    dx = a[0] - b[0]
+    dy = a[1] - b[1]
+    dz = a[2] - b[2]
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+
+def min_distance_event(anchor_series: list[tuple[float, float, float]],
+                       threat_series: list[tuple[float, float, float]],
+                       epochs: list[float]) -> tuple[float, float]:
     best = float("inf")
-    for sat_pos, threat_pos in zip(anchor_series, threat_series):
-        dx = sat_pos[0] - threat_pos[0]
-        dy = sat_pos[1] - threat_pos[1]
-        dz = sat_pos[2] - threat_pos[2]
-        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+    best_epoch_s = epochs[0] if epochs else 0.0
+    for epoch_s, sat_pos, threat_pos in zip(epochs, anchor_series, threat_series):
+        dist = point_distance_km(sat_pos, threat_pos)
         if dist < best:
             best = dist
-    return best
+            best_epoch_s = epoch_s
+    return best, best_epoch_s
+
+
+def refine_min_distance_event(anchor: OmmRecord,
+                              threat: OmmRecord,
+                              coarse_epoch_s: float,
+                              horizon_start_s: float,
+                              horizon_end_s: float,
+                              coarse_step_s: int) -> tuple[float, float]:
+    best_epoch_s = coarse_epoch_s
+    best_miss_km = float("inf")
+    refinement_plan = [
+        (max(60, coarse_step_s // 6), max(600.0, float(coarse_step_s))),
+        (15, 180.0),
+    ]
+
+    for step_s, half_window_s in refinement_plan:
+        start_epoch_s = max(horizon_start_s, best_epoch_s - half_window_s)
+        end_epoch_s = min(horizon_end_s, best_epoch_s + half_window_s)
+        epoch_s = start_epoch_s
+        while epoch_s <= end_epoch_s + 1.0e-6:
+            sat_pos = propagate_record(anchor, epoch_s)[0]
+            threat_pos = propagate_record(threat, epoch_s)[0]
+            miss_km = point_distance_km(sat_pos, threat_pos)
+            if miss_km < best_miss_km:
+                best_miss_km = miss_km
+                best_epoch_s = epoch_s
+            epoch_s += float(step_s)
+
+    return best_miss_km, best_epoch_s
 
 
 def score_payload(anchor: OmmRecord,
@@ -416,6 +596,7 @@ def score_payload(anchor: OmmRecord,
                   feedback_weights: FeedbackWeights,
                   shell_density_count: int,
                   phase_density_count: int,
+                  sample_seconds: int,
                   threat_limit: int,
                   same_shell_a_km: float,
                   same_shell_i_deg: float) -> PayloadThreatSummary:
@@ -423,7 +604,7 @@ def score_payload(anchor: OmmRecord,
     anchor_series = position_series(anchor, epochs, cache)
     los_sample_count, los_station_ids, best_station_id, best_elevation_deg = los_summary(anchor_series, epochs, stations)
 
-    top_debris: list[tuple[str, float]] = []
+    top_debris: list[ThreatOpportunity] = []
     critical_count = 0
     warning_count = 0
     close_count = 0
@@ -431,12 +612,25 @@ def score_payload(anchor: OmmRecord,
     near_250_count = 0
     near_500_count = 0
     best_miss = float("inf")
+    best_miss_epoch_s = epochs[0] if epochs else 0.0
+    horizon_start_s = epochs[0] if epochs else 0.0
+    horizon_end_s = epochs[-1] if epochs else 0.0
 
     for record in pool:
         threat_series = position_series(record, epochs, cache)
-        miss_km = min_distance_km(anchor_series, threat_series)
+        miss_km, tca_epoch_s = min_distance_event(anchor_series, threat_series, epochs)
+        if miss_km <= 250.0 and horizon_end_s > horizon_start_s:
+            miss_km, tca_epoch_s = refine_min_distance_event(
+                anchor,
+                record,
+                tca_epoch_s,
+                horizon_start_s,
+                horizon_end_s,
+                sample_seconds,
+            )
         if miss_km < best_miss:
             best_miss = miss_km
+            best_miss_epoch_s = tca_epoch_s
         if miss_km < 1.0:
             critical_count += 1
         if miss_km < 5.0:
@@ -449,12 +643,18 @@ def score_payload(anchor: OmmRecord,
             near_250_count += 1
         if miss_km < 500.0:
             near_500_count += 1
-        top_debris.append((record.norad_id, miss_km))
+        top_debris.append(
+            ThreatOpportunity(
+                norad_id=record.norad_id,
+                min_miss_km=miss_km,
+                tca_epoch_s=tca_epoch_s,
+            )
+        )
 
-    top_debris.sort(key=lambda item: (item[1], item[0]))
+    top_debris.sort(key=lambda item: (item.min_miss_km, item.tca_epoch_s, item.norad_id))
     top_debris = top_debris[:16]
 
-    top3 = [miss_km for _, miss_km in top_debris[:3]]
+    top3 = [item.min_miss_km for item in top_debris[:3]]
     avg_top3_miss_km = sum(top3) / len(top3) if top3 else float("inf")
 
     closeness_bonus = 0.0 if not math.isfinite(best_miss) else max(0.0, 1000.0 - best_miss) / 10.0
@@ -472,6 +672,7 @@ def score_payload(anchor: OmmRecord,
         payload=anchor,
         score=score,
         min_miss_km=best_miss,
+        best_miss_epoch_s=best_miss_epoch_s,
         avg_top3_miss_km=avg_top3_miss_km,
         critical_count=critical_count,
         warning_count=warning_count,
@@ -491,17 +692,31 @@ def score_payload(anchor: OmmRecord,
     )
 
 
-def unique_priority_debris(summaries: list[PayloadThreatSummary], limit: int) -> list[str]:
-    ordered: list[tuple[str, float]] = []
+def unique_priority_debris(summaries: list[PayloadThreatSummary],
+                           limit: int,
+                           preferred: list[str] | None = None) -> list[str]:
+    ordered: list[ThreatOpportunity] = []
     seen: set[str] = set()
+    result: list[str] = []
+
+    for norad_id in preferred or []:
+        if norad_id in seen:
+            continue
+        seen.add(norad_id)
+        result.append(norad_id)
+
     for summary in summaries:
-        for norad_id, miss_km in summary.top_debris:
-            if norad_id in seen:
+        for opportunity in summary.top_debris:
+            if opportunity.norad_id in seen:
                 continue
-            seen.add(norad_id)
-            ordered.append((norad_id, miss_km))
-    ordered.sort(key=lambda item: (item[1], item[0]))
-    return [norad_id for norad_id, _ in ordered[: max(0, limit)]]
+            seen.add(opportunity.norad_id)
+            ordered.append(opportunity)
+    ordered.sort(key=lambda item: (item.min_miss_km, item.tca_epoch_s, item.norad_id))
+    for item in ordered:
+        if len(result) >= max(0, limit):
+            break
+        result.append(item.norad_id)
+    return result[: max(0, limit)]
 
 
 def diverse_from_selected(candidate: PayloadThreatSummary,
@@ -559,11 +774,70 @@ def select_diverse_payloads(ranked: list[PayloadThreatSummary],
     return selected
 
 
+def encounter_windows(summaries: list[PayloadThreatSummary],
+                      cluster_hours: float,
+                      lead_seconds: int,
+                      first_epoch_s: float) -> list[EncounterWindow]:
+    bucket_s = max(1800, int(round(cluster_hours * 3600.0)))
+    buckets: dict[int, list[tuple[PayloadThreatSummary, ThreatOpportunity]]] = {}
+
+    for summary in summaries:
+        for opportunity in summary.top_debris[:8]:
+            if not math.isfinite(opportunity.min_miss_km):
+                continue
+            bucket = int(opportunity.tca_epoch_s // bucket_s)
+            buckets.setdefault(bucket, []).append((summary, opportunity))
+
+    windows: list[EncounterWindow] = []
+    for bucket, items in buckets.items():
+        start_epoch_s = bucket * bucket_s
+        end_epoch_s = start_epoch_s + bucket_s
+        cluster_peak_epoch_s = min(items, key=lambda item: (item[1].min_miss_km, item[1].tca_epoch_s))[1].tca_epoch_s
+        cluster_min_miss = min(item[1].min_miss_km for item in items)
+        focus_satellite_norad = sorted({item[0].payload.norad_id for item in items})
+        focus_debris_norad = [item[1].norad_id for item in sorted(items, key=lambda item: (item[1].min_miss_km, item[1].tca_epoch_s, item[1].norad_id))]
+        focus_debris_norad = list(dict.fromkeys(focus_debris_norad))[:24]
+
+        cluster_score = 0.0
+        for summary, opportunity in items:
+            cluster_score += max(0.0, 600.0 - opportunity.min_miss_km)
+            if opportunity.min_miss_km < 100.0:
+                cluster_score += 180.0
+            if opportunity.min_miss_km < 20.0:
+                cluster_score += 260.0
+            cluster_score += summary.phase_density_count * 2.0 + summary.shell_density_count * 0.15
+
+        target_epoch_s = max(first_epoch_s, cluster_peak_epoch_s - max(0, lead_seconds))
+        windows.append(
+            EncounterWindow(
+                target_epoch_s=target_epoch_s,
+                cluster_start_epoch_s=start_epoch_s,
+                cluster_end_epoch_s=end_epoch_s,
+                cluster_peak_epoch_s=cluster_peak_epoch_s,
+                cluster_score=cluster_score,
+                min_miss_km=cluster_min_miss,
+                focus_satellite_norad=focus_satellite_norad,
+                focus_debris_norad=focus_debris_norad,
+            )
+        )
+
+    windows.sort(
+        key=lambda item: (
+            -item.cluster_score,
+            item.min_miss_km,
+            -len(item.focus_satellite_norad),
+            item.target_epoch_s,
+        )
+    )
+    return windows
+
+
 def scenario_manifest(args: argparse.Namespace,
-                      target_timestamp: str,
+                      default_target_epoch_s: float,
                       ranked: list[PayloadThreatSummary],
                       feedback_weights: FeedbackWeights,
-                      start_index: int) -> dict[str, Any]:
+                      start_index: int,
+                      windows: list[EncounterWindow]) -> dict[str, Any]:
     chosen = select_diverse_payloads(
         ranked,
         start_index,
@@ -573,13 +847,31 @@ def scenario_manifest(args: argparse.Namespace,
         args.diversity_i_deg,
     )
 
-    priority_debris = unique_priority_debris(chosen, args.priority_debris)
     operator_norads = [summary.payload.norad_id for summary in chosen]
     recommended_ground_stations = sorted({station_id for summary in chosen for station_id in summary.los_station_ids})
+    chosen_norad_set = set(operator_norads)
+    encounter_window = next(
+        (
+            window for window in windows
+            if any(norad_id in chosen_norad_set for norad_id in window.focus_satellite_norad)
+        ),
+        None,
+    )
+    target_epoch_s = encounter_window.target_epoch_s if encounter_window else default_target_epoch_s
+    target_timestamp = iso8601_utc(target_epoch_s)
+    preferred_priority = encounter_window.focus_debris_norad if encounter_window else []
+    priority_debris = unique_priority_debris(chosen, args.priority_debris, preferred_priority)
     watch_satellites = [
         (f"SAT-{norad_id}" if args.satellite_mode == "catalog" else f"SAT-LOCAL-{idx:02d}")
         for idx, norad_id in enumerate(operator_norads[: min(3, len(operator_norads))], start=1)
     ]
+    if encounter_window:
+        focus_watch = [norad_id for norad_id in encounter_window.focus_satellite_norad if norad_id in chosen_norad_set]
+        if focus_watch:
+            watch_satellites = [
+                (f"SAT-{norad_id}" if args.satellite_mode == "catalog" else f"SAT-LOCAL-{operator_norads.index(norad_id) + 1:02d}")
+                for norad_id in focus_watch[: min(3, len(focus_watch))]
+            ]
 
     return {
         "scenario_id": f"{args.scenario_prefix}_{start_index + 1:02d}",
@@ -624,14 +916,27 @@ def scenario_manifest(args: argparse.Namespace,
             "priority_debris_norad": priority_debris,
             "groundstations": args.groundstations,
             "recommended_ground_stations": recommended_ground_stations,
+            "encounter_cluster_hours": args.encounter_cluster_hours,
+            "encounter_lead_seconds": args.encounter_lead_seconds,
             "anchor_norad_id": chosen[0].payload.norad_id if chosen else None,
             "anchor_rank_index": start_index,
+            "encounter_window": None if encounter_window is None else {
+                "target_epoch": iso8601_utc(encounter_window.target_epoch_s),
+                "cluster_start_epoch": iso8601_utc(encounter_window.cluster_start_epoch_s),
+                "cluster_end_epoch": iso8601_utc(encounter_window.cluster_end_epoch_s),
+                "cluster_peak_epoch": iso8601_utc(encounter_window.cluster_peak_epoch_s),
+                "cluster_score": round(encounter_window.cluster_score, 3),
+                "min_miss_km": round(encounter_window.min_miss_km, 6),
+                "focus_satellite_norad": encounter_window.focus_satellite_norad,
+                "focus_debris_norad": encounter_window.focus_debris_norad,
+            },
             "selected_payload_summaries": [
                 {
                     "norad_id": summary.payload.norad_id,
                     "object_name": summary.payload.object_name,
                     "score": round(summary.score, 3),
                     "min_miss_km": None if not math.isfinite(summary.min_miss_km) else round(summary.min_miss_km, 6),
+                    "best_miss_epoch": iso8601_utc(summary.best_miss_epoch_s),
                     "avg_top3_miss_km": None if not math.isfinite(summary.avg_top3_miss_km) else round(summary.avg_top3_miss_km, 6),
                     "critical_count": summary.critical_count,
                     "warning_count": summary.warning_count,
@@ -648,8 +953,12 @@ def scenario_manifest(args: argparse.Namespace,
                     "shell_density_count": summary.shell_density_count,
                     "phase_density_count": summary.phase_density_count,
                     "top_debris": [
-                        {"norad_id": norad_id, "min_miss_km": round(miss_km, 6)}
-                        for norad_id, miss_km in summary.top_debris[:8]
+                        {
+                            "norad_id": item.norad_id,
+                            "min_miss_km": round(item.min_miss_km, 6),
+                            "tca_epoch": iso8601_utc(item.tca_epoch_s),
+                        }
+                        for item in summary.top_debris[:8]
                     ],
                 }
                 for summary in chosen
@@ -658,6 +967,7 @@ def scenario_manifest(args: argparse.Namespace,
         "notes": [
             "This manifest is mined from real catalog geometry; no synthetic orbit generation is used.",
             "Priority debris NORADs are moved to the front of replay ingestion so the replay cap does not hide the nearest natural threats.",
+            "Replay start time is biased toward the strongest mined encounter cluster so the backend sees close natural traffic earlier in the run.",
         ],
     }
 
@@ -739,17 +1049,31 @@ def main() -> None:
     feedback_weights = load_feedback_weights(args.feedback_file)
     data_path = pathlib.Path(args.data).expanduser().resolve()
     records, first_epoch_s = parse_catalog(data_path, args.max_periapsis_km)
-    target_epoch_s, target_timestamp = choose_target_epoch(args, first_epoch_s)
+    default_target_epoch_s, _ = choose_target_epoch(args, first_epoch_s)
 
     payloads = sorted(
         (record for record in records if record.is_payload),
-        key=lambda record: (record.e, record.periapsis_alt_km, record.norad_id),
+        key=lambda record: record.norad_id,
     )
-    anchors = payloads[: max(1, args.payload_candidates)]
-    epochs = sampled_epochs(target_epoch_s, args.horizon_hours, args.sample_seconds)
     station_path = pathlib.Path(args.groundstations).expanduser().resolve() if args.groundstations else pathlib.Path()
     stations = load_ground_stations(station_path) if args.groundstations else []
     shell_buckets = build_shell_buckets(records, args.anchor_shell_a_km, args.anchor_shell_i_deg)
+    prefiltered = prefilter_payload_anchors(
+        payloads,
+        shell_buckets,
+        args.anchor_shell_a_km,
+        args.anchor_shell_i_deg,
+        args.phase_window_deg,
+        args.raan_window_deg,
+    )
+    selected_anchor_prefilters = select_anchor_candidates(
+        prefiltered,
+        max(1, args.payload_candidates),
+        feedback_weights,
+    )
+    anchors = [item.payload for item in selected_anchor_prefilters]
+    prefilter_by_norad = {item.payload.norad_id: item for item in selected_anchor_prefilters}
+    epochs = sampled_epochs(default_target_epoch_s, args.horizon_hours, args.sample_seconds)
 
     print(f"[info] parsed payload anchors: {len(anchors)}")
     print(f"[info] mining horizon: {args.horizon_hours:.1f} h with {len(epochs)} samples")
@@ -766,7 +1090,9 @@ def main() -> None:
             cache,
             stations,
             feedback_weights,
-            *anchor_density(anchor, shell_buckets, args.anchor_shell_a_km, args.anchor_shell_i_deg, args.phase_window_deg, args.raan_window_deg),
+            prefilter_by_norad[anchor.norad_id].shell_density_count,
+            prefilter_by_norad[anchor.norad_id].phase_density_count,
+            args.sample_seconds,
             args.threat_candidates,
             args.same_shell_a_km,
             args.same_shell_i_deg,
@@ -783,6 +1109,15 @@ def main() -> None:
         )
 
     ranked.sort(key=lambda summary: (-summary.score, summary.min_miss_km, summary.payload.norad_id))
+    windows = encounter_windows(ranked, args.encounter_cluster_hours, args.encounter_lead_seconds, first_epoch_s)
+    if windows:
+        best_window = windows[0]
+        print(
+            f"[encounter] target={iso8601_utc(best_window.target_epoch_s)} peak={iso8601_utc(best_window.cluster_peak_epoch_s)} "
+            f"min_miss={best_window.min_miss_km:.3f}km satellites={len(best_window.focus_satellite_norad)} debris={len(best_window.focus_debris_norad)}"
+        )
+    else:
+        print(f"[encounter] no clustered encounter window found; falling back to {iso8601_utc(default_target_epoch_s)}")
 
     output_dir = pathlib.Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -796,7 +1131,7 @@ def main() -> None:
     for rank in range(len(ranked)):
         if emitted >= candidate_target:
             break
-        manifest = scenario_manifest(args, target_timestamp, ranked, feedback_weights, rank)
+        manifest = scenario_manifest(args, default_target_epoch_s, ranked, feedback_weights, rank, windows)
         signature = tuple(sorted(manifest["operator_selection"]["norad_ids"]))
         if signature in seen_signatures:
             continue
@@ -810,16 +1145,28 @@ def main() -> None:
 
     summary_path = output_dir / f"{args.scenario_prefix}_summary.json"
     summary_payload = {
-        "target_epoch": target_timestamp,
+        "default_target_epoch": iso8601_utc(default_target_epoch_s),
         "candidate_manifest_count": emitted,
         "requested_top_scenarios": top_n,
         "feedback_weights": feedback_weights_dict(feedback_weights),
+        "encounter_windows": [
+            {
+                "target_epoch": iso8601_utc(window.target_epoch_s),
+                "cluster_peak_epoch": iso8601_utc(window.cluster_peak_epoch_s),
+                "cluster_score": round(window.cluster_score, 3),
+                "min_miss_km": round(window.min_miss_km, 6),
+                "focus_satellite_norad": window.focus_satellite_norad,
+                "focus_debris_norad": window.focus_debris_norad,
+            }
+            for window in windows[: min(6, len(windows))]
+        ],
         "top_payloads": [
             {
                 "norad_id": summary.payload.norad_id,
                 "object_name": summary.payload.object_name,
                 "score": round(summary.score, 3),
                 "min_miss_km": None if not math.isfinite(summary.min_miss_km) else round(summary.min_miss_km, 6),
+                "best_miss_epoch": iso8601_utc(summary.best_miss_epoch_s),
                 "avg_top3_miss_km": None if not math.isfinite(summary.avg_top3_miss_km) else round(summary.avg_top3_miss_km, 6),
                 "critical_count": summary.critical_count,
                 "warning_count": summary.warning_count,

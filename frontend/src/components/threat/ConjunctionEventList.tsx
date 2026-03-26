@@ -25,10 +25,12 @@ function formatTca(tca: string): string {
 export function ConjunctionEventList({
   events,
   activeEvent,
+  highlightSatelliteId,
   onSelectEvent,
 }: {
   events: ConjunctionEvent[];
   activeEvent: ConjunctionEvent | null;
+  highlightSatelliteId?: string | null;
   onSelectEvent: (event: ConjunctionEvent) => void;
 }) {
   return (
@@ -39,6 +41,7 @@ export function ConjunctionEventList({
         const isActive = activeEvent?.satellite_id === event.satellite_id
           && activeEvent?.debris_id === event.debris_id
           && activeEvent?.tca_epoch_s === event.tca_epoch_s;
+        const isHighlightedSatellite = highlightSatelliteId === event.satellite_id;
 
         return (
           <button
@@ -50,17 +53,18 @@ export function ConjunctionEventList({
               flexDirection: 'column',
               gap: '7px',
               padding: '11px 12px',
-              border: `1px solid ${isActive ? `${color}66` : 'rgba(255,255,255,0.06)'}`,
-              background: isActive ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.02)',
+              border: `1px solid ${isActive ? `${color}66` : isHighlightedSatellite ? `${theme.colors.primary}3f` : 'rgba(255,255,255,0.06)'}`,
+              background: isActive ? 'rgba(255,255,255,0.06)' : isHighlightedSatellite ? 'rgba(88, 184, 255, 0.05)' : 'rgba(255,255,255,0.02)',
               color: theme.colors.text,
               cursor: 'pointer',
               textAlign: 'left',
               clipPath: theme.chamfer.buttonClipPath,
+              boxShadow: isHighlightedSatellite && !isActive ? 'inset 0 0 0 1px rgba(88, 184, 255, 0.08)' : 'none',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
               <span style={{ color, fontSize: '10px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>
-                {tone === 'critical' ? 'Critical' : tone === 'warning' ? 'Warning' : 'Nominal'}
+                {isHighlightedSatellite ? 'Focus lane' : tone === 'critical' ? 'Critical' : tone === 'warning' ? 'Warning' : 'Nominal'}
               </span>
               <span style={{ color: theme.colors.textDim, fontSize: '10px' }}>{formatTca(event.tca)} UTC</span>
             </div>

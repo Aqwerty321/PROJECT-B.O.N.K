@@ -24,6 +24,17 @@ function formatUtc(tca: string): string {
   }).format(date)} UTC`;
 }
 
+function formatOffset(secondsToTca: number): string {
+  const sign = secondsToTca >= 0 ? 'T+' : 'T-';
+  const totalSeconds = Math.abs(secondsToTca);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${sign}${hours}h ${minutes}m`;
+  if (minutes > 0) return `${sign}${minutes}m ${seconds}s`;
+  return `${sign}${seconds}s`;
+}
+
 export function ConjunctionDetailCard({
   event,
   nowEpochS,
@@ -42,9 +53,13 @@ export function ConjunctionDetailCard({
 
   const tone = toneForEvent(event);
   const secondsToTca = Math.round(event.tca_epoch_s - nowEpochS);
-  const timingLabel = secondsToTca >= 0
-    ? `T+${secondsToTca.toLocaleString()} s`
-    : `T${secondsToTca.toLocaleString()} s`;
+  const timingLabel = formatOffset(secondsToTca);
+  const streamLabel = event.predictive ? 'Predictive 24h' : 'Historical';
+  const streamDetail = event.fail_open
+    ? 'Escalated because the predictive pass could not safely clear the pair.'
+    : event.predictive
+      ? 'Persistent 24-hour CDM record selected from the live predictive stream.'
+      : 'Historical conjunction from the current simulation watch history.';
 
   return (
     <div
@@ -66,7 +81,7 @@ export function ConjunctionDetailCard({
           {event.satellite_id} vs {event.debris_id}
         </span>
         <span style={{ color: theme.colors.textDim, fontSize: '12px', lineHeight: 1.55 }}>
-          Selected event locks the global watch target so the Track and Burn Ops pages stay in sync with this spacecraft.
+          Selected event locks the global watch target so the Track and Burn Ops pages stay in sync with this spacecraft. {streamDetail}
         </span>
       </div>
 
@@ -76,7 +91,7 @@ export function ConjunctionDetailCard({
           { label: 'Time Offset', value: timingLabel, tone: secondsToTca < 0 ? 'warning' : 'primary' },
           { label: 'Miss Distance', value: `${event.miss_distance_km.toFixed(3)} km`, tone },
           { label: 'Approach Speed', value: `${event.approach_speed_km_s.toFixed(4)} km/s`, tone: 'primary' },
-          { label: 'Stream', value: event.predictive ? 'Predictive 24h' : 'Historical', tone: event.predictive ? 'warning' : 'neutral' },
+          { label: 'Stream', value: streamLabel, tone: event.predictive ? 'warning' : 'neutral' },
           { label: 'Fail-open', value: event.fail_open ? 'TRUE' : 'FALSE', tone: event.fail_open ? 'warning' : 'accent' },
           { label: 'Collision Flag', value: event.collision ? 'TRUE' : 'FALSE', tone: event.collision ? 'critical' : 'accent' },
           { label: 'Tick', value: event.tick_id.toLocaleString(), tone: 'neutral' },

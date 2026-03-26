@@ -71,6 +71,10 @@ These items are already implemented and should be treated as current reality.
 - The miner can now persist learned feedback weights from backend-ranked runs so future mining passes bias toward backend-confirmed signals.
 - Ranked manifests are now annotated in place with `backend_cdm_evaluation`, keeping predictive-CDM results attached to each scenario artifact.
 - Candidate generation now probes shell density and phase density so mining is more aggressively biased toward likely predictive-warning regions before backend evaluation.
+- The miner now defaults committed strict manifests to `catalog` operator mode instead of the synthetic local-ID fallback.
+- The miner now clusters closest natural opportunities into encounter windows and shifts replay start time toward the strongest upcoming cluster so the backend sees close traffic earlier.
+- Miner output now records refined closest-approach timing (`best_miss_epoch`, per-threat `tca_epoch`, and `encounter_window`) so scenario artifacts explain why a replay epoch was chosen.
+- Anchor selection now seeds across distinct shells and families before filling score-based slots, reducing collapse into one near-duplicate shell when mining larger scenario banks.
 - A committed example manifest now exists at `docs/scenarios/strict_natural_watch.example.json`.
 - Strict manifest evaluation and ranking now score additional burn-outcome signals:
   - `burns_dropped`
@@ -279,6 +283,7 @@ Latest validation update:
 - avoidance burns now carry predictive trigger metadata and a first-pass post-burn `collision_avoided` evaluation signal
 - manifest evaluation/ranking now incorporates dropped-burn penalties and avoidance-effectiveness metrics
 - a fresh replay of `strict_natural_watch.example.json` still produced zero predictive warnings and zero burns, which confirms the remaining bottleneck is scenario quality rather than backend plumbing
+- a follow-up miner refinement pass now reliably finds denser, closer natural opportunity banks (for example ~`10-16 km` heuristic misses instead of the earlier ~`17-100+ km` bands), but a reduced-cap backend validation run still produced zero predictive warnings, so the remaining gap is now mostly backend-threshold alignment rather than scenario-window selection alone
 
 Status update:
 
@@ -1216,6 +1221,7 @@ Status update:
 
 - candidate generation now targets likely predictive-warning shells more directly
 - the current remaining limitation is not miner plumbing, but finding scenarios that actually trigger non-zero predictive CDM counts in the sampled run window
+- replay timing is now biased toward clustered close approaches, which should make future backend-informed mining passes converge faster
 
 Recommended inputs:
 
@@ -1295,7 +1301,7 @@ Status update:
 - partially improved
 - selecting an event still locks the global spacecraft focus
 - the page now prefers predictive threat data when present
-- remaining work is to make selected-satellite anchoring stricter even before an event is chosen
+- selected-satellite anchoring is now stricter even before an event is chosen: the page auto-focuses the most relevant spacecraft lane and keeps the bullseye/watch summary centered there
 
 ## Frontend Task 3 - Bullseye predictive horizon design
 
@@ -1316,9 +1322,19 @@ Status update:
 
 Replace the placeholder in `frontend/src/pages/BurnOpsPage.tsx` with the actual `Fuel Consumed vs Collisions Avoided` chart.
 
+Status update:
+
+- implemented
+- the chart now highlights the current focus or best-efficiency point and surfaces an avoided-collisions-per-kg reference caption
+
 ## Frontend Task 5 - Timeline conflict and blackout markers
 
 Extend `frontend/src/components/ManeuverGantt.tsx` to render backend-provided conflict and blackout state.
+
+Status update:
+
+- implemented
+- the timeline now annotates each lane with compact queue totals, highlights `collision_avoided` executions, and keeps blackout/conflict/drop markers tied to live backend data
 
 ## Frontend Task 6 - status vocabulary fix
 

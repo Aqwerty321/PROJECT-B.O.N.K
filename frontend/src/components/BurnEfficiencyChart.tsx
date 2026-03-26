@@ -109,6 +109,15 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
 
   const summary = burns?.summary ?? fallbackSummary(burns);
   const selectedPoint = selectedSatId ? points.find(point => point.satelliteId === selectedSatId) ?? null : null;
+  const bestPoint = points.reduce<BurnPoint | null>((best, point) => {
+    if (!best) return point;
+    if (point.collisionsAvoided !== best.collisionsAvoided) return point.collisionsAvoided > best.collisionsAvoided ? point : best;
+    if (Math.abs(point.avoidanceFuelConsumedKg - best.avoidanceFuelConsumedKg) > 1e-9) {
+      return point.avoidanceFuelConsumedKg < best.avoidanceFuelConsumedKg ? point : best;
+    }
+    return point.burnsExecuted > best.burnsExecuted ? point : best;
+  }, null);
+  const activePoint = selectedPoint ?? bestPoint;
 
   const xMax = Math.max(
     1,
@@ -137,6 +146,13 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
   const toY = (value: number) => chart.height - chart.bottom - (Math.max(0, value) / yMax) * plotHeight;
   const xTicks = tickValues(xMax);
   const yTicks = tickValues(yMax);
+
+  const efficiencyRatio = activePoint
+    ? activePoint.collisionsAvoided / Math.max(activePoint.avoidanceFuelConsumedKg || activePoint.fuelConsumedKg || 1, 0.1)
+    : summary.collisions_avoided / Math.max(summary.avoidance_fuel_consumed_kg || summary.fuel_consumed_kg || 1, 0.1);
+  const chartCaption = activePoint
+    ? `${compactSatLabel(activePoint.satelliteId)} is the current reference point for avoided-collision efficiency.`
+    : 'Fleet summary diamond shows aggregate avoided collisions versus fuel consumed.';
 
   const cards = [
     summaryCard(
@@ -260,7 +276,42 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
           <text x={toX(summary.fuel_consumed_kg) + 12} y={toY(summary.collisions_avoided) - 10} fill={theme.colors.warning} fontSize="10">
             Fleet summary
           </text>
+
+          {activePoint ? (
+            <g>
+              <line
+                x1={chart.left}
+                y1={toY(activePoint.collisionsAvoided)}
+                x2={toX(activePoint.fuelConsumedKg)}
+                y2={toY(activePoint.collisionsAvoided)}
+                stroke="rgba(88, 184, 255, 0.16)"
+                strokeWidth="1"
+                strokeDasharray="4 4"
+              />
+              <line
+                x1={toX(activePoint.fuelConsumedKg)}
+                y1={chart.height - chart.bottom}
+                x2={toX(activePoint.fuelConsumedKg)}
+                y2={toY(activePoint.collisionsAvoided)}
+                stroke="rgba(88, 184, 255, 0.16)"
+                strokeWidth="1"
+                strokeDasharray="4 4"
+              />
+            </g>
+          ) : null}
         </svg>
+
+        <div style={{ position: 'absolute', left: '14px', top: '12px', display: 'flex', flexDirection: 'column', gap: '4px', pointerEvents: 'none' }}>
+          <span style={{ color: theme.colors.textDim, fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+            Efficiency reference
+          </span>
+          <strong style={{ color: theme.colors.text, fontSize: '13px' }}>
+            {efficiencyRatio.toFixed(2)} avoided/kg
+          </strong>
+          <span style={{ color: theme.colors.textMuted, fontSize: '10px', maxWidth: '30ch', lineHeight: 1.45 }}>
+            {chartCaption}
+          </span>
+        </div>
 
         {points.length === 0 ? (
           <div

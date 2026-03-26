@@ -8,6 +8,13 @@ interface ManeuverGanttProps {
   nowEpochS: number;
 }
 
+interface SatLaneSummary {
+  executed: number;
+  pending: number;
+  dropped: number;
+  predictive: number;
+}
+
 const HEADER_HEIGHT = 34;
 const FOOTER_HEIGHT = 34;
 const LABEL_WIDTH = 110;
@@ -280,6 +287,28 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     allPending.forEach(burn => satIds.add(burn.satellite_id));
     allDropped.forEach(burn => satIds.add(burn.satellite_id));
     const satellites = Array.from(satIds).sort();
+    const laneSummaryBySat = new Map<string, SatLaneSummary>();
+    for (const satId of satellites) {
+      laneSummaryBySat.set(satId, { executed: 0, pending: 0, dropped: 0, predictive: 0 });
+    }
+    allExecuted.forEach(burn => {
+      const lane = laneSummaryBySat.get(burn.satellite_id);
+      if (!lane) return;
+      lane.executed += 1;
+      lane.predictive += burn.scheduled_from_predictive_cdm ? 1 : 0;
+    });
+    allPending.forEach(burn => {
+      const lane = laneSummaryBySat.get(burn.satellite_id);
+      if (!lane) return;
+      lane.pending += 1;
+      lane.predictive += burn.scheduled_from_predictive_cdm ? 1 : 0;
+    });
+    allDropped.forEach(burn => {
+      const lane = laneSummaryBySat.get(burn.satellite_id);
+      if (!lane) return;
+      lane.dropped += 1;
+      lane.predictive += burn.scheduled_from_predictive_cdm ? 1 : 0;
+    });
 
     if (satellites.length === 0) {
       drawEmptyGrid(ctx, lw, lh, chartWidth);
@@ -361,6 +390,16 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       ctx.font = `${labelFontSize}px ${theme.font.mono}`;
       ctx.textAlign = 'right';
       ctx.fillText(compactSatLabel(satId), LABEL_WIDTH - 8, y + rowHeight / 2 + Math.max(3, labelFontSize * 0.35));
+      if (rowHeight >= 18) {
+        const lane = laneSummaryBySat.get(satId);
+        if (lane) {
+          const laneLabel = `${lane.executed}/${lane.pending}${lane.dropped > 0 ? `/${lane.dropped}D` : ''}${lane.predictive > 0 ? ` P${lane.predictive}` : ''}`;
+          ctx.fillStyle = 'rgba(153, 169, 188, 0.52)';
+          ctx.font = `8px ${theme.font.mono}`;
+          ctx.textAlign = 'right';
+          ctx.fillText(laneLabel, LABEL_WIDTH - 8, y + rowHeight - 4);
+        }
+      }
 
       const satExecuted = allExecuted.filter(burn => burn.satellite_id === satId);
       for (const burn of satExecuted) {
@@ -397,6 +436,13 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
           ctx.font = `9px ${theme.font.mono}`;
           ctx.textAlign = 'left';
           ctx.fillText(burnLabel(burn), x1 + 4, y + Math.max(13, rowHeight * 0.58));
+        }
+
+        if (burn.collision_avoided && rowHeight >= 14) {
+          ctx.fillStyle = theme.colors.accent;
+          ctx.font = `8px ${theme.font.mono}`;
+          ctx.textAlign = 'right';
+          ctx.fillText('AVOIDED', Math.min(lw - 6, x2 + 44), y + Math.max(11, rowHeight * 0.42));
         }
 
         if (burn.blackout_overlap) {
@@ -505,6 +551,7 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       { label: 'Recovery', color: theme.colors.warning },
       { label: 'Graveyard', color: '#8892a0' },
       { label: 'Pending', color: theme.colors.primary },
+      { label: 'Avoided', color: theme.colors.accent },
       { label: 'Cooldown', color: 'rgba(88, 184, 255, 0.72)' },
       { label: 'Blackout', color: theme.colors.warning },
       { label: 'Conflict', color: theme.colors.critical },
@@ -512,7 +559,8 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     ];
 
     let legendX = LABEL_WIDTH;
-    ctx.font = `10px ${theme.font.mono}`;
+    const legendFont = `10px ${theme.font.mono}`;
+    ctx.font = legendFont;
     ctx.textAlign = 'left';
     for (const item of legendItems) {
       if (item.label === 'Cooldown') {
@@ -520,6 +568,11 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         ctx.setLineDash([3, 2]);
         ctx.strokeRect(legendX, legendY - 7, 12, 8);
         ctx.setLineDash([]);
+      } else if (item.label === 'Avoided') {
+        ctx.fillStyle = item.color;
+        ctx.font = `8px ${theme.font.mono}`;
+        ctx.fillText('OK', legendX, legendY + 1);
+        ctx.font = legendFont;
       } else if (item.label === 'Blackout') {
         ctx.strokeStyle = item.color;
         ctx.setLineDash([2, 3]);
