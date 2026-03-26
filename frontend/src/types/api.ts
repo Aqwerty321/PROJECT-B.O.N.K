@@ -4,6 +4,9 @@ export interface SatelliteSnapshot {
   id: string;
   lat: number;   // degrees
   lon: number;   // degrees
+  alt_km: number; // altitude above WGS-84 ellipsoid
+  eci_r?: { x: number; y: number; z: number }; // ECI position in km
+  eci_v?: { x: number; y: number; z: number }; // ECI velocity in km/s
   fuel_kg: number;
   status: string; // "NOMINAL" | "MANEUVERING" | "DEGRADED" | "GRAVEYARD"
 }

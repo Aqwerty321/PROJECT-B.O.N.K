@@ -188,17 +188,14 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
   ];
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', minHeight: 0, flex: 1 }}>
+    <div style={{ display: 'flex', gap: '14px', minHeight: 0, flex: 1 }}>
       <div
         style={{
-          flex: '1 1 380px',
+          flex: '1 1 0',
           minWidth: 0,
-          minHeight: '260px',
+          minHeight: 0,
           position: 'relative',
-          border: '1px solid rgba(88, 184, 255, 0.22)',
-          clipPath: theme.chamfer.clipPath,
-          background: 'radial-gradient(circle at top left, rgba(88, 184, 255, 0.14), transparent 38%), linear-gradient(180deg, rgba(8, 12, 18, 0.96), rgba(5, 7, 10, 0.98))',
-          overflow: 'hidden',
+          overflow: 'visible',
         }}
       >
         <svg viewBox={`0 0 ${chart.width} ${chart.height}`} style={{ width: '100%', height: '100%', display: 'block' }}>
@@ -334,7 +331,7 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
         ) : null}
       </div>
 
-      <div style={{ flex: '0 1 240px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(116px, 1fr))', gap: '10px', minWidth: '220px' }}>
+      <div style={{ flex: '0 0 220px', display: 'grid', gridTemplateColumns: '1fr', gridTemplateRows: 'repeat(4, 1fr)', gap: '10px', minWidth: '180px', minHeight: 0, overflow: 'auto' }}>
         {cards}
       </div>
     </div>

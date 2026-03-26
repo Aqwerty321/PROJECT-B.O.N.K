@@ -91,7 +91,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
             noPadding
             priority="primary"
             accentColor={theme.colors.warning}
-            style={{ flex: 2, minHeight: 0 }}
+            style={{ flex: 3, minHeight: 0 }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, minHeight: 0, padding: '10px 14px 14px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '74ch', flexShrink: 0 }}>
@@ -111,16 +111,16 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
             noPadding
             priority="secondary"
             accentColor={theme.colors.primary}
-            style={{ flex: 1, minHeight: 0 }}
+            style={{ flex: 2, minHeight: 0 }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px 14px 14px', flex: 1, minHeight: 0 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '72ch' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '72ch', flexShrink: 0 }}>
                 <span style={{ color: theme.colors.primary, fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Avoidance effectiveness</span>
                 <p style={{ color: theme.colors.textDim, fontSize: '12px', lineHeight: 1.55 }}>
                   Fuel draw versus backend-tracked avoided collisions, with dropped-command visibility so the chart reflects operational friction rather than idealized outcomes.
                 </p>
               </div>
-              <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: '1px solid rgba(88, 184, 255, 0.24)', background: 'linear-gradient(180deg, rgba(9, 12, 17, 0.96), rgba(5, 7, 10, 0.98))' }}>
+              <div style={{ flex: 1, minHeight: 0, overflow: 'visible', border: '1px solid rgba(88, 184, 255, 0.24)', background: 'linear-gradient(180deg, rgba(9, 12, 17, 0.96), rgba(5, 7, 10, 0.98))' }}>
                 <BurnEfficiencyChart burns={model.burns} selectedSatId={selectedSatId} />
               </div>
             </div>

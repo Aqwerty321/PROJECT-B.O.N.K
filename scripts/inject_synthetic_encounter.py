@@ -7,23 +7,22 @@ No backend changes, no new API surface. This is a demo/test helper.
 
 How it works:
   1. GET /api/status             → current simulation timestamp
-  2. GET /api/visualization/snapshot → satellite positions (lat/lon → we need ECI)
-  3. GET /api/debug/conjunctions?source=predicted → check existing CDMs
-  4. Compute 1-2 debris state vectors on near-collision courses with a target satellite
+  2. GET /api/visualization/snapshot → satellite positions (lat/lon/alt_km)
+  3. Convert target satellite geodetic position to approximate ECI
+  4. Place debris nearly co-located with tiny position offset (< miss_km)
+     and a small relative velocity so the CDM scanner's 24h lookahead
+     sees a close approach at or near the desired miss distance.
   5. POST /api/telemetry with the debris objects
 
-The debris are placed in a co-planar orbit with a small radial/along-track offset
-that produces a close approach within 1-6 hours of propagation. The predictive CDM
-scanner (SCREENING_THRESHOLD_KM=5.0km) should detect these as WATCH/WARNING events,
-and if the miss distance is < COLLISION_THRESHOLD_KM=0.1km, it triggers CRITICAL
-auto-COLA.
+The debris are placed almost on top of the satellite with a slight velocity
+perturbation. This guarantees the predictive CDM scanner (SCREENING_THRESHOLD_KM=5.0km)
+detects them immediately. If miss < COLLISION_THRESHOLD_KM=0.1km → CRITICAL → auto-COLA.
 
 Usage:
   python scripts/inject_synthetic_encounter.py [--api-base http://localhost:8000]
                                                 [--target SAT-id]
                                                 [--miss-km 0.05]
                                                 [--count 2]
-                                                [--encounter-hours 3.0]
 """
 
 from __future__ import annotations
@@ -77,11 +76,11 @@ def api_post(base: str, path: str, body: dict) -> Any:
         die(f"POST {path} failed: {e}")
 
 
-def latlon_alt_to_eci(lat_deg: float, lon_deg: float, alt_km: float, timestamp: str) -> tuple[list[float], float]:
+def latlon_alt_to_eci(lat_deg: float, lon_deg: float, alt_km: float, timestamp: str) -> list[float]:
     """
     Convert geodetic lat/lon/alt to approximate ECI position.
-    Returns ([x,y,z] in km, radius_km).
-    Note: this is a rough spherical approximation (ignores Earth oblateness).
+    Returns [x, y, z] in km.
+    Note: spherical approximation (ignores Earth oblateness).
     """
     dt_obj = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
     # Greenwich Mean Sidereal Time (rough)
@@ -97,15 +96,21 @@ def latlon_alt_to_eci(lat_deg: float, lon_deg: float, alt_km: float, timestamp: 
     x = r * math.cos(lat_rad) * math.cos(lon_rad)
     y = r * math.cos(lat_rad) * math.sin(lon_rad)
     z = r * math.sin(lat_rad)
-    return [x, y, z], r
+    return [x, y, z]
 
 
-def circular_velocity(r_km: float) -> float:
-    """Circular orbital velocity at radius r_km."""
-    return math.sqrt(MU_KM3_S2 / r_km)
+def vec_mag(v: list[float]) -> float:
+    return math.sqrt(sum(c * c for c in v))
 
 
-def cross(a: list[float], b: list[float]) -> list[float]:
+def vec_normalize(v: list[float]) -> list[float]:
+    m = vec_mag(v)
+    if m < 1e-12:
+        return [0.0, 0.0, 0.0]
+    return [c / m for c in v]
+
+
+def vec_cross(a: list[float], b: list[float]) -> list[float]:
     return [
         a[1]*b[2] - a[2]*b[1],
         a[2]*b[0] - a[0]*b[2],
@@ -113,97 +118,155 @@ def cross(a: list[float], b: list[float]) -> list[float]:
     ]
 
 
-def normalize(v: list[float]) -> list[float]:
-    mag = math.sqrt(sum(x*x for x in v))
-    if mag < 1e-12:
-        return [0.0, 0.0, 0.0]
-    return [x / mag for x in v]
+def vec_scale(v: list[float], s: float) -> list[float]:
+    return [c * s for c in v]
 
 
-def scale(v: list[float], s: float) -> list[float]:
-    return [x * s for x in v]
-
-
-def add_vec(a: list[float], b: list[float]) -> list[float]:
+def vec_add(a: list[float], b: list[float]) -> list[float]:
     return [a[i] + b[i] for i in range(3)]
 
 
-# ---------- encounter geometry ----------
+def circular_velocity(r_km: float) -> float:
+    """Circular orbital velocity at radius r_km."""
+    return math.sqrt(MU_KM3_S2 / r_km)
 
-def craft_encounter_debris(
-    sat_pos: list[float],
-    sat_alt_km: float,
-    timestamp: str,
+
+# ---------- encounter crafting ----------
+
+def craft_colocated_debris_from_eci(
+    sat_eci: list[float],
+    sat_vel: list[float],
     miss_km: float,
-    encounter_hours: float,
     debris_id: str,
     offset_index: int = 0,
 ) -> dict:
     """
-    Create a debris state vector that will have a close approach with the given
-    satellite position after approximately `encounter_hours`.
+    Place debris nearly co-located with the satellite using actual ECI r/v.
 
-    Strategy: place debris in a co-planar orbit at roughly the same altitude,
-    offset along-track by encounter_hours worth of orbital motion, with a small
-    radial offset to create the desired miss distance.
+    Strategy:
+    - Position the debris at the satellite's ECI position + a small offset
+      perpendicular to the orbit (radial + cross-track) of magnitude ~miss_km.
+    - Use the satellite's actual velocity with only ~0.1 m/s relative
+      perturbation so the pair stays within SCREENING_THRESHOLD_KM (5km)
+      throughout most of the 24h CDM lookahead window.
     """
-    r_km = sat_alt_km
-    v_circ = circular_velocity(r_km)
+    r_hat = vec_normalize(sat_eci)
+    v_hat = vec_normalize(sat_vel)
 
-    # Orbital period and angular rate
-    period_s = 2 * math.pi * r_km / v_circ
-    omega = 2 * math.pi / period_s  # rad/s
+    # Cross-track direction: h = r × v (angular momentum direction)
+    h_hat = vec_normalize(vec_cross(r_hat, v_hat))
+    # If h_hat is degenerate, use a fallback
+    if vec_mag(h_hat) < 0.5:
+        h_hat = vec_normalize(vec_cross(r_hat, [0.0, 0.0, 1.0]))
 
-    # Along-track angle to place debris (so it arrives near the sat in encounter_hours)
-    # Debris is placed *ahead* in the orbit such that relative drift brings them together.
-    # We offset the debris slightly in altitude to create differential drift.
-    # Higher orbit → slower angular rate → the satellite "catches up"
-    dt_s = encounter_hours * 3600.0
+    # Position offset: mostly radial + some cross-track, magnitude ~ miss_km
+    angle = (math.pi / 3) * offset_index
+    radial_offset = miss_km * 0.8 * math.cos(angle)
+    crosstrack_offset = miss_km * 0.8 * math.sin(angle)
 
-    # Altitude offset to create relative drift that closes the along-track gap
-    # Δω ≈ -3/2 * ω * (Δa / a)  (from CW equations)
-    # We want the gap closed in dt_s:  gap_angle = Δω * dt_s
-    # For a gap_angle of ~0.01 rad (small):
-    gap_angle = 0.01 + 0.005 * offset_index  # small along-track separation
-    delta_a_km = -(2.0 / 3.0) * r_km * gap_angle / (omega * dt_s)
+    debris_pos = vec_add(
+        sat_eci,
+        vec_add(
+            vec_scale(r_hat, radial_offset),
+            vec_scale(h_hat, crosstrack_offset),
+        ),
+    )
 
-    # Clamp altitude offset to reasonable range
-    delta_a_km = max(-15.0, min(15.0, delta_a_km))
+    # Velocity: use satellite's actual velocity with tiny perturbation
+    # ~0.1 m/s along-track → 8.6 km drift over 24h (within screening threshold)
+    dv_along = 0.0001 * (1 + 0.5 * offset_index)   # km/s (~0.1-0.2 m/s)
+    dv_radial = 0.00005 * (offset_index + 1)         # km/s (~0.05-0.1 m/s)
 
-    r_debris = r_km + delta_a_km
-
-    # Position: rotate the satellite position by gap_angle around the orbit normal
-    r_hat = normalize(sat_pos)
-    # Velocity direction (perpendicular to position in orbit plane)
-    # We don't know the exact velocity, so assume prograde is roughly perpendicular
-    # Use a reference direction to construct orbit frame
-    z_ref = [0.0, 0.0, 1.0]
-    v_hat = normalize(cross(z_ref, r_hat))
-    if sum(x*x for x in v_hat) < 0.5:
-        v_hat = normalize(cross([0.0, 1.0, 0.0], r_hat))
-    h_hat = normalize(cross(r_hat, v_hat))  # orbit normal
-
-    # Rotate position by gap_angle around orbit normal
-    cos_a = math.cos(gap_angle)
-    sin_a = math.sin(gap_angle)
-    debris_r_hat = add_vec(scale(r_hat, cos_a), scale(v_hat, sin_a))
-    debris_r_hat = normalize(debris_r_hat)
-
-    # Add small radial offset for the desired miss distance
-    radial_offset_km = miss_km * (0.5 + 0.5 * offset_index)
-
-    debris_pos = scale(debris_r_hat, r_debris + radial_offset_km)
-
-    # Velocity: circular velocity at the debris altitude, tangent to orbit
-    v_debris_mag = circular_velocity(r_debris)
-    debris_v_hat = normalize(cross(h_hat, debris_r_hat))
-    debris_vel = scale(debris_v_hat, v_debris_mag)
+    debris_vel = vec_add(
+        sat_vel,
+        vec_add(
+            vec_scale(v_hat, dv_along),
+            vec_scale(r_hat, dv_radial),
+        ),
+    )
 
     return {
         "id": debris_id,
         "type": "DEBRIS",
-        "r": {"x": round(debris_pos[0], 3), "y": round(debris_pos[1], 3), "z": round(debris_pos[2], 3)},
-        "v": {"x": round(debris_vel[0], 4), "y": round(debris_vel[1], 4), "z": round(debris_vel[2], 4)},
+        "r": {"x": round(debris_pos[0], 6), "y": round(debris_pos[1], 6), "z": round(debris_pos[2], 6)},
+        "v": {"x": round(debris_vel[0], 6), "y": round(debris_vel[1], 6), "z": round(debris_vel[2], 6)},
+    }
+
+
+def craft_colocated_debris(
+    sat_eci: list[float],
+    timestamp: str,
+    miss_km: float,
+    debris_id: str,
+    offset_index: int = 0,
+) -> dict:
+    """
+    Place debris nearly co-located with the satellite.
+
+    Strategy:
+    - Position the debris at the satellite's ECI position + a small offset
+      perpendicular to the orbit (radial + cross-track) of magnitude ~miss_km.
+    - Give it nearly identical circular velocity with only ~0.1 m/s relative
+      velocity so the pair stays within SCREENING_THRESHOLD_KM (5km) throughout
+      most of the 24h CDM lookahead window (~8.6 km max drift over 24h).
+
+    This is much simpler than trying to engineer a future encounter and is
+    guaranteed to produce a CDM because the initial separation itself is
+    within SCREENING_THRESHOLD_KM (5km).
+    """
+    r_sat = vec_mag(sat_eci)
+    r_hat = vec_normalize(sat_eci)
+
+    # Construct local orbital frame: r_hat, along-track (v_hat), cross-track (h_hat)
+    z_ref = [0.0, 0.0, 1.0]
+    v_hat = vec_normalize(vec_cross(z_ref, r_hat))
+    if vec_mag(v_hat) < 0.5:
+        v_hat = vec_normalize(vec_cross([0.0, 1.0, 0.0], r_hat))
+    h_hat = vec_normalize(vec_cross(r_hat, v_hat))
+
+    # Position offset: mostly radial + some cross-track, magnitude ~ miss_km * (1 + small factor)
+    # Use offset_index to spread debris in different directions
+    angle = (math.pi / 3) * offset_index  # rotate the offset direction for each debris
+    radial_offset = miss_km * 0.8 * math.cos(angle)
+    crosstrack_offset = miss_km * 0.8 * math.sin(angle)
+
+    debris_pos = vec_add(
+        sat_eci,
+        vec_add(
+            vec_scale(r_hat, radial_offset),
+            vec_scale(h_hat, crosstrack_offset),
+        ),
+    )
+
+    # Velocity: same circular velocity as satellite (tangent), with a VERY tiny
+    # relative velocity perturbation. The key insight: the CDM scanner uses a
+    # 24h lookahead with 600s substeps. A relative velocity of 15 m/s would
+    # drift ~1300 km in 24h — far beyond SCREENING_THRESHOLD_KM (5km).
+    # Instead, use ~0.1 m/s (0.0001 km/s) so 24h drift is only ~8.6 km.
+    # The initial separation of ~miss_km (e.g. 40m) is already well within
+    # screening range, so the CDM scanner will see it on every substep.
+    v_circ = circular_velocity(r_sat)
+    sat_vel = vec_scale(v_hat, v_circ)
+
+    # Tiny along-track perturbation: ~0.1 m/s → 8.6 km drift over 24h
+    # This keeps the pair within SCREENING_THRESHOLD_KM for most of the window
+    # while still providing a non-zero relative velocity (realistic).
+    dv_along = 0.0001 * (1 + 0.5 * offset_index)  # km/s (~0.1-0.2 m/s relative)
+    dv_radial = 0.00005 * (offset_index + 1)        # km/s (~0.05-0.1 m/s)
+
+    debris_vel = vec_add(
+        sat_vel,
+        vec_add(
+            vec_scale(v_hat, dv_along),
+            vec_scale(r_hat, dv_radial),
+        ),
+    )
+
+    return {
+        "id": debris_id,
+        "type": "DEBRIS",
+        "r": {"x": round(debris_pos[0], 6), "y": round(debris_pos[1], 6), "z": round(debris_pos[2], 6)},
+        "v": {"x": round(debris_vel[0], 6), "y": round(debris_vel[1], 6), "z": round(debris_vel[2], 6)},
     }
 
 
@@ -218,8 +281,6 @@ def main() -> None:
     parser.add_argument("--miss-km", type=float, default=0.05,
                         help="Desired miss distance in km (default 0.05 = 50m → CRITICAL)")
     parser.add_argument("--count", type=int, default=2, help="Number of debris to inject (1-5)")
-    parser.add_argument("--encounter-hours", type=float, default=3.0,
-                        help="Approximate hours until closest approach")
     parser.add_argument("--dry-run", action="store_true", help="Print payload without sending")
     args = parser.parse_args()
 
@@ -231,7 +292,7 @@ def main() -> None:
     status = api_get(args.api_base, "/api/status?details=1")
     print(f"[inject] Engine status: {status.get('status', '?')}, tick={status.get('tick_count', '?')}")
 
-    # 2. Get current snapshot for satellite positions
+    # 2. Get current snapshot for satellite positions (includes eci_r, eci_v)
     snapshot = api_get(args.api_base, "/api/visualization/snapshot")
     timestamp = snapshot.get("timestamp", "")
     sats = snapshot.get("satellites", [])
@@ -251,32 +312,47 @@ def main() -> None:
         # Pick the first nominal satellite
         target = next((s for s in sats if s.get("status", "").upper() == "NOMINAL"), sats[0])
 
-    print(f"[inject] Target: {target['id']} at lat={target['lat']:.2f} lon={target['lon']:.2f}")
+    target_alt = target.get("alt_km", 0.0)
+    print(f"[inject] Target: {target['id']} at lat={target['lat']:.2f} lon={target['lon']:.2f} alt={target_alt:.1f} km")
 
-    # 4. Convert target to approximate ECI
-    # Estimate altitude from typical LEO (we don't have alt in snapshot, assume ~550km)
-    est_alt_km = 550.0
-    sat_pos, sat_r = latlon_alt_to_eci(target["lat"], target["lon"], est_alt_km, timestamp)
-    print(f"[inject] Approx ECI position: [{sat_pos[0]:.1f}, {sat_pos[1]:.1f}, {sat_pos[2]:.1f}] km (r={sat_r:.1f} km)")
+    # 4. Get ECI state directly from snapshot (critical: avoids lossy geodetic→ECI conversion)
+    eci_r = target.get("eci_r")
+    eci_v = target.get("eci_v")
+    if eci_r and eci_v:
+        sat_eci = [eci_r["x"], eci_r["y"], eci_r["z"]]
+        sat_vel = [eci_v["x"], eci_v["y"], eci_v["z"]]
+        print(f"[inject] ECI r from snapshot: [{sat_eci[0]:.3f}, {sat_eci[1]:.3f}, {sat_eci[2]:.3f}] km (r={vec_mag(sat_eci):.1f} km)")
+        print(f"[inject] ECI v from snapshot: [{sat_vel[0]:.6f}, {sat_vel[1]:.6f}, {sat_vel[2]:.6f}] km/s (v={vec_mag(sat_vel):.3f} km/s)")
+    else:
+        # Fallback: convert geodetic to ECI (lossy, may introduce ~100s of km error)
+        print(f"[inject] WARNING: eci_r/eci_v not in snapshot (backend needs rebuild?), using geodetic conversion")
+        sat_eci = latlon_alt_to_eci(target["lat"], target["lon"], target_alt, timestamp)
+        r_mag = vec_mag(sat_eci)
+        v_circ = circular_velocity(r_mag)
+        # Approximate velocity direction
+        r_hat = vec_normalize(sat_eci)
+        z_ref = [0.0, 0.0, 1.0]
+        v_hat = vec_normalize(vec_cross(z_ref, r_hat))
+        sat_vel = vec_scale(v_hat, v_circ)
+        print(f"[inject] ECI position (approx): [{sat_eci[0]:.1f}, {sat_eci[1]:.1f}, {sat_eci[2]:.1f}] km (r={r_mag:.1f} km)")
 
-    # 5. Generate debris objects
+    # 5. Generate co-located debris objects using actual ECI state
     objects = []
     for i in range(args.count):
         debris_id = f"DEB-SYNTH-{90001 + i}"
-        obj = craft_encounter_debris(
-            sat_pos=sat_pos,
-            sat_alt_km=sat_r,
-            timestamp=timestamp,
+        obj = craft_colocated_debris_from_eci(
+            sat_eci=sat_eci,
+            sat_vel=sat_vel,
             miss_km=args.miss_km,
-            encounter_hours=args.encounter_hours,
             debris_id=debris_id,
             offset_index=i,
         )
         objects.append(obj)
-        r_mag = math.sqrt(obj["r"]["x"]**2 + obj["r"]["y"]**2 + obj["r"]["z"]**2)
-        v_mag = math.sqrt(obj["v"]["x"]**2 + obj["v"]["y"]**2 + obj["v"]["z"]**2)
-        print(f"[inject] Debris {debris_id}: r={r_mag:.1f} km, v={v_mag:.3f} km/s, "
-              f"target miss ≈ {args.miss_km:.3f} km in ~{args.encounter_hours:.1f}h")
+        dr = [obj["r"]["x"] - sat_eci[0], obj["r"]["y"] - sat_eci[1], obj["r"]["z"] - sat_eci[2]]
+        sep = vec_mag(dr)
+        dv = [obj["v"]["x"] - sat_vel[0], obj["v"]["y"] - sat_vel[1], obj["v"]["z"] - sat_vel[2]]
+        rel_v = vec_mag(dv)
+        print(f"[inject] Debris {debris_id}: separation={sep:.4f} km ({sep*1000:.1f} m), rel_v={rel_v*1000:.1f} m/s")
 
     # 6. Build telemetry payload
     payload = {
@@ -300,9 +376,11 @@ def main() -> None:
 
     if processed > 0:
         print(f"\n[inject] SUCCESS — {processed} synthetic debris injected.")
+        print(f"[inject] Debris placed {args.miss_km*1000:.0f}m from {target['id']} at alt {target_alt:.1f}km")
         print(f"[inject] The predictive CDM scanner should detect encounters within")
-        print(f"         the next few simulation ticks (24h lookahead window).")
-        print(f"[inject] Check the Threat page or GET /api/debug/conjunctions?source=combined")
+        print(f"         the next simulation tick (24h lookahead window).")
+        print(f"[inject] Run a sim step: POST /api/simulate/step  then check:")
+        print(f"         GET /api/debug/conjunctions?source=combined")
     else:
         print(f"\n[inject] WARNING — no objects were processed. Check engine logs.")
 

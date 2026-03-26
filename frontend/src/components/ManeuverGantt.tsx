@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, memo } from 'react';
+import { useEffect, useRef, useCallback, memo, useState } from 'react';
 import type { BurnsResponse, ExecutedBurn, PendingBurn } from '../types/api';
 import { theme } from '../styles/theme';
 
@@ -18,6 +18,7 @@ interface SatLaneSummary {
 const HEADER_HEIGHT = 34;
 const FOOTER_HEIGHT = 34;
 const LABEL_WIDTH = 110;
+const DESIRED_ROW_HEIGHT = 32;
 const MIN_ROW_HEIGHT = 6;
 const MAX_ROW_HEIGHT = 36;
 const MIN_BLOCK_WIDTH = 8;
@@ -248,27 +249,37 @@ function drawEmptyState(
 
 export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: ManeuverGanttProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const drawRef = useRef<() => void>(() => {});
+  const [needsScroll, setNeedsScroll] = useState(false);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const scrollContainer = scrollRef.current;
+    if (!canvas || !scrollContainer) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const lw = canvas.width / dpr;
-    const lh = canvas.height / dpr;
-    const chartWidth = lw - LABEL_WIDTH - 12;
+    const containerWidth = scrollContainer.offsetWidth;
+    const containerHeight = scrollContainer.offsetHeight;
+    if (containerWidth === 0 || containerHeight === 0) return;
 
-    ctx.save();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, lw, lh);
+    const chartWidth = containerWidth - LABEL_WIDTH - 12;
 
     if (!burns || (burns.executed.length === 0 && burns.pending.length === 0 && (burns.dropped?.length ?? 0) === 0)) {
-      drawEmptyGrid(ctx, lw, lh, chartWidth);
+      // For empty state, canvas = container size
+      canvas.style.width = `${containerWidth}px`;
+      canvas.style.height = `${containerHeight}px`;
+      canvas.width = containerWidth * dpr;
+      canvas.height = containerHeight * dpr;
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, containerWidth, containerHeight);
+      drawEmptyGrid(ctx, containerWidth, containerHeight, chartWidth);
       drawEmptyState(ctx, chartWidth, selectedSatId);
       ctx.restore();
+      setNeedsScroll(false);
       return;
     }
 
@@ -311,9 +322,17 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     });
 
     if (satellites.length === 0) {
-      drawEmptyGrid(ctx, lw, lh, chartWidth);
+      canvas.style.width = `${containerWidth}px`;
+      canvas.style.height = `${containerHeight}px`;
+      canvas.width = containerWidth * dpr;
+      canvas.height = containerHeight * dpr;
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, containerWidth, containerHeight);
+      drawEmptyGrid(ctx, containerWidth, containerHeight, chartWidth);
       drawEmptyState(ctx, chartWidth, selectedSatId);
       ctx.restore();
+      setNeedsScroll(false);
       return;
     }
 
@@ -325,11 +344,41 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     ];
 
     if (allEpochs.length === 0) {
-      drawEmptyGrid(ctx, lw, lh, chartWidth);
+      canvas.style.width = `${containerWidth}px`;
+      canvas.style.height = `${containerHeight}px`;
+      canvas.width = containerWidth * dpr;
+      canvas.height = containerHeight * dpr;
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, containerWidth, containerHeight);
+      drawEmptyGrid(ctx, containerWidth, containerHeight, chartWidth);
       drawEmptyState(ctx, chartWidth, selectedSatId);
       ctx.restore();
+      setNeedsScroll(false);
       return;
     }
+
+    // Compute ideal row height: use DESIRED_ROW_HEIGHT, but allow shrinking to fit
+    const availableRowArea = containerHeight - HEADER_HEIGHT - FOOTER_HEIGHT - 8;
+    const fittedRowHeight = Math.floor(availableRowArea / Math.max(satellites.length, 1));
+    const rowHeight = Math.max(MIN_ROW_HEIGHT, Math.min(MAX_ROW_HEIGHT, Math.max(fittedRowHeight, DESIRED_ROW_HEIGHT)));
+
+    // If rows don't fit, make the canvas taller → scrollable
+    const neededRowArea = rowHeight * satellites.length + 8;
+    const canvasLogicalHeight = Math.max(containerHeight, neededRowArea + HEADER_HEIGHT + FOOTER_HEIGHT);
+    const scrollable = canvasLogicalHeight > containerHeight;
+    setNeedsScroll(scrollable);
+
+    const lw = containerWidth;
+    const lh = canvasLogicalHeight;
+    canvas.style.width = `${lw}px`;
+    canvas.style.height = `${lh}px`;
+    canvas.width = lw * dpr;
+    canvas.height = lh * dpr;
+
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, lw, lh);
 
     const plotBottom = drawPanelChrome(ctx, lw, lh);
     const tMin = Math.min(...allEpochs) - 600;
@@ -338,10 +387,6 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     const timeToX = (t: number) => LABEL_WIDTH + ((t - tMin) / tRange) * chartWidth;
 
     const rowAreaHeight = Math.max(72, plotBottom - HEADER_HEIGHT - 8);
-    const rowHeight = Math.max(
-      MIN_ROW_HEIGHT,
-      Math.min(MAX_ROW_HEIGHT, Math.floor(rowAreaHeight / Math.max(satellites.length, 1))),
-    );
     const rowsHeight = rowHeight * satellites.length;
     const rowsTop = HEADER_HEIGHT + Math.max(0, Math.floor((rowAreaHeight - rowsHeight) / 2));
     const labelFontSize = Math.max(7, Math.min(11, rowHeight * 0.7));
@@ -608,25 +653,31 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
   }, [draw]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const container = scrollRef.current;
+    if (!container) return;
     const obs = new ResizeObserver(() => {
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = canvas.offsetWidth * dpr;
-      canvas.height = canvas.offsetHeight * dpr;
       drawRef.current();
     });
-    obs.observe(canvas);
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = canvas.offsetWidth * dpr;
-    canvas.height = canvas.offsetHeight * dpr;
+    obs.observe(container);
     return () => obs.disconnect();
   }, []);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{ flex: 1, width: '100%', height: '100%', minHeight: 0, display: 'block' }}
-    />
+    <div
+      ref={scrollRef}
+      style={{
+        flex: 1,
+        width: '100%',
+        height: '100%',
+        minHeight: 0,
+        overflowY: needsScroll ? 'auto' : 'hidden',
+        overflowX: 'hidden',
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{ display: 'block', width: '100%' }}
+      />
+    </div>
   );
 });
