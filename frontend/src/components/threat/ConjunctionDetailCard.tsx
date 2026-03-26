@@ -1,10 +1,10 @@
 import type { ConjunctionEvent } from '../../types/api';
-import { riskLevelFromDistance } from '../../types/api';
+import { riskLevelForEvent, pcProxy } from '../../types/api';
 import { theme } from '../../styles/theme';
 import { DetailList, EmptyStatePanel, type Tone } from '../dashboard/UiPrimitives';
 
 function toneForEvent(event: ConjunctionEvent): Tone {
-  const level = riskLevelFromDistance(event.miss_distance_km);
+  const level = riskLevelForEvent(event);
   if (level === 'red') return 'critical';
   if (level === 'yellow') return 'warning';
   return 'accent';
@@ -60,6 +60,10 @@ export function ConjunctionDetailCard({
     : event.predictive
       ? 'Persistent 24-hour CDM record selected from the live predictive stream.'
       : 'Historical conjunction from the current simulation watch history.';
+  const pc = pcProxy(event.miss_distance_km, event.approach_speed_km_s);
+  const severityStr = event.severity
+    ? event.severity.charAt(0).toUpperCase() + event.severity.slice(1)
+    : (tone === 'critical' ? 'Critical' : tone === 'warning' ? 'Warning' : 'Nominal');
 
   return (
     <div
@@ -91,6 +95,8 @@ export function ConjunctionDetailCard({
           { label: 'Time Offset', value: timingLabel, tone: secondsToTca < 0 ? 'warning' : 'primary' },
           { label: 'Miss Distance', value: `${event.miss_distance_km.toFixed(3)} km`, tone },
           { label: 'Approach Speed', value: `${event.approach_speed_km_s.toFixed(4)} km/s`, tone: 'primary' },
+          { label: 'Pc (est.)', value: pc < 0.001 ? pc.toExponential(2) : pc.toFixed(4), tone: pc > 0.5 ? 'critical' : pc > 0.01 ? 'warning' : 'accent' },
+          { label: 'Severity', value: severityStr, tone },
           { label: 'Stream', value: streamLabel, tone: event.predictive ? 'warning' : 'neutral' },
           { label: 'Fail-open', value: event.fail_open ? 'TRUE' : 'FALSE', tone: event.fail_open ? 'warning' : 'accent' },
           { label: 'Collision Flag', value: event.collision ? 'TRUE' : 'FALSE', tone: event.collision ? 'critical' : 'accent' },

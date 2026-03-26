@@ -91,6 +91,7 @@ struct ConjunctionRecord {
     bool collision = false;            // was this a collision event?
     bool predictive = false;           // predictive 24h CDM scan vs narrow history
     bool fail_open = false;            // true when warning was promoted on scan failure
+    CdmSeverity severity = CdmSeverity::CRITICAL;  // tiered severity classification
     std::uint64_t tick_id = 0;
 };
 

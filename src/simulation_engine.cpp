@@ -1146,6 +1146,7 @@ bool run_simulation_step(StateStore& store,
             rec.sat_pos_eci_km = {store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
             rec.deb_pos_eci_km = {store.rx(obj_idx), store.ry(obj_idx), store.rz(obj_idx)};
             rec.collision = (d2 < collision_threshold_sq);
+            rec.severity = classify_miss_distance(miss_dist);
             rec.tick_id = 0; // Will be set by engine_runtime after step
             local_out.conjunction_events.push_back(std::move(rec));
         }

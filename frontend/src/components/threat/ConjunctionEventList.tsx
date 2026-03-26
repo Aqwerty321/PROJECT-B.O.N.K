@@ -1,13 +1,25 @@
 import type { ConjunctionEvent } from '../../types/api';
-import { riskLevelFromDistance } from '../../types/api';
+import { riskLevelForEvent } from '../../types/api';
 import { theme } from '../../styles/theme';
 import { toneColor, type Tone } from '../dashboard/UiPrimitives';
 
 function toneForEvent(event: ConjunctionEvent): Tone {
-  const level = riskLevelFromDistance(event.miss_distance_km);
+  const level = riskLevelForEvent(event);
   if (level === 'red') return 'critical';
   if (level === 'yellow') return 'warning';
   return 'accent';
+}
+
+function severityLabel(event: ConjunctionEvent): string {
+  if (event.severity) {
+    switch (event.severity) {
+      case 'critical': return 'Critical';
+      case 'warning':  return 'Warning';
+      case 'watch':    return 'Watch';
+    }
+  }
+  const tone = toneForEvent(event);
+  return tone === 'critical' ? 'Critical' : tone === 'warning' ? 'Warning' : 'Nominal';
 }
 
 function formatTca(tca: string): string {
@@ -64,7 +76,7 @@ export function ConjunctionEventList({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
               <span style={{ color, fontSize: '10px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>
-                {isHighlightedSatellite ? 'Focus lane' : tone === 'critical' ? 'Critical' : tone === 'warning' ? 'Warning' : 'Nominal'}
+                {isHighlightedSatellite ? 'Focus lane' : severityLabel(event)}
               </span>
               <span style={{ color: theme.colors.textDim, fontSize: '10px' }}>{formatTca(event.tca)} UTC</span>
             </div>

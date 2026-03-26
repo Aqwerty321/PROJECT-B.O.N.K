@@ -560,18 +560,40 @@ def min_distance_event(anchor_series: list[tuple[float, float, float]],
     return best, best_epoch_s
 
 
+def close_approach_bonus(miss_km: float) -> float:
+    if not math.isfinite(miss_km):
+        return 0.0
+
+    bonus = max(0.0, 1000.0 - miss_km) / 10.0
+    if miss_km < 100.0:
+        bonus += (100.0 - miss_km) * 3.0
+    if miss_km < 20.0:
+        bonus += 400.0 + (20.0 - miss_km) * 35.0
+    if miss_km < 5.0:
+        bonus += 600.0 + (5.0 - miss_km) * 180.0
+    if miss_km < 1.0:
+        bonus += 1200.0 + (1.0 - miss_km) * 500.0
+    return bonus
+
+
 def refine_min_distance_event(anchor: OmmRecord,
                               threat: OmmRecord,
                               coarse_epoch_s: float,
                               horizon_start_s: float,
                               horizon_end_s: float,
-                              coarse_step_s: int) -> tuple[float, float]:
+                              coarse_step_s: int,
+                              coarse_miss_km: float | None = None) -> tuple[float, float]:
     best_epoch_s = coarse_epoch_s
-    best_miss_km = float("inf")
-    refinement_plan = [
-        (max(60, coarse_step_s // 6), max(600.0, float(coarse_step_s))),
-        (15, 180.0),
+    best_miss_km = coarse_miss_km if coarse_miss_km is not None and math.isfinite(coarse_miss_km) else float("inf")
+    refinement_plan: list[tuple[float, float]] = [
+        (max(10.0, float(coarse_step_s) / 12.0), max(120.0, float(coarse_step_s))),
+        (1.0, 30.0),
     ]
+
+    if best_miss_km <= 10.0:
+        refinement_plan.append((0.2, 5.0))
+    if best_miss_km <= 2.0:
+        refinement_plan.append((0.05, 1.0))
 
     for step_s, half_window_s in refinement_plan:
         start_epoch_s = max(horizon_start_s, best_epoch_s - half_window_s)
@@ -628,6 +650,7 @@ def score_payload(anchor: OmmRecord,
                 horizon_start_s,
                 horizon_end_s,
                 sample_seconds,
+                miss_km,
             )
         if miss_km < best_miss:
             best_miss = miss_km
@@ -658,16 +681,16 @@ def score_payload(anchor: OmmRecord,
     top3 = [item.min_miss_km for item in top_debris[:3]]
     avg_top3_miss_km = sum(top3) / len(top3) if top3 else float("inf")
 
-    closeness_bonus = 0.0 if not math.isfinite(best_miss) else max(0.0, 1000.0 - best_miss) / 10.0
+    closeness_bonus = close_approach_bonus(best_miss)
     richness_bonus = 0.0
-    richness_bonus += near_100_count * 90.0 * feedback_weights.near_100_multiplier
-    richness_bonus += near_250_count * 25.0 * feedback_weights.near_250_multiplier
-    richness_bonus += near_500_count * 8.0 * feedback_weights.near_500_multiplier
+    richness_bonus += near_100_count * 55.0 * feedback_weights.near_100_multiplier
+    richness_bonus += near_250_count * 14.0 * feedback_weights.near_250_multiplier
+    richness_bonus += near_500_count * 4.0 * feedback_weights.near_500_multiplier
     if math.isfinite(avg_top3_miss_km):
-        richness_bonus += max(0.0, 1500.0 - avg_top3_miss_km) / 15.0
+        richness_bonus += close_approach_bonus(avg_top3_miss_km) * 0.45
     los_bonus = (los_sample_count * 2.0 + len(los_station_ids) * 5.0 + min(best_elevation_deg, 45.0) / 5.0) * feedback_weights.los_multiplier
     density_bonus = shell_density_count * 1.2 + phase_density_count * 6.0
-    score = critical_count * 1000.0 + warning_count * 100.0 + close_count * 5.0 + closeness_bonus + richness_bonus + los_bonus + density_bonus
+    score = critical_count * 3000.0 + warning_count * 450.0 + close_count * 30.0 + closeness_bonus + richness_bonus + los_bonus + density_bonus
 
     return PayloadThreatSummary(
         payload=anchor,
@@ -801,11 +824,7 @@ def encounter_windows(summaries: list[PayloadThreatSummary],
 
         cluster_score = 0.0
         for summary, opportunity in items:
-            cluster_score += max(0.0, 600.0 - opportunity.min_miss_km)
-            if opportunity.min_miss_km < 100.0:
-                cluster_score += 180.0
-            if opportunity.min_miss_km < 20.0:
-                cluster_score += 260.0
+            cluster_score += close_approach_bonus(opportunity.min_miss_km)
             cluster_score += summary.phase_density_count * 2.0 + summary.shell_density_count * 0.15
 
         target_epoch_s = max(first_epoch_s, cluster_peak_epoch_s - max(0, lead_seconds))
@@ -833,6 +852,19 @@ def encounter_windows(summaries: list[PayloadThreatSummary],
     return windows
 
 
+def choose_encounter_window(windows: list[EncounterWindow], chosen_norad_set: set[str]) -> EncounterWindow | None:
+    candidates: list[tuple[float, int, float, float, EncounterWindow]] = []
+    for window in windows:
+        overlap = sum(1 for norad_id in window.focus_satellite_norad if norad_id in chosen_norad_set)
+        if overlap <= 0:
+            continue
+        candidates.append((window.min_miss_km, -overlap, -window.cluster_score, window.target_epoch_s, window))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+    return candidates[0][4]
+
+
 def scenario_manifest(args: argparse.Namespace,
                       default_target_epoch_s: float,
                       ranked: list[PayloadThreatSummary],
@@ -851,13 +883,7 @@ def scenario_manifest(args: argparse.Namespace,
     operator_norads = [summary.payload.norad_id for summary in chosen]
     recommended_ground_stations = sorted({station_id for summary in chosen for station_id in summary.los_station_ids})
     chosen_norad_set = set(operator_norads)
-    encounter_window = next(
-        (
-            window for window in windows
-            if any(norad_id in chosen_norad_set for norad_id in window.focus_satellite_norad)
-        ),
-        None,
-    )
+    encounter_window = choose_encounter_window(windows, chosen_norad_set)
     target_epoch_s = encounter_window.target_epoch_s if encounter_window else default_target_epoch_s
     target_timestamp = iso8601_utc(target_epoch_s)
     preferred_priority = encounter_window.focus_debris_norad if encounter_window else []

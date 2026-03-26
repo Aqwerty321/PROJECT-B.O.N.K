@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import type { ConjunctionEvent } from '../types/api';
-import { riskLevelFromDistance, riskColor } from '../types/api';
+import { riskLevelForEvent, riskColor, pcProxy } from '../types/api';
 import { theme } from '../styles/theme';
 
 /**
@@ -161,8 +161,9 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
         const px = cx + rr * Math.cos(angle);
         const py = cy + rr * Math.sin(angle);
 
-        const risk = riskLevelFromDistance(evt.miss_distance_km);
+        const risk = riskLevelForEvent(evt);
         const color = riskColor(risk);
+        const pc = pcProxy(evt.miss_distance_km, evt.approach_speed_km_s);
 
         if (risk === 'red') redCount++;
         else if (risk === 'yellow') yellowCount++;
@@ -174,15 +175,17 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
         const angleDiff = ((sweepNorm - dotAngle) + 2 * Math.PI) % (2 * Math.PI);
         const justSwept = angleDiff < 0.5 && angleDiff > 0; // ~30 degrees behind sweep
 
-        // Glow pass (larger, blurred)
+        // Glow pass — Pc-influenced opacity and size
         ctx.save();
         ctx.shadowColor = color;
         ctx.shadowBlur = justSwept ? 12 : 6;
         ctx.fillStyle = color;
-        ctx.globalAlpha = evt.collision ? 1.0 : justSwept ? 0.9 : 0.7;
+        const baseAlpha = evt.collision ? 1.0 : justSwept ? 0.9 : 0.55 + 0.35 * pc;
+        ctx.globalAlpha = baseAlpha;
         ctx.beginPath();
         const ptSize = risk === 'red' ? 3.5 : risk === 'yellow' ? 2.5 : 1.8;
-        ctx.arc(px, py, ptSize + (justSwept ? 1.5 : 0), 0, Math.PI * 2);
+        const pcBoost = pc > 0.1 ? 0.5 * pc : 0;
+        ctx.arc(px, py, ptSize + pcBoost + (justSwept ? 1.5 : 0), 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
 
@@ -207,17 +210,17 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
       let sy = lh - 8;
       if (greenCount > 0) {
         ctx.fillStyle = theme.colors.accent;
-        ctx.fillText(`${greenCount} NOMINAL (>5km)`, 8, sy);
+        ctx.fillText(`${greenCount} WATCH (1-5km)`, 8, sy);
         sy -= 14;
       }
       if (yellowCount > 0) {
         ctx.fillStyle = theme.colors.warning;
-        ctx.fillText(`${yellowCount} WARNING (1-5km)`, 8, sy);
+        ctx.fillText(`${yellowCount} WARNING (<1km)`, 8, sy);
         sy -= 14;
       }
       if (redCount > 0) {
         ctx.fillStyle = theme.colors.critical;
-        ctx.fillText(`${redCount} CRITICAL (<1km)`, 8, sy);
+        ctx.fillText(`${redCount} CRITICAL (<100m)`, 8, sy);
       }
       ctx.restore();
     }

@@ -15,7 +15,7 @@ import {
   useStatus,
   useTrajectory,
 } from '../hooks/useApi';
-import { riskLevelFromDistance } from '../types/api';
+import { riskLevelForEvent } from '../types/api';
 import type {
   DashboardContextValue,
   DashboardViewModel,
@@ -72,7 +72,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const { snapshot, error: snapError } = useSnapshot(booted ? 1000 : 60000);
   const { status, error: statusError } = useStatus(booted ? 2000 : 60000);
   const { burns, error: burnsError } = useBurns(booted ? 2000 : 60000);
-  const { conjunctions, error: conjunctionsError } = useConjunctions(booted ? 2000 : 60000, selectedSatId ?? undefined);
+  const { conjunctions, error: conjunctionsError } = useConjunctions(booted ? 2000 : 60000, selectedSatId ?? undefined, 'combined');
 
   const satellites = snapshot?.satellites ?? [];
   const debris = snapshot?.debris_cloud ?? [];
@@ -190,7 +190,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const threatCounts = useMemo<ThreatCounts>(() => {
     return conjList.reduce(
       (counts, event) => {
-        const level = riskLevelFromDistance(event.miss_distance_km);
+        const level = riskLevelForEvent(event);
         counts[level] += 1;
         return counts;
       },

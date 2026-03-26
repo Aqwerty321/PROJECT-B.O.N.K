@@ -463,6 +463,10 @@ CdmWarningScanResult compute_cdm_warnings_24h(
     const double k_rk4_max_step_s = cdm_params().rk4_max_step_s;
     const double collision_threshold_sq =
         COLLISION_THRESHOLD_KM * COLLISION_THRESHOLD_KM;
+    // Tiered screening: emit watch/warning records up to SCREENING_THRESHOLD_KM.
+    // Only CRITICAL records (<= COLLISION_THRESHOLD_KM) drive auto-COLA.
+    const double screening_threshold_sq =
+        SCREENING_THRESHOLD_KM * SCREENING_THRESHOLD_KM;
     constexpr std::size_t kMaxPredictiveRecords = 1024;
 
     // Broad-phase candidate generation uses the *current* state snapshot.
@@ -484,7 +488,7 @@ CdmWarningScanResult compute_cdm_warnings_24h(
         Vec3 rd{store.rx(obj_idx), store.ry(obj_idx), store.rz(obj_idx)};
         Vec3 vd{store.vx(obj_idx), store.vy(obj_idx), store.vz(obj_idx)};
 
-        bool conjunction_found = false;
+        bool critical_found = false;
         bool fail_open = false;
         double remaining_s = k_cdm_horizon_s;
         double elapsed_s = 0.0;
@@ -500,8 +504,8 @@ CdmWarningScanResult compute_cdm_warnings_24h(
             const bool ok_d = propagate_rk4_j2_substep(rd, vd, dt, k_rk4_max_step_s);
 
             if (!ok_s || !ok_d) {
-                // Fail-open: propagation failure => count as warning.
-                conjunction_found = true;
+                // Fail-open: propagation failure => count as critical warning.
+                critical_found = true;
                 fail_open = true;
                 break;
             }
@@ -521,27 +525,38 @@ CdmWarningScanResult compute_cdm_warnings_24h(
             }
 
             if (d2 < collision_threshold_sq) {
-                conjunction_found = true;
+                critical_found = true;
                 break;
             }
 
             remaining_s -= dt;
         }
 
-        if (conjunction_found) {
-            ++out.warning_count;
+        // Emit tiered records: CRITICAL triggers warning_count + auto-COLA;
+        // WARNING/WATCH are informational only.
+        const double min_dist = fail_open ? 0.0 : std::sqrt(std::max(0.0, min_d2));
+        const bool within_screening = fail_open || critical_found || (min_d2 < screening_threshold_sq);
+
+        if (within_screening) {
+            const CdmSeverity sev = fail_open ? CdmSeverity::CRITICAL
+                                              : classify_miss_distance(min_dist);
+
+            if (sev == CdmSeverity::CRITICAL) {
+                ++out.warning_count;
+            }
 
             ConjunctionRecord rec;
             rec.satellite_id = store.id(sat_idx);
             rec.debris_id = store.id(obj_idx);
             rec.tca_epoch_s = min_epoch_s;
-            rec.miss_distance_km = fail_open ? 0.0 : std::sqrt(std::max(0.0, min_d2));
+            rec.miss_distance_km = min_dist;
             rec.approach_speed_km_s = std::sqrt(vector_norm2(min_rel_v));
             rec.sat_pos_eci_km = min_sat;
             rec.deb_pos_eci_km = min_deb;
             rec.collision = (!fail_open && min_d2 < collision_threshold_sq);
             rec.predictive = true;
             rec.fail_open = fail_open;
+            rec.severity = sev;
             rec.tick_id = 0;
             append_conjunction_record_limited(out.records, std::move(rec), kMaxPredictiveRecords);
         }
@@ -1374,6 +1389,8 @@ std::string build_conjunctions_json(const std::deque<ConjunctionRecord>& history
         out += (c.predictive ? "true" : "false");
         out += ",\"fail_open\":";
         out += (c.fail_open ? "true" : "false");
+        out += ",\"severity\":";
+        append_json_string(out, cdm_severity_str(c.severity));
         out += ",\"tick_id\":";
         out += std::to_string(c.tick_id);
         out += '}';
@@ -2270,6 +2287,12 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         for (const auto& ce : cdm_scan.records) {
             predictive_conjunction_history_.push_back(ce);
 
+            // Only CRITICAL severity records trigger auto-COLA.
+            // WARNING/WATCH are informational for the UI only.
+            if (ce.severity != CdmSeverity::CRITICAL) {
+                continue;
+            }
+
             const std::size_t sat_idx = store_.find(ce.satellite_id);
             if (sat_idx >= store_.size()) {
                 continue;
@@ -3054,6 +3077,8 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += fmt_double(COLLISION_THRESHOLD_KM + std::max(0.0, step_cfg_.narrow_phase.tca_guard_km), 3);
         out += ",\"predictive_cdm_threshold_km\":";
         out += fmt_double(COLLISION_THRESHOLD_KM, 3);
+        out += ",\"predictive_screening_threshold_km\":";
+        out += fmt_double(SCREENING_THRESHOLD_KM, 3);
         out += ",\"predictive_cdm_horizon_s\":";
         out += fmt_double(cdm_params().horizon_s, 1);
         out += ",\"predictive_cdm_substep_s\":";

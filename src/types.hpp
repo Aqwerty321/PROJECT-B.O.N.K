@@ -38,6 +38,39 @@ inline constexpr double SAT_FUEL_EOL_KG        = SAT_INITIAL_FUEL_KG * 0.05; // 
 inline constexpr double COLLISION_THRESHOLD_KM = 0.100;   // 100 m
 
 // ---------------------------------------------------------------------------
+// Tiered screening threshold for predictive CDM scan (additive, PS-safe).
+// Records within this range are surfaced as watch/warning events for the UI
+// but do NOT trigger auto-COLA. Only COLLISION_THRESHOLD_KM triggers burns.
+// ---------------------------------------------------------------------------
+inline constexpr double SCREENING_THRESHOLD_KM = 5.0;     // 5 km
+
+// ---------------------------------------------------------------------------
+// CDM severity tiers — additive classification for conjunction records.
+// Only CRITICAL events (<= COLLISION_THRESHOLD_KM) trigger autonomous
+// collision avoidance.  WARNING and WATCH are informational for the UI.
+// ---------------------------------------------------------------------------
+enum class CdmSeverity : uint8_t {
+    CRITICAL = 0,   // miss < COLLISION_THRESHOLD_KM  (100 m)
+    WARNING  = 1,   // miss < 1 km
+    WATCH    = 2    // miss < SCREENING_THRESHOLD_KM  (5 km)
+};
+
+inline const char* cdm_severity_str(CdmSeverity s) noexcept {
+    switch (s) {
+        case CdmSeverity::CRITICAL: return "critical";
+        case CdmSeverity::WARNING:  return "warning";
+        case CdmSeverity::WATCH:    return "watch";
+        default:                    return "unknown";
+    }
+}
+
+inline CdmSeverity classify_miss_distance(double miss_km) noexcept {
+    if (miss_km <= COLLISION_THRESHOLD_KM) return CdmSeverity::CRITICAL;
+    if (miss_km <= 1.0)                    return CdmSeverity::WARNING;
+    return CdmSeverity::WATCH;
+}
+
+// ---------------------------------------------------------------------------
 // Pre-allocation capacity (50 sats + 10 000 debris + small margin)
 // ---------------------------------------------------------------------------
 inline constexpr std::size_t DEFAULT_CAPACITY  = 10'100;

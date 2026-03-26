@@ -187,6 +187,8 @@ export interface BurnsResponse {
   summary?: BurnSummary;
 }
 
+export type CdmSeverity = 'critical' | 'warning' | 'watch';
+
 export interface ConjunctionEvent {
   satellite_id: string;
   debris_id: string;
@@ -199,6 +201,7 @@ export interface ConjunctionEvent {
   collision: boolean;
    predictive?: boolean;
    fail_open?: boolean;
+  severity?: CdmSeverity;  // tiered severity from backend
   tick_id: number;
 }
 
@@ -226,4 +229,30 @@ export function riskLevelFromDistance(km: number): RiskLevel {
   if (km < 1) return 'red';
   if (km < 5) return 'yellow';
   return 'green';
+}
+
+/** Derive RiskLevel from a ConjunctionEvent, preferring server severity. */
+export function riskLevelForEvent(e: ConjunctionEvent): RiskLevel {
+  if (e.severity) {
+    switch (e.severity) {
+      case 'critical': return 'red';
+      case 'warning':  return 'yellow';
+      case 'watch':    return 'green';
+    }
+  }
+  return riskLevelFromDistance(e.miss_distance_km);
+}
+
+/**
+ * Simple probability-of-collision proxy.
+ * Based on miss distance and approach speed — higher speed + lower distance
+ * means higher risk.  Returns a value in [0, 1].
+ */
+export function pcProxy(miss_km: number, speed_km_s: number): number {
+  // Hard-body collision sphere ~100m = 0.1 km.
+  // Pc ~ exp(-0.5 * (miss / sigma)^2)  where sigma scales with miss geometry.
+  // We use a simplified model: sigma = 0.1 km (hard-body) + speed-dependent term.
+  const sigma = 0.1 + Math.min(speed_km_s * 0.02, 0.5);
+  const x = miss_km / sigma;
+  return Math.exp(-0.5 * x * x);
 }

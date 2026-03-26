@@ -3,6 +3,7 @@ import type { VisualizationSnapshot, SatelliteSnapshot, TrajectoryResponse } fro
 import { latLonToMercator, computeTerminator, hexColor } from '../utils/geo';
 import { GROUND_STATIONS, statusColor } from '../types/api';
 import { theme } from '../styles/theme';
+import { COASTLINE_POLYGONS } from '../data/coastlines';
 
 interface Props {
   snapshot: VisualizationSnapshot | null;
@@ -140,6 +141,47 @@ function drawGraticule(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.stroke();
 }
 
+const COLOR_COAST = 'rgba(56,189,248,0.18)';
+const COLOR_COAST_FILL = 'rgba(17,34,64,0.35)';
+
+function drawCoastlines(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  ctx.save();
+  ctx.strokeStyle = COLOR_COAST;
+  ctx.fillStyle = COLOR_COAST_FILL;
+  ctx.lineWidth = 0.7;
+  ctx.lineJoin = 'round';
+
+  for (const poly of COASTLINE_POLYGONS) {
+    if (poly.length < 3) continue;
+
+    ctx.beginPath();
+    let prevX = -Infinity;
+    let firstPoint = true;
+
+    for (const [lon, lat] of poly) {
+      const [px, py] = latLonToMercator(lat, lon, w, h);
+
+      if (firstPoint) {
+        ctx.moveTo(px, py);
+        firstPoint = false;
+      } else if (Math.abs(px - prevX) > w * 0.5) {
+        // Antimeridian wrap — break the path, start fresh segment
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+      } else {
+        ctx.lineTo(px, py);
+      }
+      prevX = px;
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 function drawTerminator(
   ctx: CanvasRenderingContext2D,
   timestamp: string,
@@ -273,6 +315,7 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
     ctx.fillRect(0, 0, w, h);
 
     drawGraticule(ctx, w, h);
+    drawCoastlines(ctx, w, h);
 
     if (snapshot) {
       drawTerminator(ctx, snapshot.timestamp, w, h);

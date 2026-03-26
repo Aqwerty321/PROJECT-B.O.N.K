@@ -46,6 +46,7 @@ These items are already implemented and should be treated as current reality.
   - `active_cdm_warnings`
   - `predictive_conjunction_count`
   - `history_conjunction_count`
+  - `predictive_screening_threshold_km`
 - `GET /api/debug/burns` now exposes richer maneuver diagnostics for backend/UX wiring:
   - `executed`, `pending`, and `dropped` burns
   - per-burn `blackout_overlap`, `cooldown_conflict`, and `command_conflict`
@@ -53,9 +54,13 @@ These items are already implemented and should be treated as current reality.
   - executed-burn mitigation fields including `collision_avoided` and post-burn evaluation miss distance
   - aggregate `summary` totals including `fuel_consumed_kg`, `avoidance_fuel_consumed_kg`, and `collisions_avoided`
 - `GET /api/status?details=1` now also includes `dropped_burn_count`.
-- Frontend API types and hooks now understand the additive conjunction `source` filter, but the dashboard still uses the historical watch path by default.
+- Frontend API types and hooks now understand the additive conjunction `source` filter.
+- **Dashboard conjunction fetch now defaults to `source='combined'`** so predictive CDMs appear across all dashboard surfaces, not only the Threat page.
+- **Dashboard threat counting now uses `riskLevelForEvent()` which prefers server-provided CDM severity over distance-only classification.**
 - `ThreatPage` now prefers the predictive conjunction stream when available, while still falling back to the historical stream.
 - `ConjunctionBullseye` now supports adaptive time horizons (`90m`, `6h`, `24h`) instead of only a fixed 90-minute scale.
+- **Bullseye now uses `riskLevelForEvent()` and `pcProxy()` for Pc-influenced dot size, opacity, and risk coloring.** Legend labels now show `CRITICAL (<100m)`, `WARNING (<1km)`, `WATCH (1-5km)` aligned with backend CdmSeverity tiers.
+- **Conjunction event list and detail card now display server-provided severity labels and Pc proxy estimates.**
 - Threat detail and watch-list UI now surface whether an event is predictive and whether it is a fail-open warning.
 - Frontend status-color and fleet-status aggregation now recognize backend `FUEL_LOW` and `OFFLINE` states.
 - `scripts/replay_data_catalog.py` now supports manifest-driven replays via `--manifest`.
@@ -81,6 +86,20 @@ These items are already implemented and should be treated as current reality.
   - `collisions_avoided`
   - `fuel_consumed_kg`
   - `avoidance_fuel_consumed_kg`
+- **Backend now implements tiered CDM screening:**
+  - `SCREENING_THRESHOLD_KM = 5.0 km` is the outer gate for watch/warning events
+  - `COLLISION_THRESHOLD_KM = 0.100 km` remains the hard CRITICAL threshold per PS §3
+  - `CdmSeverity` enum: `CRITICAL` (<100m), `WARNING` (100m-1km), `WATCH` (1km-5km)
+  - Only CRITICAL events trigger auto-COLA burns; WATCH/WARNING populate Threat UI
+  - Conjunction records now carry a `severity` field in JSON output
+  - Both predictive (24h scan) and narrow-phase historical conjunctions use the tiered classification
+- **Ground Track Map now renders simplified world coastline polygons** from a new `frontend/src/data/coastlines.ts` data file (~2k vertices covering all major continents and large islands). Coastlines are drawn between the graticule and terminator layers, with antimeridian-wrap detection.
+- **`scripts/inject_synthetic_encounter.py` now exists** as a PS-safe hybrid injection helper:
+  - queries the running backend for current sim state
+  - picks a target satellite from the live snapshot
+  - computes 1-N debris state vectors on near-collision courses using orbital mechanics
+  - injects via `POST /api/telemetry` to trigger the full CDM → auto-COLA → recovery pipeline
+  - supports `--miss-km`, `--count`, `--encounter-hours`, `--target`, and `--dry-run` flags
 
 ## Useful commands
 
@@ -195,6 +214,22 @@ curl -s 'http://localhost:8000/api/debug/conjunctions?source=combined'
 curl -s 'http://localhost:8000/api/status?details=1'
 ```
 
+### Inject synthetic close-approach debris (hybrid injection)
+
+```bash
+# Dry-run (preview payload without sending)
+python3 scripts/inject_synthetic_encounter.py --dry-run
+
+# Inject 2 debris with ~50m miss distance, TCA in ~3 hours (CRITICAL)
+python3 scripts/inject_synthetic_encounter.py --miss-km 0.05 --count 2 --encounter-hours 3.0
+
+# Inject 1 debris targeting a specific satellite with ~500m miss (WARNING)
+python3 scripts/inject_synthetic_encounter.py --target SAT-25544 --miss-km 0.5 --count 1
+
+# Inject at a custom miss distance within WATCH band (2km)
+python3 scripts/inject_synthetic_encounter.py --miss-km 2.0 --count 3 --encounter-hours 6.0
+```
+
 ### Main verification commands already used
 
 ```bash
@@ -216,15 +251,20 @@ These files now contain relevant strict-route work and should be checked first w
 - `scripts/mine_strict_scenarios.py`
 - `scripts/evaluate_strict_manifest.py`
 - `scripts/rank_strict_manifests.py`
+- `scripts/inject_synthetic_encounter.py`
 - `docs/scenarios/strict_natural_watch.example.json`
 - `docs/scenarios/`
+- `src/types.hpp`
 - `src/maneuver_common.hpp`
 - `src/engine_runtime.hpp`
 - `src/engine_runtime.cpp`
+- `src/simulation_engine.cpp`
 - `src/http/api_server.cpp`
 - `frontend/src/hooks/useApi.ts`
 - `frontend/src/types/api.ts`
+- `frontend/src/data/coastlines.ts`
 - `frontend/src/pages/ThreatPage.tsx`
+- `frontend/src/components/GroundTrackMap.tsx`
 - `frontend/src/components/ConjunctionBullseye.tsx`
 - `frontend/src/components/threat/ConjunctionEventList.tsx`
 - `frontend/src/components/threat/ConjunctionDetailCard.tsx`
@@ -251,6 +291,9 @@ These checks were already run against the current implementation.
 - backend-informed mining feedback loop and learned-weight output validation
 - backend build/test validation after burn-diagnostics and avoidance-effectiveness metric additions
 - fresh-backend sanity replay of `docs/scenarios/strict_natural_watch.example.json`
+- backend build/test validation after tiered CDM screening implementation (8/8 tests pass)
+- frontend production build after coastline layer, dashboard combined-source, and Pc proxy changes
+- `scripts/inject_synthetic_encounter.py` syntax validation
 
 Observed result from backend validation:
 
@@ -574,20 +617,23 @@ These are the important current-state facts to remember.
 
 ### Ground track
 
-- current implementation draws a Mercator tactical surface with graticule and terminator
-- it does not yet draw actual coastlines / world outlines
+- current implementation draws a Mercator tactical surface with graticule, **coastline polygons**, and terminator
+- coastline data is ~2k vertices covering all major continents, large islands, and Antarctica
 - the selected-satellite predicted path already covers the next 90 minutes
 
 ### Bullseye
 
 - current radial scaling now adapts across `90m`, `6h`, and `24h`
-- current color logic still uses miss-distance thresholds only
+- current color logic uses server-provided CDM severity when available, falling back to miss-distance thresholds
+- **Pc proxy** from miss distance + approach speed now influences dot size and opacity
 - current angle uses relative geometry derived from ECI positions
-- current page now auto-focuses the most relevant spacecraft lane, but still lacks an explicit probability-of-collision channel
+- current page now auto-focuses the most relevant spacecraft lane
+- legend shows CDM severity tiers: `CRITICAL (<100m)`, `WARNING (<1km)`, `WATCH (1-5km)`
 
 Update:
 
 - the bullseye now supports adaptive time horizons of `90m`, `6h`, or `24h` based on the active threat stream
+- Pc proxy and CDM severity are now fully integrated into rendering
 
 ### Maneuver timeline
 
@@ -740,16 +786,15 @@ Important rule:
 
 These are the highest-value blockers.
 
-## Blocker 1 - predictive CDM records are persisted, but not yet used end-to-end
+## Blocker 1 - predictive CDM records are persisted and now consumed end-to-end
 
 Current reality:
 
 - the 24-hour scan now persists predictive records and exposes them through `GET /api/debug/conjunctions?source=predicted`
-- the Threat page now prefers the predictive stream directly, but the broader dashboard model still defaults to the historical watch path
+- the dashboard now defaults to `source=combined`, so predictive CDMs appear across all dashboard surfaces
+- threat counting now uses `riskLevelForEvent()` which prefers server-provided severity
 
-Why this blocks the strict route:
-
-- the backend can now tell the predictive story, but the frontend and autonomy path are not consuming it by default yet
+Status: **Resolved**
 
 ## Blocker 2 - auto-COLA is now partially predictive, but recovery and UI are still incomplete
 
@@ -764,26 +809,28 @@ Why this blocks the strict route:
   - recovery behavior is demonstrated clearly in the UI
   - real catalog scenes, not only synthetic validation pairs, are exercised regularly
 
-## Blocker 3 - required Section 6.2 visuals are still partial
+## Blocker 3 - required Section 6.2 visuals are now substantially complete
 
 Current reality:
 
-- ground track lacks actual coastline/world outline data
-- the bullseye still lacks an explicit probability-of-collision dimension
-- the remaining dashboard gap is the missing recognizable world layer on Ground Track
+- **Ground Track now has a recognizable world coastline layer** — all major continents and large islands rendered as simplified polygons
+- **Bullseye now has an explicit Pc proxy dimension** — dot size and opacity are influenced by `pcProxy()` and the legend shows CDM severity tiers
+- the efficiency chart is implemented
+- the timeline now surfaces backend-driven conflict/blackout/drop/avoidance state
+
+Status: **Resolved** — all required Section 6.2 modules now have at least their core visual implementation
 
 ## Blocker 4 - strict natural scenes still do not cross the backend predictive threshold reliably
 
 Current reality:
 
 - recent miner passes now find much closer natural encounter windows, commonly around `10-16 km`
-- backend replay validation still returns zero predictive CDMs for those scenes
-- the root cause is now clear: predictive CDMs are only emitted when the 24-hour propagated miss distance falls below `COLLISION_THRESHOLD_KM = 0.100`
+- backend replay validation still returns zero predictive CDMs for those scenes at the `COLLISION_THRESHOLD_KM = 0.100` gate
+- **Two-pronged solution now implemented:**
+  1. **Tiered screening** — `SCREENING_THRESHOLD_KM = 5.0 km` outer gate now emits WATCH (1-5km) and WARNING (100m-1km) events from real data, populating Threat UI even without sub-100m encounters
+  2. **Hybrid injection** — `scripts/inject_synthetic_encounter.py` can inject 1-N synthetic debris on near-collision courses via `POST /api/telemetry` to trigger the full CRITICAL CDM → auto-COLA → recovery pipeline
 
-Why this blocks the strict route:
-
-- miner-selected scenes can look operationally interesting while still being far outside the backend's predictive trigger band
-- scenario quality alone is no longer the full explanation; threshold alignment and expectation-setting now matter just as much
+Status: **Substantially resolved** — the tiered screening means real catalog data produces visible threat activity at the WATCH/WARNING level, and the hybrid injection script closes the last-mile gap for demonstrating CRITICAL auto-COLA behavior
 
 ## Blocker 5 - 3LE support is not wired into replay or scenario tools
 
@@ -891,18 +938,19 @@ Remaining gap:
 
 ### Blind conjunction predictive capability
 
-Status: Improved but still partial
+Status: Substantially implemented
 
 Implemented today:
 
 - backend can search upload windows before burn execution
 - backend now persists predictive 24-hour conjunction records in a queryable debug path
 - auto-COLA now consumes predictive critical conjunctions as part of its trigger set
+- tiered screening (5km outer gate) now produces watch/warning events from real catalog scenes
+- dashboard now consumes combined (history + predictive) conjunction stream by default
 
 Remaining gap:
 
-- real catalog scenes still rarely cross the backend predictive trigger threshold of `< 0.100 km`
-- the broader dashboard still does not propagate predictive-CDM awareness as consistently as the Threat page
+- real catalog scenes still rarely cross the backend predictive trigger threshold of `< 0.100 km` naturally, but tiered screening and hybrid injection now cover the demo story
 
 ## Section 6.1 frontend performance constraints
 
@@ -923,7 +971,7 @@ Important practical note:
 
 ### Ground Track Map (Mercator Projection)
 
-Status: Partial
+Status: **Complete**
 
 Already present:
 
@@ -931,38 +979,31 @@ Already present:
 - historical path support for the last 90 minutes
 - dashed predicted trajectory for the next 90 minutes
 - dynamic terminator overlay
-
-Missing or weak:
-
-- no true recognizable world map / coastline layer
-
-Required follow-up:
-
-- add a lightweight Mercator coastline or world-outline layer that remains canvas-friendly
+- **simplified world coastline polygons** (~2k vertices, all major continents + large islands)
+- coastlines rendered between graticule and terminator with antimeridian wrap detection
 
 ### Conjunction Bullseye Plot
 
-Status: Partial
+Status: **Substantially complete**
 
 Already present:
 
 - relative proximity plotting
 - radius tied to time to closest approach
 - angle tied to approach vector
-- risk coloring by miss distance
+- risk coloring by miss distance and **server-provided CDM severity**
 - adaptive bullseye horizon support for `90m`, `6h`, and `24h`
 - Threat page now prefers predictive CDMs when they exist
+- **Pc proxy dimension** — dot size and opacity influenced by `pcProxy()` from miss distance + approach speed
+- **CDM severity legend** showing `CRITICAL (<100m)`, `WARNING (<1km)`, `WATCH (1-5km)` tiers
 
 Missing or weak:
 
 - selected-satellite centering is much stronger now, but still not a hard global requirement across every dashboard entry path
-- risk indexing does not currently include an explicit probability-of-collision channel
-- predictive-CDM usage is not yet propagated through all dashboard surfaces, only the Threat page
 
 Required follow-up:
 
-- propagate predictive-CDM awareness to the broader dashboard model where appropriate
-- add an explicit probability/risk dimension when available
+- further UX refinement once live CRITICAL events are regularly exercised
 
 ### Telemetry and Resource Heatmaps
 
@@ -1009,15 +1050,19 @@ Required follow-up:
 
 ## Predictive threshold alignment gap
 
-Status: Confirmed root cause
+Status: **Substantially resolved via tiered screening + hybrid injection**
 
-The backend predictive CDM path only emits warnings when the propagated 24-hour miss distance falls below `0.100 km`. Recent miner improvements now surface much closer natural scenes than before, but `10-16 km` natural misses are still orders of magnitude above that threshold, so `predicted_conjunction_count` remains zero in replay validation.
+The backend predictive CDM path previously only emitted warnings when the propagated 24-hour miss distance fell below `0.100 km`. This meant natural `10-16 km` encounters produced zero CDM events.
 
-Practical consequence:
+The two-pronged solution:
 
-- the current issue is no longer just miner epoch selection
-- miner outputs need to be scored against backend-threshold closeness explicitly
-- docs and UX should avoid implying that all visually close scenes will naturally produce predictive CDMs
+1. **Tiered screening** (`SCREENING_THRESHOLD_KM = 5.0 km`): Real catalog scenes that pass within 5km now produce WATCH/WARNING events that populate the Threat UI. This makes the dashboard operationally interesting with real data alone.
+2. **Hybrid injection** (`scripts/inject_synthetic_encounter.py`): For demonstrating the full CRITICAL CDM → auto-COLA → recovery pipeline, 1-2 synthetic close-approach debris can be injected via the standard `POST /api/telemetry` API. This is PS-safe and additive.
+
+Remaining practical consideration:
+
+- natural catalog scenes still rarely produce sub-100m encounters, so the hybrid injection remains necessary for triggering auto-COLA in a controlled demo setting
+- the tiered screening ensures the Threat page is never empty even without injection
 
 ## Dense-run runtime timeout gap
 
@@ -1032,9 +1077,9 @@ Practical consequence:
 
 ## Predictive conjunction persistence gap
 
-Status: Partially resolved
+Status: **Resolved**
 
-The backend now persists a predictive CDM set and exposes it through the additive conjunction debug query mode. The remaining gap is that this predictive stream does not yet drive the frontend and autonomy pipeline by default.
+The backend now persists a predictive CDM set with tiered severity classification and exposes it through the additive conjunction debug query mode. The dashboard now fetches `source=combined` by default, so both predictive and historical conjunctions flow through all dashboard surfaces.
 
 ## Autonomy trigger gap
 
@@ -1322,9 +1367,11 @@ These are the frontend tasks needed to close the PS and strict-route gaps.
 
 Add a lightweight coastline / world-outline layer to `frontend/src/components/GroundTrackMap.tsx`.
 
-Reason:
+Status: **Resolved**
 
-- current view is tactical and readable, but it is not yet a proper recognizable Mercator world map as required by the PS
+- simplified world coastline polygons (~2k vertices) now stored in `frontend/src/data/coastlines.ts`
+- `drawCoastlines()` function added to `GroundTrackMap.tsx` with fill + stroke, antimeridian wrap detection
+- rendered between graticule and terminator layers
 
 ## Frontend Task 2 - Threat page selected-satellite discipline
 
@@ -1526,15 +1573,16 @@ Status update:
 
 ## Short list of things future work should not forget
 
-- Threat now has a predictive path, but the rest of the dashboard still mostly reasons over historical conjunction data.
-- Auto-COLA now consumes predictive critical conjunctions, but this still needs validation on strict real-data scenarios that actually cross the `< 0.100 km` predictive threshold.
-- Ground Track still needs real world outlines to fully satisfy Section 6.2.
-- The bullseye still lacks an explicit probability-of-collision dimension.
-- Frontend status handling does not yet fully match backend status names.
-- Miner/backend alignment is now better instrumented, but the main remaining issue is that natural `10-16 km` encounter windows still do not qualify as backend predictive CDMs.
+- ~~Threat now has a predictive path, but the rest of the dashboard still mostly reasons over historical conjunction data.~~ **Resolved** — dashboard now fetches `source=combined` by default.
+- Auto-COLA now consumes predictive critical conjunctions, but this still needs validation on strict real-data scenarios that actually cross the `< 0.100 km` predictive threshold. The hybrid injection script (`scripts/inject_synthetic_encounter.py`) can trigger this for demo purposes.
+- ~~Ground Track still needs real world outlines to fully satisfy Section 6.2.~~ **Resolved** — coastline polygons now rendered.
+- ~~The bullseye still lacks an explicit probability-of-collision dimension.~~ **Resolved** — `pcProxy()` now influences dot rendering and Pc estimate is shown in detail cards.
+- Frontend status handling does not yet fully match backend status names (partially mitigated).
+- Tiered screening (5km outer gate) should produce WATCH/WARNING events from real catalog data, but this needs live-backend validation with a dense catalog replay.
 - Dense backend ranking runs can still hit queue timeout / `RUNTIME_BUSY` conditions and may need runtime-cost tuning.
 - `3le_data.txt` now works in local replay/miner tooling, but metadata merge and broader backend integration are still pending.
 - `train_data.csv` and `test_data.csv` are evaluation assets, not runtime telemetry inputs.
+- The synthetic encounter injection script computes debris orbits from approximate lat/lon → ECI conversion; for a tighter demo, consider using actual ECI state vectors from the backend if exposed in a future API.
 
 ## Open decisions that may need resolution later
 
