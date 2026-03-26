@@ -1,4 +1,4 @@
-export type PageId = 'command' | 'track' | 'threat' | 'burn-ops';
+export type PageId = 'command' | 'track' | 'threat' | 'burn-ops' | 'evasion' | 'fleet-status';
 
 export type NavLabelMode = 'tactical' | 'simple';
 
@@ -39,7 +39,21 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/burn-ops',
     tacticalLabel: 'Burn Ops',
     simpleLabel: 'Maneuvers',
-    blurb: 'Burn schedule, status health, and resource posture.',
+    blurb: 'Burn schedule, timeline, and command friction.',
+  },
+  {
+    id: 'evasion',
+    path: '/evasion',
+    tacticalLabel: 'Evasion',
+    simpleLabel: 'Efficiency',
+    blurb: 'Fuel-to-mitigation outcomes and efficiency tracking.',
+  },
+  {
+    id: 'fleet-status',
+    path: '/fleet-status',
+    tacticalLabel: 'Fleet',
+    simpleLabel: 'Status',
+    blurb: 'System health, fuel watchlist, and resource posture.',
   },
 ];
 

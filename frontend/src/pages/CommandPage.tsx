@@ -10,6 +10,19 @@ import { HeroMetric, InfoChip, SectionHeader } from '../components/dashboard/UiP
 export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompact: boolean }) {
   const { model, selectedSatId, selectSat } = useDashboard();
 
+  const bullseyeMaxTcaSeconds = useMemo(() => {
+    const events = selectedSatId
+      ? model.conjList.filter(c => c.satellite_id === selectedSatId)
+      : model.conjList;
+    const maxFutureDt = events.reduce((acc, evt) => {
+      const dt = Math.max(0, evt.tca_epoch_s - model.nowEpochS);
+      return Math.max(acc, dt);
+    }, 0);
+    if (maxFutureDt <= 5400) return 5400;
+    if (maxFutureDt <= 21600) return 21600;
+    return 86400;
+  }, [model.conjList, model.nowEpochS, selectedSatId]);
+
   const trailVectors = useMemo(
     () => model.selectedTrajectory?.trail ? trajectoryToVectors(model.selectedTrajectory.trail) : undefined,
     [model.selectedTrajectory?.trail],
@@ -133,7 +146,7 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
                 <InfoChip label="Nominal" value={model.threatCounts.green.toString()} tone="accent" />
               </div>
               <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: `1px solid ${theme.colors.border}`, background: 'linear-gradient(180deg, rgba(10, 11, 14, 0.92), rgba(7, 8, 10, 0.98))' }}>
-                <ConjunctionBullseye conjunctions={model.conjList} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} />
+                <ConjunctionBullseye conjunctions={model.conjList} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} maxTcaSeconds={bullseyeMaxTcaSeconds} />
               </div>
             </div>
           </GlassPanel>

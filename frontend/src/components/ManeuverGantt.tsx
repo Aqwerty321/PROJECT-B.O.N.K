@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, memo, useState } from 'react';
+import { useEffect, useRef, useCallback, memo } from 'react';
 import type { BurnsResponse, ExecutedBurn, PendingBurn } from '../types/api';
 import { theme } from '../styles/theme';
 
@@ -24,6 +24,9 @@ const MAX_ROW_HEIGHT = 36;
 const MIN_BLOCK_WIDTH = 8;
 const BURN_DURATION_S = 120;
 const COOLDOWN_DURATION_S = 600;
+const MIN_PLOT_WIDTH = 960;
+const MIN_PX_PER_HOUR = 240;
+const MIN_PX_PER_EVENT = 38;
 
 function compactSatLabel(id: string): string {
   if (id.length <= 12) return id;
@@ -251,7 +254,6 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const drawRef = useRef<() => void>(() => {});
-  const [needsScroll, setNeedsScroll] = useState(false);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -265,7 +267,7 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     const containerHeight = scrollContainer.offsetHeight;
     if (containerWidth === 0 || containerHeight === 0) return;
 
-    const chartWidth = containerWidth - LABEL_WIDTH - 12;
+    const baselinePlotWidth = Math.max(280, containerWidth - LABEL_WIDTH - 12);
 
     if (!burns || (burns.executed.length === 0 && burns.pending.length === 0 && (burns.dropped?.length ?? 0) === 0)) {
       // For empty state, canvas = container size
@@ -276,10 +278,9 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, containerWidth, containerHeight);
-      drawEmptyGrid(ctx, containerWidth, containerHeight, chartWidth);
-      drawEmptyState(ctx, chartWidth, selectedSatId);
+      drawEmptyGrid(ctx, containerWidth, containerHeight, baselinePlotWidth);
+      drawEmptyState(ctx, baselinePlotWidth, selectedSatId);
       ctx.restore();
-      setNeedsScroll(false);
       return;
     }
 
@@ -329,10 +330,9 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, containerWidth, containerHeight);
-      drawEmptyGrid(ctx, containerWidth, containerHeight, chartWidth);
-      drawEmptyState(ctx, chartWidth, selectedSatId);
+      drawEmptyGrid(ctx, containerWidth, containerHeight, baselinePlotWidth);
+      drawEmptyState(ctx, baselinePlotWidth, selectedSatId);
       ctx.restore();
-      setNeedsScroll(false);
       return;
     }
 
@@ -351,10 +351,9 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, containerWidth, containerHeight);
-      drawEmptyGrid(ctx, containerWidth, containerHeight, chartWidth);
-      drawEmptyState(ctx, chartWidth, selectedSatId);
+      drawEmptyGrid(ctx, containerWidth, containerHeight, baselinePlotWidth);
+      drawEmptyState(ctx, baselinePlotWidth, selectedSatId);
       ctx.restore();
-      setNeedsScroll(false);
       return;
     }
 
@@ -363,13 +362,23 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     const fittedRowHeight = Math.floor(availableRowArea / Math.max(satellites.length, 1));
     const rowHeight = Math.max(MIN_ROW_HEIGHT, Math.min(MAX_ROW_HEIGHT, Math.max(fittedRowHeight, DESIRED_ROW_HEIGHT)));
 
-    // If rows don't fit, make the canvas taller → scrollable
+    // If rows don't fit, make the canvas taller (vertical scroll)
     const neededRowArea = rowHeight * satellites.length + 8;
     const canvasLogicalHeight = Math.max(containerHeight, neededRowArea + HEADER_HEIGHT + FOOTER_HEIGHT);
-    const scrollable = canvasLogicalHeight > containerHeight;
-    setNeedsScroll(scrollable);
 
-    const lw = containerWidth;
+    const tMin = Math.min(...allEpochs) - 600;
+    const tMax = Math.max(...allEpochs) + 600;
+    const tRange = Math.max(tMax - tMin, 3600);
+    const eventCount = allExecuted.length + allPending.length + allDropped.length;
+    const desiredPlotWidth = Math.max(
+      baselinePlotWidth,
+      MIN_PLOT_WIDTH,
+      Math.ceil((tRange / 3600) * MIN_PX_PER_HOUR),
+      Math.ceil(eventCount * MIN_PX_PER_EVENT),
+    );
+
+    // Expand logical canvas width so horizontal scroll keeps the timeline readable.
+    const lw = LABEL_WIDTH + desiredPlotWidth + 12;
     const lh = canvasLogicalHeight;
     canvas.style.width = `${lw}px`;
     canvas.style.height = `${lh}px`;
@@ -381,10 +390,7 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     ctx.clearRect(0, 0, lw, lh);
 
     const plotBottom = drawPanelChrome(ctx, lw, lh);
-    const tMin = Math.min(...allEpochs) - 600;
-    const tMax = Math.max(...allEpochs) + 600;
-    const tRange = Math.max(tMax - tMin, 3600);
-    const timeToX = (t: number) => LABEL_WIDTH + ((t - tMin) / tRange) * chartWidth;
+    const timeToX = (t: number) => LABEL_WIDTH + ((t - tMin) / tRange) * desiredPlotWidth;
 
     const rowAreaHeight = Math.max(72, plotBottom - HEADER_HEIGHT - 8);
     const rowsHeight = rowHeight * satellites.length;
@@ -395,7 +401,7 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     ctx.font = `10px ${theme.font.mono}`;
     ctx.textAlign = 'center';
 
-    const tickCount = Math.max(4, Math.min(8, Math.floor(chartWidth / 140)));
+    const tickCount = Math.max(6, Math.min(20, Math.floor(desiredPlotWidth / 140)));
     for (let i = 0; i <= tickCount; i++) {
       const t = tMin + (i / tickCount) * tRange;
       const x = timeToX(t);
@@ -670,13 +676,13 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         width: '100%',
         height: '100%',
         minHeight: 0,
-        overflowY: needsScroll ? 'auto' : 'hidden',
-        overflowX: 'hidden',
+        overflowY: 'auto',
+        overflowX: 'auto',
       }}
     >
       <canvas
         ref={canvasRef}
-        style={{ display: 'block', width: '100%' }}
+        style={{ display: 'block', minWidth: '100%' }}
       />
     </div>
   );

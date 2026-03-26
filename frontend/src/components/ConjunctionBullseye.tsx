@@ -133,6 +133,16 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
     ctx.fillText('W', cx - R - 4, cy + 4);
     ctx.restore();
 
+    // center dot — draw BEFORE conjunction dots so events render on top
+    ctx.save();
+    ctx.fillStyle = theme.colors.primary;
+    ctx.shadowColor = theme.colors.primary;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
     if (events.length === 0) {
       // Empty state with pulsing text
       ctx.save();
@@ -155,7 +165,9 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
         if (dtca < -300) continue; // skip events more than 5min in the past
 
         const tFrac = Math.min(1, Math.max(0, Math.abs(dtca) / currentMaxTcaSeconds));
-        const rr = tFrac * R;
+        // Minimum 10px radial offset so events at/near TCA=now don't hide under center dot
+        const MIN_RADIAL_PX = 10;
+        const rr = Math.max(MIN_RADIAL_PX, tFrac * R);
 
         const angle = approachAngle(evt.sat_pos_eci_km, evt.deb_pos_eci_km);
         const px = cx + rr * Math.cos(angle);
@@ -224,16 +236,6 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
       }
       ctx.restore();
     }
-
-    // center dot
-    ctx.save();
-    ctx.fillStyle = theme.colors.primary;
-    ctx.shadowColor = theme.colors.primary;
-    ctx.shadowBlur = 8;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
 
     // selected sat label
     if (currentSelectedSatId) {

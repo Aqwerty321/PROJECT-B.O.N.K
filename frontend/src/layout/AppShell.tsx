@@ -74,6 +74,8 @@ function navIcon(id: PageId): string {
     case 'track': return '◎';
     case 'threat': return '⚠';
     case 'burn-ops': return '⚡';
+    case 'evasion': return '◈';
+    case 'fleet-status': return '◆';
     default: return '●';
   }
 }
