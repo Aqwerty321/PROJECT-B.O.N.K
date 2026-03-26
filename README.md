@@ -127,6 +127,7 @@ All endpoints on port **8000**, bound to `0.0.0.0`.
 | `GET` | `/api/status?details=1` | 200 | Full internal diagnostics (phase timing, gate evidence, queue depth) |
 | `GET` | `/api/debug/conflicts` | 200 | Type-conflict ring buffer |
 | `GET` | `/api/debug/propagation` | 200 | Fast-lane / RK4 usage counters |
+| `GET` | `/api/debug/conjunctions` | 200 | Historical / predictive conjunction debug feed |
 
 ### Telemetry Ingestion
 
@@ -198,6 +199,20 @@ Content-Type: application/json
   "maneuvers_executed": 2
 }
 ```
+
+### Conjunction Debug Streams
+
+`/api/debug/conjunctions` supports an additive `source` query for local/debug use:
+
+```bash
+curl -s 'http://localhost:8000/api/debug/conjunctions?source=history'
+curl -s 'http://localhost:8000/api/debug/conjunctions?source=predicted'
+curl -s 'http://localhost:8000/api/debug/conjunctions?source=combined'
+```
+
+- `history` = narrow-phase watch history captured during steps
+- `predicted` = persisted 24-hour predictive CDM scan results
+- `combined` = both streams together
 
 ---
 
@@ -410,8 +425,126 @@ catalog through the normal telemetry API without changing the judged runtime pat
 python3 scripts/replay_data_catalog.py --api-base http://localhost:8000
 ```
 
+For the stricter real-data route, promote real payloads directly into the operator fleet
+instead of using synthetic `SAT-LOCAL-*` IDs:
+
+```bash
+python3 scripts/replay_data_catalog.py \
+  --api-base http://localhost:8000 \
+  --satellite-mode catalog \
+  --operator-sats 10
+```
+
+To preview the selected operator fleet and replay timestamp without posting telemetry:
+
+```bash
+python3 scripts/replay_data_catalog.py --satellite-mode catalog --dry-run
+```
+
+The same replay tooling now also supports local 3LE/TLE text catalogs such as
+`3le_data.txt`:
+
+```bash
+python3 scripts/replay_data_catalog.py \
+  --data 3le_data.txt \
+  --satellite-mode catalog \
+  --operator-sats 10 \
+  --dry-run
+```
+
+You can also drive replay settings from a scenario manifest template:
+
+```bash
+python3 scripts/replay_data_catalog.py \
+  --manifest docs/scenarios/strict_natural_watch.example.json \
+  --dry-run
+```
+
+To generate a new strict replay manifest from the local catalog:
+
+```bash
+python3 scripts/generate_strict_manifest.py \
+  --output /tmp/strict_generated_manifest.json \
+  --scenario-id strict_generated_test \
+  --satellite-mode catalog \
+  --operator-sats 6
+```
+
+To mine ranked strict replay manifests from real nearby traffic:
+
+```bash
+python3 scripts/mine_strict_scenarios.py \
+  --output-dir /tmp/strict_mined \
+  --scenario-prefix strict_mined \
+  --top-scenarios 3 \
+  --operator-sats 8 \
+  --payload-candidates 12 \
+  --threat-candidates 600
+```
+
+The miner now also uses `docs/groundstations.csv` for LOS-aware scoring by default,
+so manifests include recommended ground stations and LOS-ready operator counts.
+It also now tries to emit more diverse operator-fleet combinations instead of near-duplicate scenario sets.
+It additionally tracks threat-richness signals such as near-100 km / near-250 km / near-500 km counts and balances shell/family mix when assembling operator fleets.
+It now also targets likely predictive-warning shells more directly via shell-density and phase-density probing before live backend ranking begins.
+
+You can point the same miner at `3le_data.txt` as well:
+
+```bash
+python3 scripts/mine_strict_scenarios.py \
+  --data 3le_data.txt \
+  --output-dir /tmp/strict_mined_3le \
+  --scenario-prefix strict_mined_3le \
+  --top-scenarios 3
+```
+
+To evaluate a strict manifest against a fresh local backend:
+
+```bash
+python3 scripts/evaluate_strict_manifest.py \
+  --manifest /tmp/strict_generated_manifest.json \
+  --api-base http://localhost:8000 \
+  --extra-steps 1 \
+  --extra-step-seconds 300
+```
+
+To rank multiple strict manifests by fresh backend runs:
+
+```bash
+python3 scripts/rank_strict_manifests.py \
+  /tmp/strict_mined/strict_mined_01.json \
+  /tmp/strict_mined/strict_mined_02.json \
+  --backend-cmd ./build/ProjectBONK \
+  --api-base http://localhost:8000 \
+  --extra-steps 1 \
+  --extra-step-seconds 300
+```
+
+The miner can now do this backend-assisted ranking inline while it writes manifests:
+
+```bash
+python3 scripts/mine_strict_scenarios.py \
+  --output-dir /tmp/strict_mined_ranked \
+  --scenario-prefix strict_mined_ranked \
+  --top-scenarios 2 \
+  --candidate-scenarios 3 \
+  --backend-rank-cmd ./build/ProjectBONK \
+  --backend-rank-api-base http://localhost:8000 \
+  --feedback-output /tmp/strict_mined_ranked_feedback.json
+```
+
 What this does:
-- seeds a small local test constellation as `SAT-LOCAL-*`
+- promotes a small operator fleet from real payloads
+- supports legacy synthetic `SAT-LOCAL-*` mode and stricter `SAT-<NORAD>` catalog mode
+- supports manifest-driven replay presets for repeatable strict-route demos
+- supports lightweight scenario mining that ranks real payload anchors by nearby natural traffic
+- supports both OMM JSON and 3LE/TLE text catalogs in the same replay/mining flow
+- supports one-shot manifest evaluation against a fresh live backend so mined presets can be ranked with real runtime outputs
+- supports backend-assisted ranking across multiple manifests by restarting the backend per scenario
+- incorporates ground-station LOS into mining metadata and manifest ranking
+- can optionally perform backend-assisted ranking directly from the miner and emit a backend ranking summary alongside mined manifests
+- can persist learned feedback weights so later mining runs bias more strongly toward backend-confirmed threat-richness signals
+- writes `backend_cdm_evaluation` back into each ranked manifest so predictive-CDM mining results stay attached to the scenario artifact
 - injects the rest of the filtered catalog as `DEBRIS`
 - uses the existing `POST /api/telemetry` and `POST /api/simulate/step` endpoints
 

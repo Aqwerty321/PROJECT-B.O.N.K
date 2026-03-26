@@ -163,7 +163,8 @@ ScenarioOutcome test_blackout_burn_executes_when_uploaded_prior()
         last_burn_epoch_by_sat,
         recovery_requests_by_sat,
         graveyard_requested_by_sat,
-        graveyard_completed_by_sat
+        graveyard_completed_by_sat,
+        nullptr
     );
 
     if (exec.executed != 1) {
@@ -212,7 +213,7 @@ ScenarioOutcome test_invalid_upload_epoch_is_pruned()
     burn_queue.push_back(burn);
 
     std::uint64_t upload_missed = 0;
-    cascade::validate_pending_upload_windows(store, epoch_s + 10.0, burn_queue, upload_missed);
+    cascade::validate_pending_upload_windows(store, epoch_s + 10.0, burn_queue, upload_missed, nullptr);
 
     if (upload_missed != 1) {
         out.reason = "invalid upload epoch was not counted as missed";
@@ -309,7 +310,8 @@ ScenarioOutcome test_graveyard_execution_transitions_offline()
         last_burn_epoch_by_sat,
         recovery_requests_by_sat,
         graveyard_requested_by_sat,
-        graveyard_completed_by_sat
+        graveyard_completed_by_sat,
+        nullptr
     );
 
     if (exec.executed != 1 || exec.graveyard_completed != 1) {

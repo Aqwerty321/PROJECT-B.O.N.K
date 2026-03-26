@@ -224,7 +224,8 @@ public:
     std::string conflicts_json() const;
     std::string propagation_json() const;
     std::string burns_json() const;
-    std::string conjunctions_json(std::string_view satellite_id_filter) const;
+    std::string conjunctions_json(std::string_view satellite_id_filter,
+                                  std::string_view source_filter = {}) const;
     std::string trajectory_json(std::string_view satellite_id) const;
 
 private:
@@ -295,6 +296,7 @@ private:
         std::string conflicts_json;
         std::string propagation_json;
         std::string burns_json;
+        std::string predictive_conjunctions_json;
     };
 
     mutable std::shared_mutex mutex_;
@@ -337,11 +339,15 @@ private:
 
     // --- Phase 0B: Ring buffers for debug/visualization endpoints ---
     static constexpr std::size_t kMaxExecutedBurnHistory = 512;
+    static constexpr std::size_t kMaxDroppedBurnHistory = 512;
     static constexpr std::size_t kMaxConjunctionHistory = 1024;
+    static constexpr std::size_t kMaxPredictiveConjunctionHistory = 1024;
     static constexpr std::size_t kMaxTrackPointsPerSat = 5400;
 
     std::deque<ExecutedBurn> executed_burn_history_;
+    std::deque<ScheduledBurn> dropped_burn_history_;
     std::deque<ConjunctionRecord> conjunction_history_;
+    std::deque<ConjunctionRecord> predictive_conjunction_history_;
     std::unordered_map<std::string, std::deque<TrackPoint>> trajectory_by_sat_;
     std::unordered_map<std::string, PerSatManeuverStats> per_sat_maneuver_stats_;
 };

@@ -26,6 +26,10 @@ export interface StatusResponse {
     satellite_count: number;
     debris_count: number;
     pending_burn_queue: number;
+    active_cdm_warnings?: number;
+    predictive_conjunction_count?: number;
+    history_conjunction_count?: number;
+    dropped_burn_count?: number;
     pending_recovery_requests: number;
     pending_graveyard_requests: number;
     command_queue_depth: number;
@@ -84,6 +88,8 @@ export function statusColor(status: string): number {
   switch (status) {
     case 'NOMINAL':      return 0x22c55e;
     case 'MANEUVERING':  return 0xeab308;
+    case 'FUEL_LOW':     return 0xf97316;
+    case 'OFFLINE':      return 0x6b7280;
     case 'DEGRADED':     return 0xf97316;
     case 'GRAVEYARD':    return 0x6b7280;
     default:             return 0x60a5fa;
@@ -105,6 +111,23 @@ export interface ExecutedBurn {
   auto_generated: boolean;
   recovery_burn: boolean;
   graveyard_burn: boolean;
+  blackout_overlap?: boolean;
+  cooldown_conflict?: boolean;
+  command_conflict?: boolean;
+  scheduled_from_predictive_cdm?: boolean;
+  trigger_debris_id?: string;
+  trigger_tca?: string;
+  trigger_tca_epoch_s?: number;
+  trigger_miss_distance_km?: number;
+  trigger_approach_speed_km_s?: number;
+  trigger_fail_open?: boolean;
+  mitigation_tracked?: boolean;
+  mitigation_evaluated?: boolean;
+  collision_avoided?: boolean;
+  mitigation_eval_epoch?: string;
+  mitigation_eval_epoch_s?: number;
+  mitigation_miss_distance_km?: number;
+  mitigation_fail_open?: boolean;
 }
 
 export interface PendingBurn {
@@ -118,18 +141,50 @@ export interface PendingBurn {
   auto_generated: boolean;
   recovery_burn: boolean;
   graveyard_burn: boolean;
+  blackout_overlap?: boolean;
+  cooldown_conflict?: boolean;
+  command_conflict?: boolean;
+  scheduled_from_predictive_cdm?: boolean;
+  trigger_debris_id?: string;
+  trigger_tca?: string;
+  trigger_tca_epoch_s?: number;
+  trigger_miss_distance_km?: number;
+  trigger_approach_speed_km_s?: number;
+  trigger_fail_open?: boolean;
+  upload_window_missed?: boolean;
+  dropped_epoch?: string;
+  dropped_epoch_s?: number;
 }
 
 export interface PerSatBurnStats {
   burns_executed: number;
   delta_v_total_km_s: number;
   fuel_consumed_kg: number;
+  collisions_avoided?: number;
+  avoidance_burns_executed?: number;
+  recovery_burns_executed?: number;
+  graveyard_burns_executed?: number;
+  avoidance_fuel_consumed_kg?: number;
+}
+
+export interface BurnSummary {
+  burns_executed: number;
+  burns_pending: number;
+  burns_dropped: number;
+  fuel_consumed_kg: number;
+  avoidance_fuel_consumed_kg: number;
+  collisions_avoided: number;
+  avoidance_burns_executed: number;
+  recovery_burns_executed: number;
+  graveyard_burns_executed: number;
 }
 
 export interface BurnsResponse {
   executed: ExecutedBurn[];
+  dropped?: PendingBurn[];
   pending: PendingBurn[];
   per_satellite: Record<string, PerSatBurnStats>;
+  summary?: BurnSummary;
 }
 
 export interface ConjunctionEvent {
@@ -142,12 +197,15 @@ export interface ConjunctionEvent {
   sat_pos_eci_km: [number, number, number];
   deb_pos_eci_km: [number, number, number];
   collision: boolean;
+   predictive?: boolean;
+   fail_open?: boolean;
   tick_id: number;
 }
 
 export interface ConjunctionsResponse {
   conjunctions: ConjunctionEvent[];
   count: number;
+  source?: string;
 }
 
 export interface TrajectoryPoint {

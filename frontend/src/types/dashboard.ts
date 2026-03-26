@@ -1,5 +1,6 @@
 import type {
   BurnsResponse,
+  BurnSummary,
   ConjunctionEvent,
   DebrisTuple,
   ExecutedBurn,
@@ -58,6 +59,8 @@ export interface DashboardViewModel {
   conjList: ConjunctionEvent[];
   executedBurns: ExecutedBurn[];
   pendingBurns: PendingBurn[];
+  droppedBurns: PendingBurn[];
+  burnSummary: BurnSummary | null;
   nowEpochS: number;
   snapshotUpdatedAtMs: number | null;
   trackHistory: Map<string, TrackHistoryPoint[]>;

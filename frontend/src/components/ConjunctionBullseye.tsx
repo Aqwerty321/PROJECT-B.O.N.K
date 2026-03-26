@@ -15,10 +15,33 @@ interface Props {
   conjunctions: ConjunctionEvent[];
   selectedSatId: string | null;
   nowEpochS: number;   // current sim epoch in seconds
+  maxTcaSeconds?: number;
 }
 
-const MAX_TCA_S = 5400;       // 90 minutes max on bullseye
+const DEFAULT_MAX_TCA_S = 5400;       // 90 minutes max on bullseye
 const SWEEP_SPEED_DEG = 1.5;  // degrees per frame (~4s full rotation at 60fps)
+
+function bullseyeRings(maxTcaSeconds: number): Array<{ s: number; label: string }> {
+  if (maxTcaSeconds <= 5400) {
+    return [
+      { s: 900, label: '15m' },
+      { s: 2700, label: '45m' },
+      { s: 5400, label: '90m' },
+    ];
+  }
+  if (maxTcaSeconds <= 21600) {
+    return [
+      { s: 3600, label: '1h' },
+      { s: 10800, label: '3h' },
+      { s: 21600, label: '6h' },
+    ];
+  }
+  return [
+    { s: 21600, label: '6h' },
+    { s: 43200, label: '12h' },
+    { s: 86400, label: '24h' },
+  ];
+}
 
 function approachAngle(
   satPos: [number, number, number],
@@ -29,7 +52,7 @@ function approachAngle(
   return Math.atan2(dy, dx);
 }
 
-export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS }: Props) {
+export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS, maxTcaSeconds = DEFAULT_MAX_TCA_S }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sweepAngleRef = useRef(0);
 
@@ -37,9 +60,11 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
   const conjunctionsRef = useRef(conjunctions);
   const selectedSatIdRef = useRef(selectedSatId);
   const nowEpochSRef = useRef(nowEpochS);
+  const maxTcaSecondsRef = useRef(maxTcaSeconds);
   conjunctionsRef.current = conjunctions;
   selectedSatIdRef.current = selectedSatId;
   nowEpochSRef.current = nowEpochS;
+  maxTcaSecondsRef.current = maxTcaSeconds;
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -50,6 +75,7 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
     const currentConjunctions = conjunctionsRef.current;
     const currentSelectedSatId = selectedSatIdRef.current;
     const currentNowEpochS = nowEpochSRef.current;
+    const currentMaxTcaSeconds = Math.max(900, maxTcaSecondsRef.current);
 
     const w = canvas.width;
     const h = canvas.height;
@@ -128,7 +154,7 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
         const dtca = evt.tca_epoch_s - currentNowEpochS;
         if (dtca < -300) continue; // skip events more than 5min in the past
 
-        const tFrac = Math.min(1, Math.max(0, Math.abs(dtca) / MAX_TCA_S));
+        const tFrac = Math.min(1, Math.max(0, Math.abs(dtca) / currentMaxTcaSeconds));
         const rr = tFrac * R;
 
         const angle = approachAngle(evt.sat_pos_eci_km, evt.deb_pos_eci_km);
@@ -222,14 +248,11 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
 
   function drawRings(ctx: CanvasRenderingContext2D, cx: number, cy: number, R: number, time: number) {
     // TCA time rings with pulsing opacity
-    const timeRings = [
-      { s: 900,  label: '15m' },
-      { s: 2700, label: '45m' },
-      { s: 5400, label: '90m' },
-    ];
+    const currentMaxTcaSeconds = Math.max(900, maxTcaSecondsRef.current);
+    const timeRings = bullseyeRings(currentMaxTcaSeconds);
     for (let i = 0; i < timeRings.length; i++) {
       const ring = timeRings[i];
-      const rr = (ring.s / MAX_TCA_S) * R;
+      const rr = (ring.s / currentMaxTcaSeconds) * R;
       // Pulsing opacity with slight phase offset per ring
       const pulse = 0.06 + 0.09 * Math.abs(Math.sin(time * 1.2 + i * 0.8));
       ctx.strokeStyle = `rgba(255,255,255,${pulse})`;
@@ -245,7 +268,7 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
     }
 
     // innermost danger zone fill (pulsing)
-    const innerR = (900 / MAX_TCA_S) * R;
+    const innerR = (timeRings[0].s / currentMaxTcaSeconds) * R;
     const dangerPulse = 0.06 + 0.04 * Math.abs(Math.sin(time * 2));
     ctx.fillStyle = `rgba(239,68,68,${dangerPulse})`;
     ctx.beginPath();

@@ -113,9 +113,203 @@ static double cola_auto_dv_km_s() noexcept
     return v;
 }
 
+struct CdmWarningScanResult {
+    std::uint64_t warning_count = 0;
+    std::vector<ConjunctionRecord> records;
+};
+
+bool conjunction_less(const ConjunctionRecord& a, const ConjunctionRecord& b) noexcept
+{
+    if (a.collision != b.collision) return a.collision > b.collision;
+    if (a.fail_open != b.fail_open) return a.fail_open > b.fail_open;
+    if (std::abs(a.miss_distance_km - b.miss_distance_km) > 1.0e-9) {
+        return a.miss_distance_km < b.miss_distance_km;
+    }
+    if (std::abs(a.tca_epoch_s - b.tca_epoch_s) > 1.0e-6) {
+        return a.tca_epoch_s < b.tca_epoch_s;
+    }
+    if (a.satellite_id != b.satellite_id) return a.satellite_id < b.satellite_id;
+    return a.debris_id < b.debris_id;
+}
+
+void trim_sorted_conjunction_records(std::vector<ConjunctionRecord>& records,
+                                     std::size_t limit)
+{
+    std::sort(records.begin(), records.end(), conjunction_less);
+    if (records.size() > limit) {
+        records.resize(limit);
+    }
+}
+
+void append_conjunction_record_limited(std::vector<ConjunctionRecord>& records,
+                                       ConjunctionRecord record,
+                                       std::size_t limit)
+{
+    records.push_back(std::move(record));
+    trim_sorted_conjunction_records(records, limit);
+}
+
+inline double vector_norm2(const Vec3& v) noexcept
+{
+    return v.x * v.x + v.y * v.y + v.z * v.z;
+}
+
+template <typename BurnT>
+bool is_avoidance_burn(const BurnT& burn) noexcept
+{
+    return !burn.recovery_burn && !burn.graveyard_burn;
+}
+
+double burn_fuel_consumed_kg(const ExecutedBurn& burn) noexcept
+{
+    return std::max(0.0, burn.fuel_before_kg - burn.fuel_after_kg);
+}
+
+struct PairMinSeparationScan {
+    bool fail_open = false;
+    double min_d2 = 0.0;
+    double min_epoch_s = 0.0;
+    Vec3 min_sat{};
+    Vec3 min_deb{};
+    Vec3 min_rel_v{};
+};
+
+PairMinSeparationScan scan_pair_minimum_separation(Vec3 sat_pos,
+                                                   Vec3 sat_vel,
+                                                   Vec3 deb_pos,
+                                                   Vec3 deb_vel,
+                                                   double base_epoch_s,
+                                                   double horizon_s,
+                                                   double substep_s,
+                                                   double max_step_s) noexcept
+{
+    PairMinSeparationScan out;
+    out.min_d2 = vector_norm2(Vec3{
+        sat_pos.x - deb_pos.x,
+        sat_pos.y - deb_pos.y,
+        sat_pos.z - deb_pos.z,
+    });
+    out.min_epoch_s = base_epoch_s;
+    out.min_sat = sat_pos;
+    out.min_deb = deb_pos;
+    out.min_rel_v = Vec3{
+        sat_vel.x - deb_vel.x,
+        sat_vel.y - deb_vel.y,
+        sat_vel.z - deb_vel.z,
+    };
+
+    double elapsed_s = 0.0;
+    double remaining_s = std::max(0.0, horizon_s);
+    while (remaining_s > EPS_NUM) {
+        const double dt = std::min(substep_s, remaining_s);
+        remaining_s -= dt;
+
+        const bool ok_sat = propagate_rk4_j2_substep(sat_pos, sat_vel, dt, max_step_s);
+        const bool ok_deb = propagate_rk4_j2_substep(deb_pos, deb_vel, dt, max_step_s);
+        if (!ok_sat || !ok_deb) {
+            out.fail_open = true;
+            break;
+        }
+
+        elapsed_s += dt;
+        const double dx = sat_pos.x - deb_pos.x;
+        const double dy = sat_pos.y - deb_pos.y;
+        const double dz = sat_pos.z - deb_pos.z;
+        const double d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < out.min_d2) {
+            out.min_d2 = d2;
+            out.min_epoch_s = base_epoch_s + elapsed_s;
+            out.min_sat = sat_pos;
+            out.min_deb = deb_pos;
+            out.min_rel_v = Vec3{
+                sat_vel.x - deb_vel.x,
+                sat_vel.y - deb_vel.y,
+                sat_vel.z - deb_vel.z,
+            };
+        }
+    }
+
+    return out;
+}
+
+const ConjunctionRecord* best_predictive_record_for_satellite(
+    const std::vector<ConjunctionRecord>& records,
+    std::string_view satellite_id) noexcept
+{
+    for (const auto& record : records) {
+        if (record.satellite_id == satellite_id) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+struct MitigationEvaluationResult {
+    bool tracked = false;
+    bool evaluated = false;
+    bool collision_avoided = false;
+    double eval_epoch_s = 0.0;
+    double miss_distance_km = 0.0;
+    bool fail_open = false;
+};
+
+MitigationEvaluationResult evaluate_predictive_mitigation(const StateStore& store,
+                                                          const ScheduledBurn& burn,
+                                                          double current_epoch_s) noexcept
+{
+    MitigationEvaluationResult out;
+    out.tracked = burn.scheduled_from_predictive_cdm && !burn.trigger_debris_id.empty();
+    if (!out.tracked) {
+        return out;
+    }
+
+    if (burn.trigger_fail_open || burn.trigger_tca_epoch_s <= current_epoch_s + EPS_NUM) {
+        return out;
+    }
+
+    const std::size_t sat_idx = store.find(burn.satellite_id);
+    const std::size_t deb_idx = store.find(burn.trigger_debris_id);
+    if (sat_idx >= store.size() || deb_idx >= store.size()) {
+        return out;
+    }
+    if (store.type(sat_idx) != ObjectType::SATELLITE || store.type(deb_idx) != ObjectType::DEBRIS) {
+        return out;
+    }
+
+    const double horizon_s = std::min(
+        cdm_params().horizon_s,
+        std::max(cdm_params().substep_s, burn.trigger_tca_epoch_s - current_epoch_s + 3600.0)
+    );
+    Vec3 sat_pos{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+    Vec3 sat_vel{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+    Vec3 deb_pos{store.rx(deb_idx), store.ry(deb_idx), store.rz(deb_idx)};
+    Vec3 deb_vel{store.vx(deb_idx), store.vy(deb_idx), store.vz(deb_idx)};
+
+    const PairMinSeparationScan scan = scan_pair_minimum_separation(
+        sat_pos,
+        sat_vel,
+        deb_pos,
+        deb_vel,
+        current_epoch_s,
+        horizon_s,
+        cdm_params().substep_s,
+        cdm_params().rk4_max_step_s
+    );
+
+    out.fail_open = scan.fail_open;
+    out.eval_epoch_s = scan.min_epoch_s;
+    out.miss_distance_km = scan.fail_open ? 0.0 : std::sqrt(std::max(0.0, scan.min_d2));
+    out.evaluated = !scan.fail_open;
+    out.collision_avoided = out.evaluated
+        && burn.trigger_miss_distance_km <= COLLISION_THRESHOLD_KM + EPS_NUM
+        && out.miss_distance_km > COLLISION_THRESHOLD_KM + EPS_NUM;
+    return out;
+}
+
 std::uint64_t plan_collision_avoidance_burns(
     StateStore& store,
     const StepRunStats& step_stats,
+    const std::vector<ConjunctionRecord>& predictive_records,
     double epoch_s,
     std::uint64_t tick_id,
     std::vector<ScheduledBurn>& burn_queue,
@@ -227,6 +421,16 @@ std::uint64_t plan_collision_avoidance_burns(
         burn.auto_generated = true;
         burn.recovery_burn = false;
         burn.graveyard_burn = false;
+        burn.blackout_overlap = cascade::burn_overlaps_blackout(store, sat_idx, burn_epoch);
+
+        if (const ConjunctionRecord* trigger = best_predictive_record_for_satellite(predictive_records, sat_id)) {
+            burn.scheduled_from_predictive_cdm = true;
+            burn.trigger_debris_id = trigger->debris_id;
+            burn.trigger_tca_epoch_s = trigger->tca_epoch_s;
+            burn.trigger_miss_distance_km = trigger->miss_distance_km;
+            burn.trigger_approach_speed_km_s = trigger->approach_speed_km_s;
+            burn.trigger_fail_open = trigger->fail_open;
+        }
 
         burn_queue.push_back(std::move(burn));
         ++planned;
@@ -249,8 +453,9 @@ std::uint64_t plan_collision_avoidance_burns(
 //   - The broad-phase is re-used to avoid O(N²) pair enumeration.
 //   - Fail-open: if propagation fails for a pair, it counts as a warning.
 // ---------------------------------------------------------------------------
-std::uint64_t compute_cdm_warnings_24h(
+CdmWarningScanResult compute_cdm_warnings_24h(
     const StateStore& store,
+    double base_epoch_s,
     const BroadPhaseConfig& broad_cfg) noexcept
 {
     const double k_cdm_horizon_s = cdm_params().horizon_s;
@@ -258,11 +463,13 @@ std::uint64_t compute_cdm_warnings_24h(
     const double k_rk4_max_step_s = cdm_params().rk4_max_step_s;
     const double collision_threshold_sq =
         COLLISION_THRESHOLD_KM * COLLISION_THRESHOLD_KM;
+    constexpr std::size_t kMaxPredictiveRecords = 1024;
 
     // Broad-phase candidate generation uses the *current* state snapshot.
     const BroadPhaseResult broad = generate_broad_phase_candidates(store, broad_cfg);
 
-    std::uint64_t warnings = 0;
+    CdmWarningScanResult out;
+    out.records.reserve(std::min<std::size_t>(broad.candidates.size(), kMaxPredictiveRecords));
 
     for (const BroadPhasePair& pair : broad.candidates) {
         const std::size_t sat_idx = static_cast<std::size_t>(pair.sat_idx);
@@ -278,7 +485,14 @@ std::uint64_t compute_cdm_warnings_24h(
         Vec3 vd{store.vx(obj_idx), store.vy(obj_idx), store.vz(obj_idx)};
 
         bool conjunction_found = false;
+        bool fail_open = false;
         double remaining_s = k_cdm_horizon_s;
+        double elapsed_s = 0.0;
+        double min_d2 = vector_norm2(Vec3{rs.x - rd.x, rs.y - rd.y, rs.z - rd.z});
+        double min_epoch_s = base_epoch_s;
+        Vec3 min_sat = rs;
+        Vec3 min_deb = rd;
+        Vec3 min_rel_v{vs.x - vd.x, vs.y - vd.y, vs.z - vd.z};
 
         while (remaining_s > EPS_NUM) {
             const double dt = std::min(k_cdm_substep_s, remaining_s);
@@ -288,13 +502,23 @@ std::uint64_t compute_cdm_warnings_24h(
             if (!ok_s || !ok_d) {
                 // Fail-open: propagation failure => count as warning.
                 conjunction_found = true;
+                fail_open = true;
                 break;
             }
+
+            elapsed_s += dt;
 
             const double dx = rs.x - rd.x;
             const double dy = rs.y - rd.y;
             const double dz = rs.z - rd.z;
             const double d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < min_d2) {
+                min_d2 = d2;
+                min_epoch_s = base_epoch_s + elapsed_s;
+                min_sat = rs;
+                min_deb = rd;
+                min_rel_v = {vs.x - vd.x, vs.y - vd.y, vs.z - vd.z};
+            }
 
             if (d2 < collision_threshold_sq) {
                 conjunction_found = true;
@@ -305,11 +529,25 @@ std::uint64_t compute_cdm_warnings_24h(
         }
 
         if (conjunction_found) {
-            ++warnings;
+            ++out.warning_count;
+
+            ConjunctionRecord rec;
+            rec.satellite_id = store.id(sat_idx);
+            rec.debris_id = store.id(obj_idx);
+            rec.tca_epoch_s = min_epoch_s;
+            rec.miss_distance_km = fail_open ? 0.0 : std::sqrt(std::max(0.0, min_d2));
+            rec.approach_speed_km_s = std::sqrt(vector_norm2(min_rel_v));
+            rec.sat_pos_eci_km = min_sat;
+            rec.deb_pos_eci_km = min_deb;
+            rec.collision = (!fail_open && min_d2 < collision_threshold_sq);
+            rec.predictive = true;
+            rec.fail_open = fail_open;
+            rec.tick_id = 0;
+            append_conjunction_record_limited(out.records, std::move(rec), kMaxPredictiveRecords);
         }
     }
 
-    return warnings;
+    return out;
 }
 
 std::string build_snapshot(const StateStore& store,
@@ -832,11 +1070,12 @@ std::string build_propagation_json(const StateStore& store,
 // build_burns_json — serialize executed burn history + pending burn queue
 // ---------------------------------------------------------------------------
 std::string build_burns_json(const std::deque<ExecutedBurn>& history,
+                             const std::deque<ScheduledBurn>& dropped,
                              const std::vector<ScheduledBurn>& pending,
                              const std::unordered_map<std::string, PerSatManeuverStats>& per_sat)
 {
     std::string out;
-    out.reserve(4096);
+    out.reserve(6144);
     out += "{\"executed\":[";
     bool first = true;
     for (const auto& b : history) {
@@ -870,6 +1109,97 @@ std::string build_burns_json(const std::deque<ExecutedBurn>& history,
         out += (b.recovery_burn ? "true" : "false");
         out += ",\"graveyard_burn\":";
         out += (b.graveyard_burn ? "true" : "false");
+        out += ",\"blackout_overlap\":";
+        out += (b.blackout_overlap ? "true" : "false");
+        out += ",\"cooldown_conflict\":";
+        out += (b.cooldown_conflict ? "true" : "false");
+        out += ",\"command_conflict\":";
+        out += (b.command_conflict ? "true" : "false");
+        out += ",\"scheduled_from_predictive_cdm\":";
+        out += (b.scheduled_from_predictive_cdm ? "true" : "false");
+        out += ",\"trigger_debris_id\":";
+        append_json_string(out, b.trigger_debris_id);
+        out += ",\"trigger_tca\":";
+        append_json_string(out, b.trigger_tca_epoch_s > 0.0 ? iso8601(b.trigger_tca_epoch_s) : std::string{});
+        out += ",\"trigger_tca_epoch_s\":";
+        out += fmt_double(b.trigger_tca_epoch_s, 3);
+        out += ",\"trigger_miss_distance_km\":";
+        out += fmt_double(b.trigger_miss_distance_km, 6);
+        out += ",\"trigger_approach_speed_km_s\":";
+        out += fmt_double(b.trigger_approach_speed_km_s, 6);
+        out += ",\"trigger_fail_open\":";
+        out += (b.trigger_fail_open ? "true" : "false");
+        out += ",\"mitigation_tracked\":";
+        out += (b.mitigation_tracked ? "true" : "false");
+        out += ",\"mitigation_evaluated\":";
+        out += (b.mitigation_evaluated ? "true" : "false");
+        out += ",\"collision_avoided\":";
+        out += (b.collision_avoided ? "true" : "false");
+        out += ",\"mitigation_eval_epoch\":";
+        append_json_string(out, b.mitigation_eval_epoch_s > 0.0 ? iso8601(b.mitigation_eval_epoch_s) : std::string{});
+        out += ",\"mitigation_eval_epoch_s\":";
+        out += fmt_double(b.mitigation_eval_epoch_s, 3);
+        out += ",\"mitigation_miss_distance_km\":";
+        out += fmt_double(b.mitigation_miss_distance_km, 6);
+        out += ",\"mitigation_fail_open\":";
+        out += (b.mitigation_fail_open ? "true" : "false");
+        out += '}';
+    }
+    out += "],\"dropped\":[";
+    first = true;
+    for (const auto& b : dropped) {
+        if (!first) out += ',';
+        first = false;
+        out += "{\"id\":";
+        append_json_string(out, b.id);
+        out += ",\"satellite_id\":";
+        append_json_string(out, b.satellite_id);
+        out += ",\"burn_epoch\":";
+        append_json_string(out, iso8601(b.burn_epoch_s));
+        out += ",\"upload_epoch\":";
+        append_json_string(out, b.upload_epoch_s > 0.0 ? iso8601(b.upload_epoch_s) : std::string{});
+        out += ",\"upload_station\":";
+        append_json_string(out, b.upload_station_id);
+        out += ",\"delta_v_km_s\":[";
+        out += fmt_double(b.delta_v_km_s.x, 9);
+        out += ',';
+        out += fmt_double(b.delta_v_km_s.y, 9);
+        out += ',';
+        out += fmt_double(b.delta_v_km_s.z, 9);
+        out += "],\"delta_v_norm_km_s\":";
+        out += fmt_double(b.delta_v_norm_km_s, 9);
+        out += ",\"auto_generated\":";
+        out += (b.auto_generated ? "true" : "false");
+        out += ",\"recovery_burn\":";
+        out += (b.recovery_burn ? "true" : "false");
+        out += ",\"graveyard_burn\":";
+        out += (b.graveyard_burn ? "true" : "false");
+        out += ",\"blackout_overlap\":";
+        out += (b.blackout_overlap ? "true" : "false");
+        out += ",\"cooldown_conflict\":";
+        out += (b.cooldown_conflict ? "true" : "false");
+        out += ",\"command_conflict\":";
+        out += (b.command_conflict ? "true" : "false");
+        out += ",\"scheduled_from_predictive_cdm\":";
+        out += (b.scheduled_from_predictive_cdm ? "true" : "false");
+        out += ",\"trigger_debris_id\":";
+        append_json_string(out, b.trigger_debris_id);
+        out += ",\"trigger_tca\":";
+        append_json_string(out, b.trigger_tca_epoch_s > 0.0 ? iso8601(b.trigger_tca_epoch_s) : std::string{});
+        out += ",\"trigger_tca_epoch_s\":";
+        out += fmt_double(b.trigger_tca_epoch_s, 3);
+        out += ",\"trigger_miss_distance_km\":";
+        out += fmt_double(b.trigger_miss_distance_km, 6);
+        out += ",\"trigger_approach_speed_km_s\":";
+        out += fmt_double(b.trigger_approach_speed_km_s, 6);
+        out += ",\"trigger_fail_open\":";
+        out += (b.trigger_fail_open ? "true" : "false");
+        out += ",\"upload_window_missed\":";
+        out += (b.upload_window_missed ? "true" : "false");
+        out += ",\"dropped_epoch\":";
+        append_json_string(out, b.dropped_epoch_s > 0.0 ? iso8601(b.dropped_epoch_s) : std::string{});
+        out += ",\"dropped_epoch_s\":";
+        out += fmt_double(b.dropped_epoch_s, 3);
         out += '}';
     }
     out += "],\"pending\":[";
@@ -901,6 +1231,28 @@ std::string build_burns_json(const std::deque<ExecutedBurn>& history,
         out += (b.recovery_burn ? "true" : "false");
         out += ",\"graveyard_burn\":";
         out += (b.graveyard_burn ? "true" : "false");
+        out += ",\"blackout_overlap\":";
+        out += (b.blackout_overlap ? "true" : "false");
+        out += ",\"cooldown_conflict\":";
+        out += (b.cooldown_conflict ? "true" : "false");
+        out += ",\"command_conflict\":";
+        out += (b.command_conflict ? "true" : "false");
+        out += ",\"scheduled_from_predictive_cdm\":";
+        out += (b.scheduled_from_predictive_cdm ? "true" : "false");
+        out += ",\"trigger_debris_id\":";
+        append_json_string(out, b.trigger_debris_id);
+        out += ",\"trigger_tca\":";
+        append_json_string(out, b.trigger_tca_epoch_s > 0.0 ? iso8601(b.trigger_tca_epoch_s) : std::string{});
+        out += ",\"trigger_tca_epoch_s\":";
+        out += fmt_double(b.trigger_tca_epoch_s, 3);
+        out += ",\"trigger_miss_distance_km\":";
+        out += fmt_double(b.trigger_miss_distance_km, 6);
+        out += ",\"trigger_approach_speed_km_s\":";
+        out += fmt_double(b.trigger_approach_speed_km_s, 6);
+        out += ",\"trigger_fail_open\":";
+        out += (b.trigger_fail_open ? "true" : "false");
+        out += ",\"upload_window_missed\":";
+        out += (b.upload_window_missed ? "true" : "false");
         out += '}';
     }
     out += "],\"per_satellite\":{";
@@ -915,8 +1267,51 @@ std::string build_burns_json(const std::deque<ExecutedBurn>& history,
         out += fmt_double(st.delta_v_total_km_s, 9);
         out += ",\"fuel_consumed_kg\":";
         out += fmt_double(st.fuel_consumed_kg, 4);
+        out += ",\"collisions_avoided\":";
+        out += std::to_string(st.collisions_avoided);
+        out += ",\"avoidance_burns_executed\":";
+        out += std::to_string(st.avoidance_burns_executed);
+        out += ",\"recovery_burns_executed\":";
+        out += std::to_string(st.recovery_burns_executed);
+        out += ",\"graveyard_burns_executed\":";
+        out += std::to_string(st.graveyard_burns_executed);
+        out += ",\"avoidance_fuel_consumed_kg\":";
+        out += fmt_double(st.avoidance_fuel_consumed_kg, 4);
         out += '}';
     }
+    double total_fuel_consumed_kg = 0.0;
+    double total_avoidance_fuel_consumed_kg = 0.0;
+    std::uint64_t total_collisions_avoided = 0;
+    std::uint64_t total_avoidance_burns = 0;
+    std::uint64_t total_recovery_burns = 0;
+    std::uint64_t total_graveyard_burns = 0;
+    for (const auto& [_, st] : per_sat) {
+        total_fuel_consumed_kg += st.fuel_consumed_kg;
+        total_avoidance_fuel_consumed_kg += st.avoidance_fuel_consumed_kg;
+        total_collisions_avoided += st.collisions_avoided;
+        total_avoidance_burns += st.avoidance_burns_executed;
+        total_recovery_burns += st.recovery_burns_executed;
+        total_graveyard_burns += st.graveyard_burns_executed;
+    }
+    out += "},\"summary\":{";
+    out += "\"burns_executed\":";
+    out += std::to_string(history.size());
+    out += ",\"burns_pending\":";
+    out += std::to_string(pending.size());
+    out += ",\"burns_dropped\":";
+    out += std::to_string(dropped.size());
+    out += ",\"fuel_consumed_kg\":";
+    out += fmt_double(total_fuel_consumed_kg, 4);
+    out += ",\"avoidance_fuel_consumed_kg\":";
+    out += fmt_double(total_avoidance_fuel_consumed_kg, 4);
+    out += ",\"collisions_avoided\":";
+    out += std::to_string(total_collisions_avoided);
+    out += ",\"avoidance_burns_executed\":";
+    out += std::to_string(total_avoidance_burns);
+    out += ",\"recovery_burns_executed\":";
+    out += std::to_string(total_recovery_burns);
+    out += ",\"graveyard_burns_executed\":";
+    out += std::to_string(total_graveyard_burns);
     out += "}}";
     return out;
 }
@@ -925,18 +1320,30 @@ std::string build_burns_json(const std::deque<ExecutedBurn>& history,
 // build_conjunctions_json — serialize conjunction history ring buffer
 // ---------------------------------------------------------------------------
 std::string build_conjunctions_json(const std::deque<ConjunctionRecord>& history,
-                                    std::string_view satellite_id_filter)
+                                    std::string_view satellite_id_filter,
+                                    std::string_view source_filter)
 {
     std::string out;
     out.reserve(4096);
+    std::size_t emitted = 0;
+    const bool only_predictive = source_filter == "predicted" || source_filter == "predictive";
+    const bool only_history = source_filter == "history";
+
     out += "{\"conjunctions\":[";
     bool first = true;
     for (const auto& c : history) {
         if (!satellite_id_filter.empty() && c.satellite_id != satellite_id_filter) {
             continue;
         }
+        if (only_predictive && !c.predictive) {
+            continue;
+        }
+        if (only_history && c.predictive) {
+            continue;
+        }
         if (!first) out += ',';
         first = false;
+        ++emitted;
         out += "{\"satellite_id\":";
         append_json_string(out, c.satellite_id);
         out += ",\"debris_id\":";
@@ -963,12 +1370,18 @@ std::string build_conjunctions_json(const std::deque<ConjunctionRecord>& history
         out += fmt_double(c.deb_pos_eci_km.z, 6);
         out += "],\"collision\":";
         out += (c.collision ? "true" : "false");
+        out += ",\"predictive\":";
+        out += (c.predictive ? "true" : "false");
+        out += ",\"fail_open\":";
+        out += (c.fail_open ? "true" : "false");
         out += ",\"tick_id\":";
         out += std::to_string(c.tick_id);
         out += '}';
     }
     out += "],\"count\":";
-    out += std::to_string(history.size());
+    out += std::to_string(emitted);
+    out += ",\"source\":";
+    append_json_string(out, source_filter.empty() ? "combined" : std::string(source_filter));
     out += '}';
     return out;
 }
@@ -1556,7 +1969,17 @@ void EngineRuntime::publish_read_views()
         next->snapshot_json = build_snapshot(store_, clock_);
         next->conflicts_json = build_conflicts_json(store_);
         next->propagation_json = build_propagation_json(store_, prop_stats_, step_cfg_, recovery_cfg_);
-        next->burns_json = build_burns_json(executed_burn_history_, burn_queue_, per_sat_maneuver_stats_);
+        next->burns_json = build_burns_json(
+            executed_burn_history_,
+            dropped_burn_history_,
+            burn_queue_,
+            per_sat_maneuver_stats_
+        );
+        next->predictive_conjunctions_json = build_conjunctions_json(
+            predictive_conjunction_history_,
+            {},
+            "predicted"
+        );
     }
 
     std::atomic_store_explicit(&published_views_, std::const_pointer_cast<const PublishedReadViews>(next), std::memory_order_release);
@@ -1685,6 +2108,7 @@ ScheduleCommandResult EngineRuntime::execute_schedule_maneuver(std::string_view 
     }
 
     bool cooldown_ok = true;
+    bool command_conflict = false;
     const auto last_it = last_burn_epoch_by_sat_.find(sat_id);
     const double last_burn_epoch = (last_it == last_burn_epoch_by_sat_.end())
         ? -1.0e30
@@ -1693,6 +2117,7 @@ ScheduleCommandResult EngineRuntime::execute_schedule_maneuver(std::string_view 
     const double from_last = burns.front().burn_epoch_s - last_burn_epoch;
     if (from_last + EPS_NUM < SAT_COOLDOWN_S) {
         cooldown_ok = false;
+        command_conflict = true;
     }
 
     if (cooldown_ok) {
@@ -1702,6 +2127,7 @@ ScheduleCommandResult EngineRuntime::execute_schedule_maneuver(std::string_view 
                 const double dt = std::abs(incoming.burn_epoch_s - queued.burn_epoch_s);
                 if (dt + EPS_NUM < SAT_COOLDOWN_S) {
                     cooldown_ok = false;
+                    command_conflict = true;
                     break;
                 }
             }
@@ -1770,6 +2196,9 @@ ScheduleCommandResult EngineRuntime::execute_schedule_maneuver(std::string_view 
         ScheduledBurn b = burns[bi];
         b.upload_epoch_s = parsed_upload_epochs[bi];
         b.upload_station_id = parsed_upload_stations[bi];
+        b.cooldown_conflict = !cooldown_ok;
+        b.command_conflict = command_conflict;
+        b.blackout_overlap = cascade::burn_overlaps_blackout(store_, idx, b.burn_epoch_s);
         burn_queue_.push_back(std::move(b));
     }
     recovery_requests_by_sat_.erase(sat_id);
@@ -1828,9 +2257,36 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         }
 
         const std::uint64_t tick_id = static_cast<std::uint64_t>(tick_count_.load()) + 1;
+
+        // 24-hour predictive CDM scan (PS.md §3: "forecast potential
+        // collisions up to 24 hours in the future").
+        const CdmWarningScanResult cdm_scan = compute_cdm_warnings_24h(
+            store_,
+            clock_.epoch_s(),
+            step_cfg_.broad_phase
+        );
+        cdm_warnings_count_ = cdm_scan.warning_count;
+        predictive_conjunction_history_.clear();
+        for (const auto& ce : cdm_scan.records) {
+            predictive_conjunction_history_.push_back(ce);
+
+            const std::size_t sat_idx = store_.find(ce.satellite_id);
+            if (sat_idx >= store_.size()) {
+                continue;
+            }
+            const auto sat_idx_u32 = static_cast<std::uint32_t>(sat_idx);
+            if (std::find(stats.collision_sat_indices.begin(),
+                          stats.collision_sat_indices.end(),
+                          sat_idx_u32) == stats.collision_sat_indices.end()) {
+                stats.collision_sat_indices.push_back(sat_idx_u32);
+            }
+        }
+        std::sort(stats.collision_sat_indices.begin(), stats.collision_sat_indices.end());
+
         const std::uint64_t auto_planned = plan_collision_avoidance_burns(
             store_,
             stats,
+            cdm_scan.records,
             clock_.epoch_s(),
             tick_id,
             burn_queue_,
@@ -1840,7 +2296,14 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         );
 
         std::uint64_t upload_missed_tick = 0;
-        cascade::validate_pending_upload_windows(store_, clock_.epoch_s(), burn_queue_, upload_missed_tick);
+        std::vector<ScheduledBurn> dropped_burns_tick;
+        cascade::validate_pending_upload_windows(
+            store_,
+            clock_.epoch_s(),
+            burn_queue_,
+            upload_missed_tick,
+            &dropped_burns_tick
+        );
 
         double slot_error_sum_tick = 0.0;
         double slot_error_max_tick = 0.0;
@@ -1889,10 +2352,18 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
             last_burn_epoch_by_sat_,
             recovery_requests_by_sat_,
             graveyard_requested_by_sat_,
-            graveyard_completed_by_sat_
+            graveyard_completed_by_sat_,
+            &dropped_burns_tick
         );
         upload_missed_tick += exec_stats.upload_missed;
         stats.maneuvers_executed = exec_stats.executed;
+
+        for (auto& dropped : dropped_burns_tick) {
+            dropped_burn_history_.push_back(std::move(dropped));
+            while (dropped_burn_history_.size() > kMaxDroppedBurnHistory) {
+                dropped_burn_history_.pop_front();
+            }
+        }
 
         // --- Phase 0D: Identify executed burns and record them ---
         if (exec_stats.executed > 0) {
@@ -1915,11 +2386,33 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
                 eb.auto_generated = b.auto_generated;
                 eb.recovery_burn = b.recovery_burn;
                 eb.graveyard_burn = b.graveyard_burn;
+                eb.blackout_overlap = b.blackout_overlap;
+                eb.cooldown_conflict = b.cooldown_conflict;
+                eb.command_conflict = b.command_conflict;
+                eb.scheduled_from_predictive_cdm = b.scheduled_from_predictive_cdm;
+                eb.trigger_debris_id = b.trigger_debris_id;
+                eb.trigger_tca_epoch_s = b.trigger_tca_epoch_s;
+                eb.trigger_miss_distance_km = b.trigger_miss_distance_km;
+                eb.trigger_approach_speed_km_s = b.trigger_approach_speed_km_s;
+                eb.trigger_fail_open = b.trigger_fail_open;
                 // Fuel before from snapshot; fuel after from current store
                 auto fit = fuel_snapshot_before.find(b.satellite_id);
                 eb.fuel_before_kg = (fit != fuel_snapshot_before.end()) ? fit->second : 0.0;
                 const std::size_t si = store_.find(b.satellite_id);
                 eb.fuel_after_kg = (si < store_.size()) ? store_.fuel_kg(si) : 0.0;
+
+                const MitigationEvaluationResult mitigation = evaluate_predictive_mitigation(
+                    store_,
+                    b,
+                    clock_.epoch_s()
+                );
+                eb.mitigation_tracked = mitigation.tracked;
+                eb.mitigation_evaluated = mitigation.evaluated;
+                eb.collision_avoided = mitigation.collision_avoided;
+                eb.mitigation_eval_epoch_s = mitigation.eval_epoch_s;
+                eb.mitigation_miss_distance_km = mitigation.miss_distance_km;
+                eb.mitigation_fail_open = mitigation.fail_open;
+
                 executed_burn_history_.push_back(std::move(eb));
                 while (executed_burn_history_.size() > kMaxExecutedBurnHistory) {
                     executed_burn_history_.pop_front();
@@ -1928,7 +2421,21 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
                 auto& ps = per_sat_maneuver_stats_[b.satellite_id];
                 ++ps.burns_executed;
                 ps.delta_v_total_km_s += b.delta_v_norm_km_s;
-                ps.fuel_consumed_kg += (eb.fuel_before_kg - eb.fuel_after_kg);
+                const double burn_fuel_kg = burn_fuel_consumed_kg(executed_burn_history_.back());
+                ps.fuel_consumed_kg += burn_fuel_kg;
+                if (is_avoidance_burn(b)) {
+                    ++ps.avoidance_burns_executed;
+                    ps.avoidance_fuel_consumed_kg += burn_fuel_kg;
+                    if (executed_burn_history_.back().collision_avoided) {
+                        ++ps.collisions_avoided;
+                    }
+                }
+                if (b.recovery_burn) {
+                    ++ps.recovery_burns_executed;
+                }
+                if (b.graveyard_burn) {
+                    ++ps.graveyard_burns_executed;
+                }
             }
         }
 
@@ -2104,10 +2611,6 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
         prop_stats_.broad_dcriterion_shadow_rejected_total += stats.broad_dcriterion_shadow_rejected;
         prop_stats_.broad_fail_open_objects_total += stats.broad_fail_open_objects;
         prop_stats_.broad_fail_open_satellites_total += stats.broad_fail_open_satellites;
-
-        // 24-hour predictive CDM scan (PS.md §3: "forecast potential
-        // collisions up to 24 hours in the future").
-        cdm_warnings_count_ = compute_cdm_warnings_24h(store_, step_cfg_.broad_phase);
 
         // --- Phase 0D: Record conjunction events from this step ---
         for (auto& ce : stats.conjunction_events) {
@@ -2317,6 +2820,7 @@ std::uint64_t EngineRuntime::enforce_stationkeeping_recovery(double epoch_s,
         burn.auto_generated = true;
         burn.recovery_burn = true;
         burn.graveyard_burn = false;
+        burn.blackout_overlap = cascade::burn_overlaps_blackout(store_, i, burn_epoch);
         burn_queue_.push_back(std::move(burn));
 
         req.remaining_delta_v_km_s.x -= dv_cmd.x;
@@ -2447,6 +2951,14 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += std::to_string(deb_count);
         out += ",\"pending_burn_queue\":";
         out += std::to_string(pending_burn_queue);
+        out += ",\"active_cdm_warnings\":";
+        out += std::to_string(cdm_warnings_count_);
+        out += ",\"predictive_conjunction_count\":";
+        out += std::to_string(predictive_conjunction_history_.size());
+        out += ",\"history_conjunction_count\":";
+        out += std::to_string(conjunction_history_.size());
+        out += ",\"dropped_burn_count\":";
+        out += std::to_string(dropped_burn_history_.size());
         out += ",\"pending_recovery_requests\":";
         out += std::to_string(recovery_requests_by_sat_.size());
         out += ",\"pending_graveyard_requests\":";
@@ -2818,14 +3330,42 @@ std::string EngineRuntime::burns_json() const
     }
 
     std::shared_lock lock(mutex_);
-    return build_burns_json(executed_burn_history_, burn_queue_, per_sat_maneuver_stats_);
+    return build_burns_json(
+        executed_burn_history_,
+        dropped_burn_history_,
+        burn_queue_,
+        per_sat_maneuver_stats_
+    );
 }
 
-std::string EngineRuntime::conjunctions_json(std::string_view satellite_id_filter) const
+std::string EngineRuntime::conjunctions_json(std::string_view satellite_id_filter,
+                                             std::string_view source_filter) const
 {
-    // Conjunctions are not pre-published (filter varies per request).
+    const bool wants_predictive = (source_filter == "predicted" || source_filter == "predictive");
+    const bool wants_combined = (source_filter == "combined");
+    if (wants_predictive && satellite_id_filter.empty()) {
+        const std::shared_ptr<const PublishedReadViews> view =
+            std::atomic_load_explicit(&published_views_, std::memory_order_acquire);
+        if (view) {
+            return view->predictive_conjunctions_json;
+        }
+    }
+
+    // Conjunctions are not fully pre-published (filter varies per request).
     std::shared_lock lock(mutex_);
-    return build_conjunctions_json(conjunction_history_, satellite_id_filter);
+    if (wants_predictive) {
+        return build_conjunctions_json(predictive_conjunction_history_, satellite_id_filter, source_filter);
+    }
+    if (!wants_combined) {
+        const std::string_view history_label = source_filter.empty() ? std::string_view{"history"} : source_filter;
+        return build_conjunctions_json(conjunction_history_, satellite_id_filter, history_label);
+    }
+
+    std::deque<ConjunctionRecord> combined = predictive_conjunction_history_;
+    for (const auto& rec : conjunction_history_) {
+        combined.push_back(rec);
+    }
+    return build_conjunctions_json(combined, satellite_id_filter, source_filter);
 }
 
 std::string EngineRuntime::trajectory_json(std::string_view satellite_id) const

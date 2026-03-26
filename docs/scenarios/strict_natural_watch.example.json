@@ -1,0 +1,32 @@
+{
+  "scenario_id": "strict_natural_watch_example",
+  "description": "Example strict real-data replay preset using a real payload-derived operator fleet and real debris background.",
+  "catalog_sources": [
+    "data.txt"
+  ],
+  "target_epoch": "2026-03-20T10:32:54.035Z",
+  "operator_selection": {
+    "mode": "catalog",
+    "count": 8,
+    "norad_ids": [
+      "48392",
+      "62653"
+    ]
+  },
+  "filters": {
+    "max_debris": 5000,
+    "max_periapsis_km": 2000.0,
+    "batch_size": 500
+  },
+  "warmup": {
+    "steps": 3,
+    "step_seconds": 60
+  },
+  "replay": {
+    "api_base": "http://localhost:8000"
+  },
+  "notes": [
+    "This file is safe to commit because it is only a manifest template.",
+    "The actual large data files remain local-only and gitignored."
+  ]
+}

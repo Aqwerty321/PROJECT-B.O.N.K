@@ -293,12 +293,16 @@ void register_routes(httplib::Server& server,
     server.Get("/api/debug/conjunctions", [&runtime, with_cors](const httplib::Request& req, httplib::Response& res) {
         std::string_view filter;
         std::string filter_str;
+        std::string source_filter;
         if (req.has_param("satellite_id")) {
             filter_str = req.get_param_value("satellite_id");
             filter = filter_str;
         }
+        if (req.has_param("source")) {
+            source_filter = req.get_param_value("source");
+        }
         res.status = 200;
-        res.set_content(runtime.conjunctions_json(filter), "application/json");
+        res.set_content(runtime.conjunctions_json(filter, source_filter), "application/json");
         with_cors(req, res);
     });
 

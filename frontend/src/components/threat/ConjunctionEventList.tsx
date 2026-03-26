@@ -72,7 +72,7 @@ export function ConjunctionEventList({
               <span style={{ color, fontSize: '11px', textAlign: 'right' }}>{event.miss_distance_km.toFixed(2)} km miss</span>
               <span style={{ color: theme.colors.textDim, fontSize: '11px' }}>{event.approach_speed_km_s.toFixed(3)} km/s</span>
               <span style={{ color: event.collision ? theme.colors.critical : theme.colors.textMuted, fontSize: '11px', textAlign: 'right' }}>
-                {event.collision ? 'Collision flagged' : 'Predicted approach'}
+                {event.fail_open ? 'Fail-open warning' : event.predictive ? 'Predictive 24h' : event.collision ? 'Collision flagged' : 'Predicted approach'}
               </span>
             </div>
           </button>

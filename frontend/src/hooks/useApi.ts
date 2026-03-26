@@ -108,7 +108,11 @@ export function useBurns(intervalMs = 2000) {
   return { burns, error };
 }
 
-export function useConjunctions(intervalMs = 2000, satelliteId?: string) {
+export function useConjunctions(
+  intervalMs = 2000,
+  satelliteId?: string,
+  source?: 'history' | 'predicted' | 'combined',
+) {
   const [conjunctions, setConjunctions] = useState<ConjunctionsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -117,7 +121,10 @@ export function useConjunctions(intervalMs = 2000, satelliteId?: string) {
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
     try {
-      const params = satelliteId ? `?satellite_id=${encodeURIComponent(satelliteId)}` : '';
+      const search = new URLSearchParams();
+      if (satelliteId) search.set('satellite_id', satelliteId);
+      if (source) search.set('source', source);
+      const params = search.size > 0 ? `?${search.toString()}` : '';
       const res = await fetch(`${API_BASE}/api/debug/conjunctions${params}`, {
         signal: abortRef.current.signal,
       });
@@ -130,7 +137,7 @@ export function useConjunctions(intervalMs = 2000, satelliteId?: string) {
         setError((e as Error).message);
       }
     }
-  }, [satelliteId]);
+  }, [satelliteId, source]);
 
   useEffect(() => {
     fetchConjunctions();

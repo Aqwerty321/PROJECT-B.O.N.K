@@ -27,6 +27,17 @@ struct ScheduledBurn {
     bool auto_generated = false;
     bool recovery_burn = false;
     bool graveyard_burn = false;
+    bool blackout_overlap = false;
+    bool cooldown_conflict = false;
+    bool command_conflict = false;
+    bool scheduled_from_predictive_cdm = false;
+    std::string trigger_debris_id;
+    double trigger_tca_epoch_s = 0.0;
+    double trigger_miss_distance_km = 0.0;
+    double trigger_approach_speed_km_s = 0.0;
+    bool trigger_fail_open = false;
+    bool upload_window_missed = false;
+    double dropped_epoch_s = 0.0;
 };
 
 // ---------------------------------------------------------------------------
@@ -46,6 +57,21 @@ struct ExecutedBurn {
     bool auto_generated = false;
     bool recovery_burn = false;
     bool graveyard_burn = false;
+    bool blackout_overlap = false;
+    bool cooldown_conflict = false;
+    bool command_conflict = false;
+    bool scheduled_from_predictive_cdm = false;
+    std::string trigger_debris_id;
+    double trigger_tca_epoch_s = 0.0;
+    double trigger_miss_distance_km = 0.0;
+    double trigger_approach_speed_km_s = 0.0;
+    bool trigger_fail_open = false;
+    bool mitigation_tracked = false;
+    bool mitigation_evaluated = false;
+    bool collision_avoided = false;
+    double mitigation_eval_epoch_s = 0.0;
+    double mitigation_miss_distance_km = 0.0;
+    bool mitigation_fail_open = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -63,6 +89,8 @@ struct ConjunctionRecord {
     Vec3 sat_pos_eci_km{};             // satellite ECI position at detection
     Vec3 deb_pos_eci_km{};             // debris ECI position at detection
     bool collision = false;            // was this a collision event?
+    bool predictive = false;           // predictive 24h CDM scan vs narrow history
+    bool fail_open = false;            // true when warning was promoted on scan failure
     std::uint64_t tick_id = 0;
 };
 
@@ -86,6 +114,11 @@ struct PerSatManeuverStats {
     std::uint64_t burns_executed = 0;
     double delta_v_total_km_s = 0.0;
     double fuel_consumed_kg = 0.0;
+    std::uint64_t collisions_avoided = 0;
+    std::uint64_t avoidance_burns_executed = 0;
+    std::uint64_t recovery_burns_executed = 0;
+    std::uint64_t graveyard_burns_executed = 0;
+    double avoidance_fuel_consumed_kg = 0.0;
 };
 
 struct ManeuverExecStats {
@@ -234,6 +267,10 @@ bool compute_upload_plan_for_burn(const StateStore& store,
                                   double& out_upload_epoch_s,
                                   std::string& out_station_id) noexcept;
 
+bool burn_overlaps_blackout(const StateStore& store,
+                            std::size_t sat_idx,
+                            double burn_epoch_s) noexcept;
+
 bool choose_burn_epoch_with_upload(const StateStore& store,
                                    const std::vector<ScheduledBurn>& burn_queue,
                                    const std::unordered_map<std::string, double>& last_burn_epoch_by_sat,
@@ -276,11 +313,13 @@ ManeuverExecStats execute_due_maneuvers(StateStore& store,
                                         std::unordered_map<std::string, double>& last_burn_epoch_by_sat,
                                         std::unordered_map<std::string, RecoveryRequest>& recovery_requests_by_sat,
                                         std::unordered_map<std::string, bool>& graveyard_requested_by_sat,
-                                        std::unordered_map<std::string, bool>& graveyard_completed_by_sat);
+                                        std::unordered_map<std::string, bool>& graveyard_completed_by_sat,
+                                        std::vector<ScheduledBurn>* dropped_burns_out = nullptr);
 
 void validate_pending_upload_windows(StateStore& store,
                                      double current_epoch_s,
                                      std::vector<ScheduledBurn>& burn_queue,
-                                     std::uint64_t& upload_missed);
+                                     std::uint64_t& upload_missed,
+                                     std::vector<ScheduledBurn>* dropped_burns_out = nullptr);
 
 } // namespace cascade

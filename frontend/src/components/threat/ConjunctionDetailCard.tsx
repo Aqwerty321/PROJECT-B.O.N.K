@@ -76,6 +76,8 @@ export function ConjunctionDetailCard({
           { label: 'Time Offset', value: timingLabel, tone: secondsToTca < 0 ? 'warning' : 'primary' },
           { label: 'Miss Distance', value: `${event.miss_distance_km.toFixed(3)} km`, tone },
           { label: 'Approach Speed', value: `${event.approach_speed_km_s.toFixed(4)} km/s`, tone: 'primary' },
+          { label: 'Stream', value: event.predictive ? 'Predictive 24h' : 'Historical', tone: event.predictive ? 'warning' : 'neutral' },
+          { label: 'Fail-open', value: event.fail_open ? 'TRUE' : 'FALSE', tone: event.fail_open ? 'warning' : 'accent' },
           { label: 'Collision Flag', value: event.collision ? 'TRUE' : 'FALSE', tone: event.collision ? 'critical' : 'accent' },
           { label: 'Tick', value: event.tick_id.toLocaleString(), tone: 'neutral' },
           { label: 'Sat ECI', value: event.sat_pos_eci_km.map(value => value.toFixed(2)).join(', ') },

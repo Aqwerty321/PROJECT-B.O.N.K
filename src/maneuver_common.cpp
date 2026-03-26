@@ -624,6 +624,13 @@ bool compute_upload_plan_for_burn(const StateStore& store,
     );
 }
 
+bool burn_overlaps_blackout(const StateStore& store,
+                            std::size_t sat_idx,
+                            double burn_epoch_s) noexcept
+{
+    return !has_ground_station_los_for_sat_epoch(store, sat_idx, burn_epoch_s, nullptr);
+}
+
 bool upload_window_ready_for_execution(const ScheduledBurn& burn,
                                        double current_epoch_s) noexcept
 {
@@ -791,7 +798,8 @@ ManeuverExecStats execute_due_maneuvers(StateStore& store,
                                         std::unordered_map<std::string, double>& last_burn_epoch_by_sat,
                                         std::unordered_map<std::string, RecoveryRequest>& recovery_requests_by_sat,
                                         std::unordered_map<std::string, bool>& graveyard_requested_by_sat,
-                                        std::unordered_map<std::string, bool>& graveyard_completed_by_sat)
+                                        std::unordered_map<std::string, bool>& graveyard_completed_by_sat,
+                                        std::vector<ScheduledBurn>* dropped_burns_out)
 {
     ManeuverExecStats stats{};
     std::vector<ScheduledBurn> pending;
@@ -810,6 +818,11 @@ ManeuverExecStats execute_due_maneuvers(StateStore& store,
 
         if (!upload_window_ready_for_execution(burn, current_epoch_s)) {
             ++stats.upload_missed;
+            burn.upload_window_missed = true;
+            burn.dropped_epoch_s = current_epoch_s;
+            if (dropped_burns_out != nullptr) {
+                dropped_burns_out->push_back(std::move(burn));
+            }
             continue;
         }
 
@@ -869,7 +882,8 @@ ManeuverExecStats execute_due_maneuvers(StateStore& store,
 void validate_pending_upload_windows(StateStore& store,
                                      double current_epoch_s,
                                      std::vector<ScheduledBurn>& burn_queue,
-                                     std::uint64_t& upload_missed)
+                                     std::uint64_t& upload_missed,
+                                     std::vector<ScheduledBurn>* dropped_burns_out)
 {
     std::vector<ScheduledBurn> retained;
     retained.reserve(burn_queue.size());
@@ -882,6 +896,11 @@ void validate_pending_upload_windows(StateStore& store,
 
         if (b.upload_epoch_s <= 0.0) {
             ++upload_missed;
+            b.upload_window_missed = true;
+            b.dropped_epoch_s = current_epoch_s;
+            if (dropped_burns_out != nullptr) {
+                dropped_burns_out->push_back(std::move(b));
+            }
             continue;
         }
 
@@ -903,6 +922,11 @@ void validate_pending_upload_windows(StateStore& store,
         );
         if (!ok) {
             ++upload_missed;
+            b.upload_window_missed = true;
+            b.dropped_epoch_s = current_epoch_s;
+            if (dropped_burns_out != nullptr) {
+                dropped_burns_out->push_back(std::move(b));
+            }
             continue;
         }
 

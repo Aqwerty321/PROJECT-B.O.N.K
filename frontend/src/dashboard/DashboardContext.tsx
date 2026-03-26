@@ -79,6 +79,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const conjList = conjunctions?.conjunctions ?? [];
   const executedBurns = burns?.executed ?? [];
   const pendingBurns = burns?.pending ?? [];
+  const droppedBurns = burns?.dropped ?? [];
+  const burnSummary = burns?.summary ?? null;
   const trajectoryFocusId = selectedSatId ?? satellites[0]?.id ?? null;
   const { trajectory, error: trajectoryError } = useTrajectory(trajectoryFocusId, booted ? 2000 : 60000);
 
@@ -172,8 +174,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         const key = satellite.status.toUpperCase();
         if (key === 'NOMINAL') counts.nominal += 1;
         else if (key === 'MANEUVERING') counts.maneuvering += 1;
-        else if (key === 'DEGRADED') counts.degraded += 1;
-        else if (key === 'GRAVEYARD') counts.graveyard += 1;
+        else if (key === 'DEGRADED' || key === 'FUEL_LOW') counts.degraded += 1;
+        else if (key === 'GRAVEYARD' || key === 'OFFLINE') counts.graveyard += 1;
         return counts;
       },
       { nominal: 0, maneuvering: 0, degraded: 0, graveyard: 0 },
@@ -271,6 +273,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     conjList,
     executedBurns,
     pendingBurns,
+    droppedBurns,
+    burnSummary,
     nowEpochS,
     snapshotUpdatedAtMs,
     trackHistory: trackHistoryRef.current,
@@ -307,6 +311,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     conjList,
     conjunctionsError,
     debris,
+    droppedBurns,
     executedBurns,
     heroModeValue,
     heroPathValue,
@@ -318,6 +323,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     nowEpochS,
     operationsLiveSummary,
     pendingBurns,
+    burnSummary,
     resourceDetail,
     resourceValue,
     satellites,

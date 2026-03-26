@@ -32,6 +32,14 @@ function burnColor(burn: ExecutedBurn | PendingBurn, isPending: boolean): string
   return isPending ? theme.colors.primary : theme.colors.accent;
 }
 
+function burnLabel(burn: ExecutedBurn | PendingBurn): string {
+  if (burn.graveyard_burn) return 'GRAVEYARD';
+  if (burn.recovery_burn) return 'RECOVERY';
+  if (burn.scheduled_from_predictive_cdm) return 'AUTO-COLA';
+  if (burn.auto_generated) return 'AUTO';
+  return 'MANUAL';
+}
+
 function drawPanelChrome(ctx: CanvasRenderingContext2D, width: number, height: number) {
   const plotBottom = height - FOOTER_HEIGHT;
 
@@ -131,6 +139,34 @@ function drawBurnMarkers(
   ctx.restore();
 }
 
+function drawStateMarker(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  rowHeight: number,
+  color: string,
+  dash: number[],
+  label?: string,
+) {
+  ctx.save();
+  ctx.setLineDash(dash);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.moveTo(x, y + 1);
+  ctx.lineTo(x, y + rowHeight - 1);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (label) {
+    ctx.fillStyle = color;
+    ctx.font = `9px ${theme.font.mono}`;
+    ctx.textAlign = 'left';
+    ctx.fillText(label, x + 4, y + 10);
+  }
+  ctx.restore();
+}
+
 function drawEmptyGrid(ctx: CanvasRenderingContext2D, width: number, height: number, chartWidth: number) {
   const plotBottom = drawPanelChrome(ctx, width, height);
   const tickCount = Math.max(4, Math.min(8, Math.floor(chartWidth / 140)));
@@ -222,7 +258,7 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, lw, lh);
 
-    if (!burns || (burns.executed.length === 0 && burns.pending.length === 0)) {
+    if (!burns || (burns.executed.length === 0 && burns.pending.length === 0 && (burns.dropped?.length ?? 0) === 0)) {
       drawEmptyGrid(ctx, lw, lh, chartWidth);
       drawEmptyState(ctx, chartWidth, selectedSatId);
       ctx.restore();
@@ -235,10 +271,14 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     const allPending = selectedSatId
       ? burns.pending.filter(burn => burn.satellite_id === selectedSatId)
       : burns.pending;
+    const allDropped = selectedSatId
+      ? (burns.dropped ?? []).filter(burn => burn.satellite_id === selectedSatId)
+      : (burns.dropped ?? []);
 
     const satIds = new Set<string>();
     allExecuted.forEach(burn => satIds.add(burn.satellite_id));
     allPending.forEach(burn => satIds.add(burn.satellite_id));
+    allDropped.forEach(burn => satIds.add(burn.satellite_id));
     const satellites = Array.from(satIds).sort();
 
     if (satellites.length === 0) {
@@ -252,6 +292,7 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     const allEpochs = [
       ...allExecuted.map(burn => parseEpoch(burn.burn_epoch)),
       ...allPending.map(burn => parseEpoch(burn.burn_epoch)),
+      ...allDropped.map(burn => parseEpoch(burn.burn_epoch)),
     ];
 
     if (allEpochs.length === 0) {
@@ -350,6 +391,26 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         ctx.strokeRect(x1, y + 4, bw, Math.max(4, rowHeight - 8));
 
         drawBurnMarkers(ctx, x1, x2, y, rowHeight, color, false);
+
+        if (rowHeight >= 16) {
+          ctx.fillStyle = 'rgba(6, 8, 12, 0.86)';
+          ctx.font = `9px ${theme.font.mono}`;
+          ctx.textAlign = 'left';
+          ctx.fillText(burnLabel(burn), x1 + 4, y + Math.max(13, rowHeight * 0.58));
+        }
+
+        if (burn.blackout_overlap) {
+          drawStateMarker(ctx, x1 - 3, y, rowHeight, theme.colors.warning, [2, 3], rowHeight >= 18 ? 'B/O' : undefined);
+        }
+        if (burn.command_conflict || burn.cooldown_conflict) {
+          drawStateMarker(ctx, x2 + 2, y, rowHeight, theme.colors.critical, [4, 3], rowHeight >= 18 ? 'CONFLICT' : undefined);
+        }
+        if (burn.scheduled_from_predictive_cdm && burn.trigger_tca_epoch_s) {
+          const triggerX = timeToX(burn.trigger_tca_epoch_s);
+          if (triggerX >= LABEL_WIDTH && triggerX <= lw - 4) {
+            drawStateMarker(ctx, triggerX, y, rowHeight, theme.colors.primary, [1, 3], rowHeight >= 18 ? 'TCA' : undefined);
+          }
+        }
       }
 
       const satPending = allPending.filter(burn => burn.satellite_id === satId);
@@ -379,6 +440,36 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         ctx.globalAlpha = 1;
 
         drawBurnMarkers(ctx, x1, x2, y, rowHeight, color, true);
+
+        if (rowHeight >= 16) {
+          ctx.fillStyle = 'rgba(6, 8, 12, 0.86)';
+          ctx.font = `9px ${theme.font.mono}`;
+          ctx.textAlign = 'left';
+          ctx.fillText(burnLabel(burn), x1 + 4, y + Math.max(13, rowHeight * 0.58));
+        }
+
+        if (burn.blackout_overlap) {
+          drawStateMarker(ctx, x1 - 3, y, rowHeight, theme.colors.warning, [2, 3], rowHeight >= 18 ? 'B/O' : undefined);
+        }
+        if (burn.command_conflict || burn.cooldown_conflict) {
+          drawStateMarker(ctx, x2 + 2, y, rowHeight, theme.colors.critical, [4, 3], rowHeight >= 18 ? 'CONFLICT' : undefined);
+        }
+        if (burn.scheduled_from_predictive_cdm && burn.trigger_tca_epoch_s) {
+          const triggerX = timeToX(burn.trigger_tca_epoch_s);
+          if (triggerX >= LABEL_WIDTH && triggerX <= lw - 4) {
+            drawStateMarker(ctx, triggerX, y, rowHeight, theme.colors.primary, [1, 3], rowHeight >= 18 ? 'TCA' : undefined);
+          }
+        }
+      }
+
+      const satDropped = allDropped.filter(burn => burn.satellite_id === satId);
+      for (const burn of satDropped) {
+        const t = parseEpoch(burn.burn_epoch);
+        const x = timeToX(t);
+        drawStateMarker(ctx, x, y, rowHeight, theme.colors.critical, [2, 2], rowHeight >= 18 ? 'DROP' : undefined);
+        if (burn.blackout_overlap) {
+          drawStateMarker(ctx, x - 5, y, rowHeight, theme.colors.warning, [1, 3]);
+        }
       }
     }
 
@@ -415,6 +506,9 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       { label: 'Graveyard', color: '#8892a0' },
       { label: 'Pending', color: theme.colors.primary },
       { label: 'Cooldown', color: 'rgba(88, 184, 255, 0.72)' },
+      { label: 'Blackout', color: theme.colors.warning },
+      { label: 'Conflict', color: theme.colors.critical },
+      { label: 'Dropped', color: theme.colors.critical },
     ];
 
     let legendX = LABEL_WIDTH;
@@ -425,6 +519,22 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         ctx.strokeStyle = item.color;
         ctx.setLineDash([3, 2]);
         ctx.strokeRect(legendX, legendY - 7, 12, 8);
+        ctx.setLineDash([]);
+      } else if (item.label === 'Blackout') {
+        ctx.strokeStyle = item.color;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(legendX + 6, legendY - 8);
+        ctx.lineTo(legendX + 6, legendY + 1);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (item.label === 'Conflict' || item.label === 'Dropped') {
+        ctx.strokeStyle = item.color;
+        ctx.setLineDash(item.label === 'Dropped' ? [2, 2] : [4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(legendX + 6, legendY - 8);
+        ctx.lineTo(legendX + 6, legendY + 1);
+        ctx.stroke();
         ctx.setLineDash([]);
       } else {
         ctx.fillStyle = item.color;

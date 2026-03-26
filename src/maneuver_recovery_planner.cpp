@@ -478,6 +478,7 @@ RecoveryPlanStats plan_recovery_burns(StateStore& store,
         burn.auto_generated = true;
         burn.recovery_burn = true;
         burn.graveyard_burn = false;
+        burn.blackout_overlap = burn_overlaps_blackout(store, idx, burn_epoch);
         burn_queue.push_back(std::move(burn));
 
         it->second.remaining_delta_v_km_s.x -= dv_cmd.x;

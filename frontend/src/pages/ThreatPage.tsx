@@ -5,16 +5,53 @@ import { InfoChip, SectionHeader } from '../components/dashboard/UiPrimitives';
 import { ConjunctionDetailCard } from '../components/threat/ConjunctionDetailCard';
 import { ConjunctionEventList } from '../components/threat/ConjunctionEventList';
 import { useDashboard } from '../dashboard/DashboardContext';
+import { useConjunctions } from '../hooks/useApi';
 import { theme } from '../styles/theme';
+import { riskLevelFromDistance } from '../types/api';
 
 export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boolean; isCompact: boolean }) {
   const { model, selectedSatId, selectSat } = useDashboard();
   const [activeEventKey, setActiveEventKey] = useState<string | null>(null);
+  const { conjunctions: predictiveConjunctions } = useConjunctions(2000, selectedSatId ?? undefined, 'predicted');
+
+  const streamEvents = predictiveConjunctions && predictiveConjunctions.count > 0
+    ? predictiveConjunctions.conjunctions
+    : model.conjList;
+  const streamLabel = predictiveConjunctions && predictiveConjunctions.count > 0
+    ? 'Predictive 24h'
+    : 'Historical';
 
   const sortedEvents = useMemo(
-    () => [...model.conjList].sort((a, b) => a.tca_epoch_s - b.tca_epoch_s),
-    [model.conjList],
+    () => [...streamEvents].sort((a, b) => a.tca_epoch_s - b.tca_epoch_s),
+    [streamEvents],
   );
+
+  const nextThreat = useMemo(
+    () => sortedEvents.find(event => event.tca_epoch_s >= model.nowEpochS - 300) ?? sortedEvents[0] ?? null,
+    [model.nowEpochS, sortedEvents],
+  );
+
+  const streamThreatCounts = useMemo(
+    () => sortedEvents.reduce(
+      (counts, event) => {
+        const level = riskLevelFromDistance(event.miss_distance_km);
+        counts[level] += 1;
+        return counts;
+      },
+      { red: 0, yellow: 0, green: 0 },
+    ),
+    [sortedEvents],
+  );
+
+  const bullseyeMaxTcaSeconds = useMemo(() => {
+    const maxFutureDt = sortedEvents.reduce((acc, event) => {
+      const dt = Math.max(0, event.tca_epoch_s - model.nowEpochS);
+      return Math.max(acc, dt);
+    }, 0);
+    if (maxFutureDt <= 5400) return 5400;
+    if (maxFutureDt <= 21600) return 21600;
+    return 86400;
+  }, [model.nowEpochS, sortedEvents]);
 
   useEffect(() => {
     if (sortedEvents.length === 0) {
@@ -41,9 +78,10 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
         description="Relative proximity watch with event triage, encounter details, and globally synchronized spacecraft focus."
         aside={
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
-            <InfoChip label="Critical" value={model.threatCounts.red.toString()} tone="critical" />
-            <InfoChip label="Warning" value={model.threatCounts.yellow.toString()} tone="warning" />
-            <InfoChip label="Nominal" value={model.threatCounts.green.toString()} tone="accent" />
+            <InfoChip label="Critical" value={streamThreatCounts.red.toString()} tone="critical" />
+            <InfoChip label="Warning" value={streamThreatCounts.yellow.toString()} tone="warning" />
+            <InfoChip label="Nominal" value={streamThreatCounts.green.toString()} tone="accent" />
+            <InfoChip label="Stream" value={streamLabel} tone={streamLabel === 'Predictive 24h' ? 'warning' : 'accent'} />
             <InfoChip label="Target" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'accent' : 'neutral'} />
           </div>
         }
@@ -62,16 +100,17 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '60ch' }}>
                 <span style={{ color: theme.colors.primary, fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Relative encounter radar</span>
                 <p id="threat-heading" style={{ color: theme.colors.textDim, fontSize: '12px', lineHeight: 1.55 }}>
-                  Center is the selected spacecraft, radial distance is TCA, angle is approach vector, risk color follows PS thresholds.
+                  Center is the selected spacecraft, radial distance is TCA, angle is approach vector, and the watch stream now prefers predictive 24-hour CDMs when available.
                 </p>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                <InfoChip label="Next TCA" value={model.nextThreat ? `${new Date(model.nextThreat.tca).toISOString().slice(11, 19)} UTC` : 'None'} tone={model.nextThreat ? 'warning' : 'accent'} />
+                <InfoChip label="Next TCA" value={nextThreat ? `${new Date(nextThreat.tca).toISOString().slice(11, 19)} UTC` : 'None'} tone={nextThreat ? 'warning' : 'accent'} />
+                <InfoChip label="Horizon" value={bullseyeMaxTcaSeconds >= 86400 ? '24h' : bullseyeMaxTcaSeconds >= 21600 ? '6h' : '90m'} tone="accent" />
               </div>
             </div>
 
             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: '1px solid rgba(88, 184, 255, 0.34)', background: 'linear-gradient(180deg, rgba(10, 11, 14, 0.92), rgba(7, 8, 10, 0.98))' }}>
-              <ConjunctionBullseye conjunctions={model.conjList} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} />
+              <ConjunctionBullseye conjunctions={sortedEvents} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} maxTcaSeconds={bullseyeMaxTcaSeconds} />
             </div>
           </div>
         </GlassPanel>
