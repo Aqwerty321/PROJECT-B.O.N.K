@@ -154,6 +154,24 @@ def evaluate_manifest(args: argparse.Namespace) -> dict[str, Any]:
     watch_satellites = manifest_data.get("watch_satellites", []) if isinstance(manifest_data, dict) else []
     watch_satellite_set = set(watch_satellites)
     predicted_watch_hits = len({str(item.get("satellite_id") or "") for item in predicted_events if isinstance(item, dict) and str(item.get("satellite_id") or "") in watch_satellite_set})
+    predictive_cdm_threshold_km = metrics.get("predictive_cdm_threshold_km")
+    effective_collision_threshold_km = metrics.get("effective_collision_threshold_km")
+    predictive_alignment_gap_km = None
+    if predicted_min_miss_km is not None and predictive_cdm_threshold_km is not None:
+        predictive_alignment_gap_km = float(predicted_min_miss_km) - float(predictive_cdm_threshold_km)
+    manifest_window = mining.get("encounter_window", {}) if isinstance(mining, dict) else {}
+    manifest_heuristic_min_miss_km = None
+    if isinstance(manifest_window, dict):
+        value = manifest_window.get("min_miss_km")
+        if isinstance(value, (int, float)):
+            manifest_heuristic_min_miss_km = float(value)
+    if manifest_heuristic_min_miss_km is None:
+        heuristic_values = [float(item.get("min_miss_km")) for item in selected_payload_summaries if isinstance(item, dict) and item.get("min_miss_km") is not None]
+        if heuristic_values:
+            manifest_heuristic_min_miss_km = min(heuristic_values)
+    heuristic_predictive_gap_km = None
+    if manifest_heuristic_min_miss_km is not None and predictive_cdm_threshold_km is not None:
+        heuristic_predictive_gap_km = manifest_heuristic_min_miss_km - float(predictive_cdm_threshold_km)
 
     summary = {
         "scenario_id": manifest_data.get("scenario_id") if isinstance(manifest_data, dict) else None,
@@ -196,6 +214,13 @@ def evaluate_manifest(args: argparse.Namespace) -> dict[str, Any]:
         "predicted_watch_satellite_hits": predicted_watch_hits,
         "predicted_min_miss_km": predicted_min_miss_km,
         "predicted_avg_miss_km": predicted_avg_miss_km,
+        "predictive_cdm_threshold_km": predictive_cdm_threshold_km,
+        "effective_collision_threshold_km": effective_collision_threshold_km,
+        "predictive_alignment_gap_km": predictive_alignment_gap_km,
+        "manifest_heuristic_min_miss_km": manifest_heuristic_min_miss_km,
+        "heuristic_predictive_gap_km": heuristic_predictive_gap_km,
+        "manifest_target_epoch": manifest_data.get("target_epoch") if isinstance(manifest_data, dict) else None,
+        "manifest_encounter_window": manifest_window if isinstance(manifest_window, dict) else {},
     }
     return summary
 

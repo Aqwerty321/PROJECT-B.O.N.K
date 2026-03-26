@@ -3052,6 +3052,14 @@ std::string EngineRuntime::status_json(bool include_details) const
         out += fmt_double(step_cfg_.narrow_phase.tca_guard_km, 3);
         out += ",\"effective_collision_threshold_km\":";
         out += fmt_double(COLLISION_THRESHOLD_KM + std::max(0.0, step_cfg_.narrow_phase.tca_guard_km), 3);
+        out += ",\"predictive_cdm_threshold_km\":";
+        out += fmt_double(COLLISION_THRESHOLD_KM, 3);
+        out += ",\"predictive_cdm_horizon_s\":";
+        out += fmt_double(cdm_params().horizon_s, 1);
+        out += ",\"predictive_cdm_substep_s\":";
+        out += fmt_double(cdm_params().substep_s, 1);
+        out += ",\"predictive_cdm_rk4_max_step_s\":";
+        out += fmt_double(cdm_params().rk4_max_step_s, 1);
         out += ",\"propagation_last_tick\":{";
         out += "\"narrow_pairs_checked\":";
         out += std::to_string(prop_stats_.narrow_pairs_last_tick);

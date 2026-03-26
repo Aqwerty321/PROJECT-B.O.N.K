@@ -160,6 +160,8 @@ def runtime_score(summary: dict[str, Any]) -> float:
     predicted_distinct_satellites = float(summary.get("predicted_distinct_satellites", 0) or 0)
     predicted_fail_open = float(summary.get("predicted_fail_open_count", 0) or 0)
     predicted_min_miss = summary.get("predicted_min_miss_km")
+    predictive_alignment_gap = summary.get("predictive_alignment_gap_km")
+    heuristic_predictive_gap = summary.get("heuristic_predictive_gap_km")
 
     score = 0.0
     score += predicted * 120.0
@@ -191,6 +193,10 @@ def runtime_score(summary: dict[str, Any]) -> float:
     score += predicted_fail_open * 30.0
     if predicted_min_miss is not None:
         score += max(0.0, 10.0 - float(predicted_min_miss)) * 12.0
+    if predictive_alignment_gap is not None:
+        score += max(0.0, 5.0 - float(predictive_alignment_gap)) * 10.0
+    elif heuristic_predictive_gap is not None:
+        score += max(0.0, 20.0 - float(heuristic_predictive_gap)) * 8.0
     return round(score, 3)
 
 

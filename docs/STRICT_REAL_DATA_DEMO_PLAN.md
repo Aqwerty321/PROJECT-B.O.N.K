@@ -560,7 +560,7 @@ Driven by:
 Important reality:
 
 - this page is informative only when there are pending or executed burns
-- the required efficiency graph is still a placeholder
+- the required efficiency graph is now wired to live backend burn summary data
 
 ## Current measured implementation facts that matter later
 
@@ -580,10 +580,10 @@ These are the important current-state facts to remember.
 
 ### Bullseye
 
-- current radial scaling is fixed to `90 minutes`
-- current color logic uses miss-distance thresholds only
+- current radial scaling now adapts across `90m`, `6h`, and `24h`
+- current color logic still uses miss-distance thresholds only
 - current angle uses relative geometry derived from ECI positions
-- current page can operate without a selected satellite, which is weaker than the PS wording
+- current page now auto-focuses the most relevant spacecraft lane, but still lacks an explicit probability-of-collision channel
 
 Update:
 
@@ -594,7 +594,7 @@ Update:
 - current timeline already distinguishes pending vs executed burns
 - current timeline already shows burn blocks and cooldown windows
 - current timeline already differentiates avoidance, recovery, graveyard, and pending visually
-- current timeline does not yet render true data-driven blackout or conflict markers
+- current timeline now renders backend-driven blackout/conflict/drop state and highlights `collision_avoided` executions
 
 ### Burn and status telemetry
 
@@ -745,7 +745,7 @@ These are the highest-value blockers.
 Current reality:
 
 - the 24-hour scan now persists predictive records and exposes them through `GET /api/debug/conjunctions?source=predicted`
-- the UI threat list still uses the historical watch path by default
+- the Threat page now prefers the predictive stream directly, but the broader dashboard model still defaults to the historical watch path
 
 Why this blocks the strict route:
 
@@ -769,10 +769,23 @@ Why this blocks the strict route:
 Current reality:
 
 - ground track lacks actual coastline/world outline data
-- the efficiency graph is still missing
-- blackout/conflict markers in the timeline are not data-driven yet
+- the bullseye still lacks an explicit probability-of-collision dimension
+- the remaining dashboard gap is the missing recognizable world layer on Ground Track
 
-## Blocker 4 - 3LE support is not wired into replay or scenario tools
+## Blocker 4 - strict natural scenes still do not cross the backend predictive threshold reliably
+
+Current reality:
+
+- recent miner passes now find much closer natural encounter windows, commonly around `10-16 km`
+- backend replay validation still returns zero predictive CDMs for those scenes
+- the root cause is now clear: predictive CDMs are only emitted when the 24-hour propagated miss distance falls below `COLLISION_THRESHOLD_KM = 0.100`
+
+Why this blocks the strict route:
+
+- miner-selected scenes can look operationally interesting while still being far outside the backend's predictive trigger band
+- scenario quality alone is no longer the full explanation; threshold alignment and expectation-setting now matter just as much
+
+## Blocker 5 - 3LE support is not wired into replay or scenario tools
 
 Current reality:
 
@@ -791,7 +804,8 @@ Status: On track
 Currently aligned:
 
 - API runs on port `8000`
-- Docker base image requirement is known and already being preserved
+- Docker runtime base image is `ubuntu:22.04`
+- the server binds to `0.0.0.0:8000`
 - telemetry, schedule, step, and snapshot endpoints exist
 - `GET /api/status` can stay minimal by default and expose details via query flag
 
@@ -863,7 +877,7 @@ What still matters:
 
 ### Ground-station LOS and blackout-aware upload planning
 
-Status: Substantially implemented in backend, weakly visualized in UI
+Status: Substantially implemented in backend and now materially better visualized in UI
 
 Implemented today:
 
@@ -873,7 +887,7 @@ Implemented today:
 
 Remaining gap:
 
-- the frontend timeline does not yet surface blackout overlap or upload conflict state clearly
+- upload-station context can still be richer, but the timeline now surfaces blackout/conflict/drop state from live backend data
 
 ### Blind conjunction predictive capability
 
@@ -883,10 +897,12 @@ Implemented today:
 
 - backend can search upload windows before burn execution
 - backend now persists predictive 24-hour conjunction records in a queryable debug path
+- auto-COLA now consumes predictive critical conjunctions as part of its trigger set
 
 Remaining gap:
 
-- the frontend and automatic maneuver planning still need to consume those predictive records end-to-end
+- real catalog scenes still rarely cross the backend predictive trigger threshold of `< 0.100 km`
+- the broader dashboard still does not propagate predictive-CDM awareness as consistently as the Threat page
 
 ## Section 6.1 frontend performance constraints
 
@@ -939,30 +955,28 @@ Already present:
 
 Missing or weak:
 
-- selected-satellite centering is not enforced strongly enough on the Threat page
+- selected-satellite centering is much stronger now, but still not a hard global requirement across every dashboard entry path
 - risk indexing does not currently include an explicit probability-of-collision channel
 - predictive-CDM usage is not yet propagated through all dashboard surfaces, only the Threat page
 
 Required follow-up:
 
-- switch the Threat view to strongly selected-satellite semantics
-- expose predictive CDM records from the backend
 - propagate predictive-CDM awareness to the broader dashboard model where appropriate
 - add an explicit probability/risk dimension when available
 
 ### Telemetry and Resource Heatmaps
 
-Status: Partial
+Status: Substantially improved, still partial
 
 Already present:
 
 - fuel watch / fuel heatmap
 - status panel
 - burn totals and fuel-consumed backend stats exist
+- the `Fuel Consumed vs Collisions Avoided` chart is now implemented from backend burn summary data
 
 Missing or weak:
 
-- the required `Fuel Consumed vs Collisions Avoided` graph is still a placeholder
 - frontend status vocabulary does not fully match backend status strings
 
 Required follow-up:
@@ -972,7 +986,7 @@ Required follow-up:
 
 ### Maneuver Timeline (Gantt Scheduler)
 
-Status: Partial
+Status: Substantially improved, still partial
 
 Already present:
 
@@ -980,19 +994,41 @@ Already present:
 - burn start and burn end blocks
 - mandatory 600-second cooldown windows
 - distinct visual treatment for pending, avoidance, recovery, and graveyard burns
+- backend-driven blackout/conflict/drop annotations
+- `collision_avoided` execution tagging
 
 Missing or weak:
 
-- no true data-driven command conflict markers
-- no true blackout-zone overlap markers
 - upload-station data exists but is not surfaced meaningfully in the visualization
 
 Required follow-up:
 
-- expose per-burn blackout / upload / conflict state explicitly
-- render those states in the timeline rather than only showing a decorative placeholder concept
+- improve upload-station storytelling and tighten the PS-style scheduler semantics further
 
 ## Additional important gaps not limited to Section 6.2
+
+## Predictive threshold alignment gap
+
+Status: Confirmed root cause
+
+The backend predictive CDM path only emits warnings when the propagated 24-hour miss distance falls below `0.100 km`. Recent miner improvements now surface much closer natural scenes than before, but `10-16 km` natural misses are still orders of magnitude above that threshold, so `predicted_conjunction_count` remains zero in replay validation.
+
+Practical consequence:
+
+- the current issue is no longer just miner epoch selection
+- miner outputs need to be scored against backend-threshold closeness explicitly
+- docs and UX should avoid implying that all visually close scenes will naturally produce predictive CDMs
+
+## Dense-run runtime timeout gap
+
+Status: Observed during investigation
+
+Some backend-assisted ranking and replay-precheck runs hit `HTTP 503`, `RUNTIME_BUSY`, or `runtime command timed out in queue`. The current queue command timeout in `src/engine_runtime.cpp` is still short enough that dense validation passes can overrun it.
+
+Practical consequence:
+
+- reduced-cap validation is currently more reliable for miner precheck loops
+- dense real-scene validation still needs runtime-cost tuning if it is going to be part of the normal mining loop
 
 ## Predictive conjunction persistence gap
 
@@ -1004,7 +1040,7 @@ The backend now persists a predictive CDM set and exposes it through the additiv
 
 Status: Partially resolved
 
-Auto-COLA now consumes the predictive critical-conjunction stream as part of its trigger path. Remaining work is to verify this systematically on real-data scenes and surface the autonomy story clearly in the frontend.
+Auto-COLA now consumes the predictive critical-conjunction stream as part of its trigger path. Remaining work is to verify this systematically on real-data scenes that actually cross the strict predictive threshold and surface the autonomy story clearly in the frontend.
 
 ## Frontend/backend status mismatch
 
@@ -1222,6 +1258,8 @@ Status update:
 - candidate generation now targets likely predictive-warning shells more directly
 - the current remaining limitation is not miner plumbing, but finding scenarios that actually trigger non-zero predictive CDM counts in the sampled run window
 - replay timing is now biased toward clustered close approaches, which should make future backend-informed mining passes converge faster
+- miner output and evaluation now record backend-threshold alignment fields such as `predictive_cdm_threshold_km`, `predictive_alignment_gap_km`, `manifest_heuristic_min_miss_km`, and `heuristic_predictive_gap_km`
+- miner-integrated backend precheck can now run a reduced-debris fresh-backend replay before final manifest emission and attach the precheck summary into `mining.backend_precheck`
 
 Recommended inputs:
 
@@ -1261,6 +1299,7 @@ Latest implementation note:
   - summary signals update a small set of mining weights
   - those weights can be persisted and reused on the next mining pass
 - predictive-CDM evaluation is now also written back into each ranked manifest, so later tooling does not need to rediscover the same scenario-level CDM summary from scratch
+- the current backend-aware precheck confirms a more specific root cause: mined natural scenes are getting closer, but still not close enough to cross the backend predictive threshold of `100 m`
 
 ## Workstream H - tuner and evaluator upgrade
 
@@ -1488,11 +1527,12 @@ Status update:
 ## Short list of things future work should not forget
 
 - Threat now has a predictive path, but the rest of the dashboard still mostly reasons over historical conjunction data.
-- Auto-COLA now consumes predictive critical conjunctions, but this still needs validation on strict real-data scenarios.
+- Auto-COLA now consumes predictive critical conjunctions, but this still needs validation on strict real-data scenarios that actually cross the `< 0.100 km` predictive threshold.
 - Ground Track still needs real world outlines to fully satisfy Section 6.2.
-- The efficiency graph is still missing.
-- Timeline blackout/conflict markers are not yet data-driven.
+- The bullseye still lacks an explicit probability-of-collision dimension.
 - Frontend status handling does not yet fully match backend status names.
+- Miner/backend alignment is now better instrumented, but the main remaining issue is that natural `10-16 km` encounter windows still do not qualify as backend predictive CDMs.
+- Dense backend ranking runs can still hit queue timeout / `RUNTIME_BUSY` conditions and may need runtime-cost tuning.
 - `3le_data.txt` now works in local replay/miner tooling, but metadata merge and broader backend integration are still pending.
 - `train_data.csv` and `test_data.csv` are evaluation assets, not runtime telemetry inputs.
 

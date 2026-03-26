@@ -164,6 +164,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup-step-seconds", type=int, default=DEFAULT_WARMUP_STEP_SECONDS, help="Warmup step seconds stored in manifest (default: 60)")
     parser.add_argument("--encounter-cluster-hours", type=float, default=3.0, help="Time bucket used to cluster close opportunities into a replay window (default: 3)")
     parser.add_argument("--encounter-lead-seconds", type=int, default=7200, help="How far ahead of the chosen encounter cluster the replay should start (default: 7200)")
+    parser.add_argument("--backend-precheck-max-debris", type=int, default=1500, help="Reduced debris cap used for miner backend precheck manifests (default: 1500)")
     parser.add_argument("--backend-rank-cmd", default="", help="Optional backend command for live ranking of emitted manifests")
     parser.add_argument("--backend-rank-api-base", default=DEFAULT_API_BASE, help="Backend base URL for live ranking (default: http://localhost:8000)")
     parser.add_argument("--backend-rank-extra-steps", type=int, default=1, help="Extra steps for live manifest ranking (default: 1)")
@@ -985,6 +986,8 @@ def backend_cdm_signal(summary: dict[str, Any]) -> float:
     predicted_near_5km = float(summary.get("predicted_near_5km_count", 0) or 0)
     predicted_watch_hits = float(summary.get("predicted_watch_satellite_hits", 0) or 0)
     predicted_fail_open = float(summary.get("predicted_fail_open_count", 0) or 0)
+    predictive_alignment_gap = summary.get("predictive_alignment_gap_km")
+    heuristic_predictive_gap = summary.get("heuristic_predictive_gap_km")
     signal = predicted * 150.0 + active * 110.0 + pending * 60.0 + history * 15.0
     signal -= dropped * 30.0
     signal += collisions_avoided * 150.0
@@ -994,11 +997,64 @@ def backend_cdm_signal(summary: dict[str, Any]) -> float:
     signal += predicted_near_5km * 30.0
     signal += predicted_watch_hits * 25.0
     signal += predicted_fail_open * 35.0
+    if predictive_alignment_gap is not None:
+        signal += max(0.0, 20.0 - float(predictive_alignment_gap)) * 6.0
+    elif heuristic_predictive_gap is not None:
+        signal += max(0.0, 20.0 - float(heuristic_predictive_gap)) * 4.0
     return signal
 
 
 def clamp_weight(value: float) -> float:
     return max(0.5, min(3.0, value))
+
+
+def build_backend_precheck_manifest(manifest: dict[str, Any], precheck_max_debris: int) -> dict[str, Any]:
+    clone = json.loads(json.dumps(manifest))
+    filters = clone.setdefault("filters", {})
+    replay = clone.setdefault("replay", {})
+    current_max_debris = int(filters.get("max_debris", replay.get("max_debris", precheck_max_debris)) or precheck_max_debris)
+    precheck_limit = min(current_max_debris, max(64, precheck_max_debris))
+    filters["max_debris"] = precheck_limit
+    replay["max_debris"] = precheck_limit
+    clone["scenario_id"] = f"{clone.get('scenario_id', 'precheck')}_precheck"
+    notes = clone.get("notes")
+    if isinstance(notes, list):
+        notes.append("This temporary manifest is used only for miner backend precheck with a reduced debris cap.")
+    return clone
+
+
+def run_backend_precheck(manifest: dict[str, Any],
+                         backend_cmd: str,
+                         api_base: str,
+                         startup_timeout: float,
+                         extra_steps: int,
+                         extra_step_seconds: int,
+                         precheck_max_debris: int) -> dict[str, Any] | None:
+    if not backend_cmd:
+        return None
+
+    tmp_path = pathlib.Path("/tmp") / f"{manifest.get('scenario_id', 'strict_manifest')}_precheck.json"
+    precheck_manifest = build_backend_precheck_manifest(manifest, precheck_max_debris)
+    tmp_path.write_text(json.dumps(precheck_manifest, indent=2) + "\n", encoding="utf-8")
+
+    proc = start_backend(backend_cmd, startup_timeout, api_base)
+    try:
+        result = evaluate_manifest(
+            argparse.Namespace(
+                manifest=str(tmp_path),
+                api_base=api_base,
+                extra_steps=extra_steps,
+                extra_step_seconds=extra_step_seconds,
+                output="",
+            )
+        )
+    finally:
+        stop_backend(proc)
+
+    result["runtime_score"] = runtime_score(result)
+    result["backend_cdm_score"] = backend_cdm_signal(result)
+    result["combined_rank_score"] = round(result["runtime_score"] + result["backend_cdm_score"], 3)
+    return result
 
 
 def adapt_feedback_weights(weights: FeedbackWeights, ranking_results: list[dict[str, Any]]) -> FeedbackWeights:
@@ -1137,6 +1193,35 @@ def main() -> None:
             continue
         seen_signatures.add(signature)
         manifest["scenario_id"] = f"{args.scenario_prefix}_{emitted + 1:02d}"
+        if args.backend_rank_cmd:
+            precheck = run_backend_precheck(
+                manifest,
+                args.backend_rank_cmd,
+                args.backend_rank_api_base,
+                args.backend_rank_startup_timeout,
+                0,
+                args.backend_rank_extra_step_seconds,
+                args.backend_precheck_max_debris,
+            )
+            if precheck is not None:
+                manifest.setdefault("mining", {})["backend_precheck"] = {
+                    "max_debris": min(args.max_debris, max(64, args.backend_precheck_max_debris)),
+                    "predicted_conjunction_count": precheck.get("predicted_conjunction_count"),
+                    "active_cdm_warnings": precheck.get("active_cdm_warnings"),
+                    "predicted_min_miss_km": precheck.get("predicted_min_miss_km"),
+                    "predictive_alignment_gap_km": precheck.get("predictive_alignment_gap_km"),
+                    "heuristic_predictive_gap_km": precheck.get("heuristic_predictive_gap_km"),
+                    "predictive_cdm_threshold_km": precheck.get("predictive_cdm_threshold_km"),
+                    "effective_collision_threshold_km": precheck.get("effective_collision_threshold_km"),
+                    "runtime_score": precheck.get("runtime_score"),
+                    "backend_cdm_score": precheck.get("backend_cdm_score"),
+                    "combined_rank_score": precheck.get("combined_rank_score"),
+                }
+                print(
+                    f"[precheck] {manifest['scenario_id']} predicted={precheck.get('predicted_conjunction_count', 0)} "
+                    f"active={precheck.get('active_cdm_warnings', 0)} min_miss={precheck.get('predicted_min_miss_km')} "
+                    f"gap={precheck.get('predictive_alignment_gap_km')}"
+                )
         output_path = output_dir / f"{manifest['scenario_id']}.json"
         output_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         print(f"[write] {output_path}")
@@ -1149,6 +1234,7 @@ def main() -> None:
         "candidate_manifest_count": emitted,
         "requested_top_scenarios": top_n,
         "feedback_weights": feedback_weights_dict(feedback_weights),
+        "backend_precheck_max_debris": args.backend_precheck_max_debris,
         "encounter_windows": [
             {
                 "target_epoch": iso8601_utc(window.target_epoch_s),
