@@ -2,13 +2,18 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import type { ConjunctionEvent } from '../types/api';
 import { riskLevelForEvent, riskColor, pcProxy } from '../types/api';
 import { theme } from '../styles/theme';
+import type { ThreatSeverityFilter } from '../types/dashboard';
+import {
+  hasActiveThreatSeverityFilter,
+  threatFilterAllowsRiskLevel,
+} from '../types/dashboard';
 
 /**
  * Conjunction Bullseye Plot with animated radar sweep.
  *
  * Radial distance = time-to-closest-approach (TCA). Center = now.
  * Angle = approach bearing derived from relative ECI positions.
- * Color: Green > 5km, Yellow 1-5km, Red < 1km.
+ * Color: Watch > 5km, Warning 1-5km, Critical < 1km.
  */
 
 interface Props {
@@ -16,6 +21,7 @@ interface Props {
   selectedSatId: string | null;
   nowEpochS: number;   // current sim epoch in seconds
   maxTcaSeconds?: number;
+  severityFilter?: ThreatSeverityFilter;
 }
 
 const DEFAULT_MAX_TCA_S = 5400;       // 90 minutes max on bullseye
@@ -52,7 +58,7 @@ function approachAngle(
   return Math.atan2(dy, dx);
 }
 
-export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS, maxTcaSeconds = DEFAULT_MAX_TCA_S }: Props) {
+export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS, maxTcaSeconds = DEFAULT_MAX_TCA_S, severityFilter }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sweepAngleRef = useRef(0);
 
@@ -61,10 +67,12 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
   const selectedSatIdRef = useRef(selectedSatId);
   const nowEpochSRef = useRef(nowEpochS);
   const maxTcaSecondsRef = useRef(maxTcaSeconds);
+  const severityFilterRef = useRef<ThreatSeverityFilter | undefined>(severityFilter);
   conjunctionsRef.current = conjunctions;
   selectedSatIdRef.current = selectedSatId;
   nowEpochSRef.current = nowEpochS;
   maxTcaSecondsRef.current = maxTcaSeconds;
+  severityFilterRef.current = severityFilter;
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -76,6 +84,7 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
     const currentSelectedSatId = selectedSatIdRef.current;
     const currentNowEpochS = nowEpochSRef.current;
     const currentMaxTcaSeconds = Math.max(900, maxTcaSecondsRef.current);
+    const currentSeverityFilter = severityFilterRef.current;
 
     const w = canvas.width;
     const h = canvas.height;
@@ -100,6 +109,11 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
     const events = currentSelectedSatId
       ? currentConjunctions.filter(c => c.satellite_id === currentSelectedSatId)
       : currentConjunctions;
+    const filteredEvents = currentSeverityFilter && hasActiveThreatSeverityFilter(currentSeverityFilter)
+      ? events.filter(event => threatFilterAllowsRiskLevel(riskLevelForEvent(event), currentSeverityFilter))
+      : currentSeverityFilter
+        ? []
+        : events;
 
     // Draw pulsing concentric rings
     const time = Date.now() / 1000;
@@ -154,13 +168,23 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
       ctx.fillText('AWAITING CONJUNCTION DATA', cx, cy + 4);
       ctx.globalAlpha = 1;
       ctx.restore();
+    } else if (filteredEvents.length === 0) {
+      ctx.save();
+      ctx.fillStyle = theme.colors.textMuted;
+      ctx.font = `11px ${theme.font.mono}`;
+      ctx.textAlign = 'center';
+      const pulseAlpha = 0.4 + 0.6 * Math.abs(Math.sin(time * 1.5));
+      ctx.globalAlpha = pulseAlpha;
+      ctx.fillText('FILTERS HIDE ALL EVENTS', cx, cy + 4);
+      ctx.globalAlpha = 1;
+      ctx.restore();
     } else {
       // plot conjunction events
       let redCount = 0;
       let yellowCount = 0;
       let greenCount = 0;
 
-      for (const evt of events) {
+       for (const evt of filteredEvents) {
         const dtca = evt.tca_epoch_s - currentNowEpochS;
         if (dtca < -300) continue; // skip events more than 5min in the past
 
@@ -222,17 +246,17 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
       let sy = lh - 8;
       if (greenCount > 0) {
         ctx.fillStyle = theme.colors.accent;
-        ctx.fillText(`${greenCount} WATCH (1-5km)`, 8, sy);
+        ctx.fillText(`${greenCount} WATCH (>5km)`, 8, sy);
         sy -= 14;
       }
       if (yellowCount > 0) {
         ctx.fillStyle = theme.colors.warning;
-        ctx.fillText(`${yellowCount} WARNING (<1km)`, 8, sy);
+        ctx.fillText(`${yellowCount} WARNING (1-5km)`, 8, sy);
         sy -= 14;
       }
       if (redCount > 0) {
         ctx.fillStyle = theme.colors.critical;
-        ctx.fillText(`${redCount} CRITICAL (<100m)`, 8, sy);
+        ctx.fillText(`${redCount} CRITICAL (<1km)`, 8, sy);
       }
       ctx.restore();
     }

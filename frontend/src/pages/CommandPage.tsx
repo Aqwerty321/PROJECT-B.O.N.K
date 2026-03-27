@@ -3,12 +3,13 @@ import EarthGlobe, { trajectoryToVectors } from '../components/EarthGlobe';
 import { ConjunctionBullseye } from '../components/ConjunctionBullseye';
 import { GlassPanel } from '../components/GlassPanel';
 import SimControls from '../components/SimControls';
+import { ThreatSeverityFilters } from '../components/dashboard/ThreatSeverityFilters';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
 import { HeroMetric, InfoChip, SectionHeader } from '../components/dashboard/UiPrimitives';
 
 export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompact: boolean }) {
-  const { model, selectedSatId, selectSat } = useDashboard();
+  const { model, selectedSatId, selectSat, threatSeverityFilter } = useDashboard();
 
   const bullseyeMaxTcaSeconds = useMemo(() => {
     const events = selectedSatId
@@ -140,13 +141,9 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
             style={{ flex: 1, minHeight: 0 }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minHeight: 0, padding: '10px 12px 12px' }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-start', flexShrink: 0 }}>
-                <InfoChip label="Critical" value={model.threatCounts.red.toString()} tone="critical" />
-                <InfoChip label="Warning" value={model.threatCounts.yellow.toString()} tone="warning" />
-                <InfoChip label="Nominal" value={model.threatCounts.green.toString()} tone="accent" />
-              </div>
+              <ThreatSeverityFilters counts={model.threatCounts} />
               <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: `1px solid ${theme.colors.border}`, background: 'linear-gradient(180deg, rgba(10, 11, 14, 0.92), rgba(7, 8, 10, 0.98))' }}>
-                <ConjunctionBullseye conjunctions={model.conjList} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} maxTcaSeconds={bullseyeMaxTcaSeconds} />
+                <ConjunctionBullseye conjunctions={model.conjList} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} maxTcaSeconds={bullseyeMaxTcaSeconds} severityFilter={threatSeverityFilter} />
               </div>
             </div>
           </GlassPanel>

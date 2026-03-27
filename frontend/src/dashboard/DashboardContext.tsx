@@ -21,10 +21,14 @@ import type {
   DashboardViewModel,
   StepStatusSummary,
   StatusCounts,
+  ThreatSeverityFilter,
   ThreatCounts,
   TrackHistoryPoint,
 } from '../types/dashboard';
-import { DEFAULT_STEP_STATUS } from '../types/dashboard';
+import {
+  DEFAULT_STEP_STATUS,
+  DEFAULT_THREAT_SEVERITY_FILTER,
+} from '../types/dashboard';
 
 const TRACK_HISTORY_WINDOW_S = 90 * 60;
 
@@ -68,6 +72,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [selectedSatId, setSelectedSatId] = useState<string | null>(null);
   const [stepStatus, setStepStatus] = useState<StepStatusSummary>(DEFAULT_STEP_STATUS);
   const [snapshotUpdatedAtMs, setSnapshotUpdatedAtMs] = useState<number | null>(null);
+  const [threatSeverityFilter, setThreatSeverityFilter] = useState<ThreatSeverityFilter>(DEFAULT_THREAT_SEVERITY_FILTER);
 
   const { snapshot, error: snapError } = useSnapshot(booted ? 1000 : 60000);
   const { status, error: statusError } = useStatus(booted ? 2000 : 60000);
@@ -145,6 +150,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, [satellites, selectedSatId]);
 
   const selectSat = useCallback((id: string | null) => setSelectedSatId(id), []);
+  const toggleThreatSeverity = useCallback((severity: keyof ThreatSeverityFilter) => {
+    setThreatSeverityFilter(current => ({
+      ...current,
+      [severity]: !current[severity],
+    }));
+  }, []);
 
   const activeSatellite = useMemo(
     () => satellites.find(satellite => satellite.id === selectedSatId) ?? null,
@@ -354,10 +365,21 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setBooted,
     selectedSatId,
     selectSat,
+    threatSeverityFilter,
+    toggleThreatSeverity,
+    setThreatSeverityFilter,
     stepStatus,
     setStepStatus,
     model,
-  }), [booted, model, selectSat, selectedSatId, stepStatus]);
+  }), [
+    booted,
+    model,
+    selectSat,
+    selectedSatId,
+    stepStatus,
+    threatSeverityFilter,
+    toggleThreatSeverity,
+  ]);
 
   return (
     <DashboardContext.Provider value={value}>

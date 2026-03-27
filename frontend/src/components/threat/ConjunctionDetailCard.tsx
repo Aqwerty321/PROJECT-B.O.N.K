@@ -1,7 +1,7 @@
 import type { ConjunctionEvent } from '../../types/api';
 import { riskLevelForEvent, pcProxy } from '../../types/api';
 import { theme } from '../../styles/theme';
-import { DetailList, EmptyStatePanel, type Tone } from '../dashboard/UiPrimitives';
+import { DetailList, EmptyStatePanel, InfoChip, type Tone } from '../dashboard/UiPrimitives';
 
 function toneForEvent(event: ConjunctionEvent): Tone {
   const level = riskLevelForEvent(event);
@@ -63,7 +63,7 @@ export function ConjunctionDetailCard({
   const pc = pcProxy(event.miss_distance_km, event.approach_speed_km_s);
   const severityStr = event.severity
     ? event.severity.charAt(0).toUpperCase() + event.severity.slice(1)
-    : (tone === 'critical' ? 'Critical' : tone === 'warning' ? 'Warning' : 'Nominal');
+    : (tone === 'critical' ? 'Critical' : tone === 'warning' ? 'Warning' : 'Watch');
 
   return (
     <div
@@ -79,25 +79,29 @@ export function ConjunctionDetailCard({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         <span style={{ color: tone === 'critical' ? theme.colors.critical : tone === 'warning' ? theme.colors.warning : theme.colors.accent, fontSize: '10px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>
-          Encounter Detail
+          Selected Encounter
         </span>
         <span style={{ color: theme.colors.text, fontSize: '18px', fontWeight: 700 }}>
           {event.satellite_id} vs {event.debris_id}
         </span>
         <span style={{ color: theme.colors.textDim, fontSize: '12px', lineHeight: 1.55 }}>
-          Selected event locks the global watch target so the Track and Burn Ops pages stay in sync with this spacecraft. {streamDetail}
+          This is the encounter currently driving the global watch target. Confirm when it happens, how close it gets, and whether the stream classified it as predictive or fail-open. {streamDetail}
         </span>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+        <InfoChip label="Severity" value={severityStr} tone={tone} active />
+        <InfoChip label="TCA" value={formatUtc(event.tca)} tone="primary" active />
+        <InfoChip label="Miss" value={`${event.miss_distance_km.toFixed(3)} km`} tone={tone} active />
+        <InfoChip label="Stream" value={streamLabel} tone={event.predictive ? 'warning' : 'neutral'} active />
+        {event.fail_open && <InfoChip label="Fail-open" value="Active" tone="warning" active />}
       </div>
 
       <DetailList
         entries={[
-          { label: 'TCA', value: formatUtc(event.tca), tone },
           { label: 'Time Offset', value: timingLabel, tone: secondsToTca < 0 ? 'warning' : 'primary' },
-          { label: 'Miss Distance', value: `${event.miss_distance_km.toFixed(3)} km`, tone },
           { label: 'Approach Speed', value: `${event.approach_speed_km_s.toFixed(4)} km/s`, tone: 'primary' },
           { label: 'Pc (est.)', value: pc < 0.001 ? pc.toExponential(2) : pc.toFixed(4), tone: pc > 0.5 ? 'critical' : pc > 0.01 ? 'warning' : 'accent' },
-          { label: 'Severity', value: severityStr, tone },
-          { label: 'Stream', value: streamLabel, tone: event.predictive ? 'warning' : 'neutral' },
           { label: 'Fail-open', value: event.fail_open ? 'TRUE' : 'FALSE', tone: event.fail_open ? 'warning' : 'accent' },
           { label: 'Collision Flag', value: event.collision ? 'TRUE' : 'FALSE', tone: event.collision ? 'critical' : 'accent' },
           { label: 'Tick', value: event.tick_id.toLocaleString(), tone: 'neutral' },

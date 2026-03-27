@@ -92,31 +92,54 @@ export function InfoChip({
   value,
   tone = 'neutral',
   style,
+  onClick,
+  active = false,
 }: {
   label: string;
   value: string;
   tone?: Tone;
   style?: CSSProperties;
+  onClick?: () => void;
+  active?: boolean;
 }) {
   const color = toneColor(tone);
+  const isInteractive = Boolean(onClick);
 
   return (
     <div
+      role={isInteractive ? 'button' : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
+      aria-pressed={isInteractive ? active : undefined}
+      onClick={onClick}
+      onKeyDown={event => {
+        if (!isInteractive) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick?.();
+        }
+      }}
       style={{
         display: 'inline-flex',
         flexDirection: 'column',
         gap: '2px',
         minWidth: '82px',
         padding: '6px 9px',
-        border: `1px solid ${tone === 'neutral' ? theme.colors.border : `${color}55`}`,
-        background: 'rgba(10, 11, 14, 0.88)',
+        border: `1px solid ${tone === 'neutral' ? theme.colors.border : `${color}${active ? '66' : '55'}`}`,
+        background: active
+          ? `linear-gradient(180deg, ${color}18, rgba(10, 11, 14, 0.92))`
+          : 'rgba(10, 11, 14, 0.88)',
         clipPath: theme.chamfer.buttonClipPath,
+        cursor: isInteractive ? 'pointer' : 'default',
+        opacity: isInteractive && !active ? 0.6 : 1,
+        boxShadow: active ? `0 0 12px ${color}18` : 'none',
+        transition: 'opacity 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease',
+        userSelect: 'none',
         ...style,
       }}
     >
       <span
         style={{
-          color: theme.colors.textMuted,
+          color: active ? color : theme.colors.textMuted,
           fontSize: '8px',
           letterSpacing: '0.12em',
           textTransform: 'uppercase',
@@ -126,7 +149,7 @@ export function InfoChip({
       </span>
       <span
         style={{
-          color: tone === 'neutral' ? theme.colors.text : color,
+          color: active ? color : tone === 'neutral' ? theme.colors.text : color,
           fontSize: '12px',
           fontWeight: 600,
           fontVariantNumeric: 'tabular-nums',

@@ -5,6 +5,7 @@ import type {
   DebrisTuple,
   ExecutedBurn,
   PendingBurn,
+  RiskLevel,
   SatelliteSnapshot,
   StatusResponse,
   TrajectoryResponse,
@@ -39,6 +40,32 @@ export interface ThreatCounts {
   red: number;
   yellow: number;
   green: number;
+}
+
+export interface ThreatSeverityFilter {
+  critical: boolean;
+  warning: boolean;
+  watch: boolean;
+}
+
+export const DEFAULT_THREAT_SEVERITY_FILTER: ThreatSeverityFilter = {
+  critical: true,
+  warning: true,
+  watch: true,
+};
+
+export function threatFilterKeyForRiskLevel(level: RiskLevel): keyof ThreatSeverityFilter {
+  if (level === 'red') return 'critical';
+  if (level === 'yellow') return 'warning';
+  return 'watch';
+}
+
+export function threatFilterAllowsRiskLevel(level: RiskLevel, filter: ThreatSeverityFilter): boolean {
+  return filter[threatFilterKeyForRiskLevel(level)];
+}
+
+export function hasActiveThreatSeverityFilter(filter: ThreatSeverityFilter): boolean {
+  return filter.critical || filter.warning || filter.watch;
 }
 
 export type TrackHistoryPoint = [number, number, number];
@@ -94,6 +121,9 @@ export interface DashboardContextValue {
   setBooted: (value: boolean) => void;
   selectedSatId: string | null;
   selectSat: (id: string | null) => void;
+  threatSeverityFilter: ThreatSeverityFilter;
+  toggleThreatSeverity: (severity: keyof ThreatSeverityFilter) => void;
+  setThreatSeverityFilter: (filter: ThreatSeverityFilter) => void;
   stepStatus: StepStatusSummary;
   setStepStatus: (status: StepStatusSummary) => void;
   model: DashboardViewModel;
