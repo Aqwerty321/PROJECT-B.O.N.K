@@ -70,7 +70,7 @@
   {\normalsize National Space Hackathon 2026 --- IIT Delhi}
 }
 \author{
-  Team B.O.N.K\\[2pt]
+  Team Space\_Invaders\\[2pt]
   \small \url{https://github.com/Aqwerty321/PROJECT-B.O.N.K}
 }
 \date{March 2026}
@@ -122,7 +122,8 @@ philosophy:
 \end{itemize}
 
 The remainder of this report details the system architecture
-(\S\ref{sec:arch}), numerical methods (\S\ref{sec:methods}), frontend
+(\S\ref{sec:arch}), key design decisions and trade-offs
+(\S\ref{sec:decisions}), numerical methods (\S\ref{sec:methods}), frontend
 console (\S\ref{sec:frontend}), validation evidence (\S\ref{sec:validation}),
 and deployment pipeline (\S\ref{sec:deploy}).
 
@@ -200,6 +201,91 @@ Additional debug endpoints (\texttt{/api/debug/\{burns, conjunctions,
 propagation, conflicts\}}) expose internal ring buffers for observability.
 
 %% ═══════════════════════════════════════════════════════════════════════════
+\section{Design Decisions and Trade-offs}\label{sec:decisions}
+
+Several non-obvious architectural choices emerged from iterative development
+over 60+ commits.  We document the key trade-offs to explain why the system
+takes its current form.
+
+\subsection{Julia Bridge $\to$ Pure C++ Runtime}
+
+The architecture document originally specified a Julia/\texttt{jluna} hybrid
+for heavy numerics (\texttt{DifferentialEquations.jl}, analytical MOID).  We
+implemented a complete NSGA-II parameter tuner via \texttt{jluna}
+(\texttt{tuner/nsga2\_tuner.jl}) and verified end-to-end optimization over
+69~parameters.  However, the Julia~1.10 runtime added \textbf{$\sim$200\,MB}
+to the Docker image and introduced JIT latency on container boot.  Since the
+grading VM runs a cold \texttt{docker build}, we removed the Julia runtime
+from the production Dockerfile and re-implemented all numerical kernels in
+pure C++20.  The NSGA-II tuner remains available as an offline tool
+(\texttt{PROJECTBONK\_ENABLE\_JULIA\_RUNTIME} CMake guard) but the
+submission binary has zero Julia dependency.
+
+\subsection{Shadow-First Filter Rollout}
+
+New narrow-phase filters (plane/phase gate, MOID proxy) are deployed in
+\emph{shadow mode} by default: the gate evaluates and logs rejection
+statistics but does not actually discard pairs.  This allows us to
+calibrate false-negative risk against the full RK4 reference before
+activating hard filtering.  The pattern was motivated by an early
+observation that the D-criterion gate's threshold was sensitive to orbital
+element quality --- activating it prematurely on poorly-determined debris
+could violate the zero-false-negative invariant.  Shadow-first rollout
+ensures every filter accumulates calibration evidence (exposed via
+\texttt{/api/status?details=1}) before moving to production.
+
+\subsection{Heuristic $\to$ CW/ZEM Recovery Solver}
+
+The initial recovery planner used proportional RTN gains
+(\texttt{HEURISTIC} mode) --- simple but producing suboptimal $\Delta V$
+vectors, especially on eccentric orbits where velocity-direction diverges
+from true tangential.  An audit identified three correctness issues:
+(i)~mean motion computed from instantaneous radius instead of semi-major
+axis, (ii)~$\hat{t}$ approximated as $\hat{v}$ instead of
+$\hat{n} \times \hat{r}$, and (iii)~simplified linear CW terms instead of
+true $\sin(n\tau)/\cos(n\tau)$ state-transition matrix.  All three were
+fixed, and \texttt{CW\_ZEM\_EQUIVALENT} became the default solver, with
+the heuristic retained as a near-singularity fallback.
+
+\subsection{3D Globe $\to$ 2D Operations Dashboard}
+
+The frontend initially featured a full-viewport Three.js globe with
+Fresnel atmosphere, glassmorphic HUD panels, and a ``TRON $\times$ Star
+Wars'' cockpit aesthetic.  While visually impressive, judge feedback
+priority analysis revealed that the PS requires a \emph{2D operational
+dashboard} with ground tracks, maneuver timelines, and resource heatmaps.
+We pivoted: the 3D globe was demoted to a supporting context element,
+and a Canvas-based Mercator ground track with 90-minute trail/forecast,
+live terminator, and a scrollable Gantt maneuver timeline became the
+primary surfaces.  This decision improved judge-rubric alignment
+(Section~6 compliance) at the cost of visual spectacle.
+
+\subsection{MOID: Sampled Proxy vs.\ Analytical Solver}
+
+The problem statement rewards algorithmic sophistication, so we initially
+targeted a Gronchi~(2005) analytical quartic MOID solver.  We implemented
+it (\texttt{orbit\_math.cpp}) and observed correct results, but the
+analytical path's sensitivity to near-singular orbital frames (e.g.,
+circular orbits where argument of perigee is undefined) introduced
+edge-case fragility.  We adopted a pragmatic compromise: a 72$\times$72
+true-anomaly grid proxy (5{,}184 evaluations) with a 2.0\,km reject
+threshold, deployed in shadow mode.  The sampled proxy is robust to all
+orbit types and provides a reliable pre-filter ahead of the expensive
+RK4 refinement stages.
+
+\subsection{All-Pairs Fail-Open: Why Not Tiered Fallback?}
+
+When propagation fails for an object (producing NaN or divergent states),
+the engine must decide how to screen that object.  We investigated a
+tiered fallback (e.g., use last-known elements for a reduced broad-phase
+check) but proved that the broad phase cannot safely pair crossing-orbit
+objects when elements are stale.  The only guaranteed zero-false-negative
+strategy is to check the failed object against \emph{all} debris via the
+full narrow-phase pipeline.  This costs more compute but eliminates the
+risk of silently missing a conjunction --- consistent with the safety-first
+design philosophy.
+
+%% ═══════════════════════════════════════════════════════════════════════════
 \section{Numerical Methods}\label{sec:methods}
 
 \subsection{Orbital Propagation}
@@ -245,6 +331,15 @@ Finite-value guards after every substep prevent NaN propagation.
 \paragraph{Validation.}  Maximum position error at 86{,}400\,s
 (a full day) is \textbf{$<$\,0.061\,km}, verified by regression gate
 \texttt{phase2\_regression\_gate}.
+
+\paragraph{Why not RKF45 or Dormand--Prince?}
+Higher-order adaptive integrators would improve accuracy per step, but
+the collision threshold (100\,m) is orders of magnitude larger than the
+RK4 truncation error at 60\,s substeps.  RK4 avoids the overhead of
+error estimation and step rejection logic, keeping the per-object
+cost predictable --- critical for deterministic tick budgets.  The
+probe-then-escalate scheme already provides adaptivity at the
+architectural level.
 
 \subsection{Broad-Phase Candidate Generation}
 
@@ -480,6 +575,17 @@ test fails.
 \label{tab:gates}
 \end{table}
 
+\subsection{Real-Data Validation}
+
+Beyond synthetic test suites, CASCADE was validated against a
+real Space-Track OMM catalog (\texttt{data.txt}, 34\,MB).  The scenario
+generator (\texttt{tools/real\_data\_scenario\_gen}) parsed 30{,}000+
+objects via simdjson, filtered to LEO (periapsis $< 2{,}000$\,km altitude),
+classified payloads as satellites and the remainder as debris, and ran
+simulation ticks at full scale.  Result: \textbf{27{,}191} LEO objects
+loaded in $<$\,1\,s with zero ECI conversion failures, and 10~collisions
+detected against the real catalog (2.1\,s/tick at full 27K scale).
+
 \subsection{Safety Score Evidence}
 
 \begin{itemize}[nosep,leftmargin=*]
@@ -522,6 +628,19 @@ test fails.
 The broad phase reduces candidate count from $O(N \cdot M)$ to a small
 fraction via SMA/inclination binning.  OpenMP parallelization of the
 narrow-phase sweep yields a 31.5\% speedup at 2$\times$ scale.
+At full real-catalog scale (27{,}191 LEO objects), tick latency is
+2.1\,s --- dominated by the sheer pair count but still well within
+the interactive demonstration budget.
+
+\paragraph{Performance optimizations.}
+Hot-path profiling identified \texttt{std::pow(rmag, 5.0)} in the J2
+acceleration as a 10--50$\times$ bottleneck versus explicit multiplication
+(\texttt{r2*r2*rmag}).  Precomputing shared J2 secular terms
+($\cos i$, $\sin i$, $a^{3.5}$) across the three rate functions
+eliminated redundant transcendentals.  The MOID sample count was
+increased from 24 to 72 after analysis showed that
+$15^{\circ}$~resolution left 1{,}780\,km arc gaps at LEO altitudes,
+rendering the gate effectively a no-op.
 
 \subsection{Deployment Verification}
 
@@ -602,25 +721,33 @@ GitHub Actions runs on every push to \texttt{main}:
   \item \textbf{Propagation fidelity}:
     The engine uses J2-only perturbation.  Atmospheric drag is applied
     heuristically for perigee $< 350$\,km orbits.  Lunar/solar
-    third-body and SRP effects are not modeled.
+    third-body and SRP effects are not modeled.  For the hackathon's
+    days-level prediction horizon, J2 dominates all other perturbations
+    by 2--3 orders of magnitude, so this is an acceptable simplification.
 
   \item \textbf{MOID solver}:
     The current 72$\times$72 sampled proxy achieves sufficient accuracy
-    for hackathon-scale screening but could be replaced with a
-    Gronchi~(2005) analytical quartic solver for production use.
+    for screening but lacks the sub-meter precision of a Gronchi~(2005)
+    analytical quartic solver.  We implemented the analytical path but
+    encountered edge-case fragility on near-circular orbits (undefined
+    $\omega$); the sampled proxy is robust to all orbit types.
 
   \item \textbf{Maneuver optimization}:
-    The grid-search COLA planner explores a discrete candidate space.
-    A continuous NLP or sequential convex programming approach would
-    yield lower-$\Delta V$ evasion sequences.
+    The grid-search COLA planner explores a discrete 160-candidate space
+    (4~times $\times$ 4~$\Delta V$ $\times$ 10~directions).
+    A continuous NLP or sequential convex programming formulation would
+    yield lower-$\Delta V$ evasion sequences, but the discrete search
+    completes in $<$\,1\,ms and gives deterministic, auditable results.
 
   \item \textbf{Dense-scene FPS}:
     Frontend rendering at 10{,}000+ debris has been tested in development
     but formal 60\,FPS proof under worst-case load needs finalization.
 
-  \item \textbf{Demo video}:
-    The narrated demonstration video is planned around
-    \texttt{scripts/run\_ready\_demo.sh} but awaits final recording.
+  \item \textbf{Filter activation}:
+    The D-criterion, plane/phase, and MOID gates are deployed in shadow
+    mode.  Activating them would reduce narrow-phase compute by an
+    estimated 40--60\% but requires additional calibration against
+    adversarial edge cases to maintain the zero-false-negative guarantee.
 \end{itemize}
 
 %% ═══════════════════════════════════════════════════════════════════════════
@@ -628,6 +755,8 @@ GitHub Actions runs on every push to \texttt{main}:
 
 We thank the organizers of the National Space Hackathon 2026 at IIT~Delhi
 for designing a challenging and technically rigorous problem statement.
+Space-Track (\texttt{space-track.org}) provided the real OMM catalog used
+for full-scale validation.
 
 %% ═══════════════════════════════════════════════════════════════════════════
 \appendix
@@ -704,12 +833,56 @@ cd frontend && npm ci && npm run build
 
 \section{NSGA-II Tuner Parameters}\label{app:tuner}
 
-The offline multi-objective tuner optimizes 69~parameters across 3~tiers
-(broad phase, narrow phase, maneuver planner) against 3~objectives:
-safety (zero false negatives), fuel efficiency (total $\Delta V$), and
-speed (tick latency).  The tuner runs as a standalone C++ Monte-Carlo
-harness, separate from the production runtime.  Parameter values are
-injected at compile time or via environment variable overrides (all~69
-constants are \texttt{PROJECTBONK\_*} configurable).
+The offline multi-objective tuner implements the NSGA-II algorithm
+(Deb~et~al., 2002) via a Julia/\texttt{jluna} bridge.  The optimizer
+drives 69~parameters across 3~tiers:
+
+\begin{itemize}[nosep,leftmargin=*]
+  \item \textbf{Tier 1 --- Broad phase} (9~params): SMA bin width,
+    inclination bin width, shell margin, neighbor search range,
+    D-criterion threshold, fail-open eccentricity cutoff.
+  \item \textbf{Tier 2 --- Narrow phase} (21~params): plane/phase
+    angular thresholds, MOID grid resolution and reject threshold,
+    TCA guard margin, micro-refinement band, full-refine budget
+    tiers, uncertainty promotion velocity cutoff.
+  \item \textbf{Tier 3 --- Maneuver planner} (39~params): COLA
+    $\Delta V$ scales, RTN direction weights, CW horizon bounds,
+    position/velocity correction blend, recovery budget cap,
+    CDM scanner substep and horizon.
+\end{itemize}
+
+\noindent
+Three objectives are minimized simultaneously: \emph{safety risk}
+(number of false negatives; any $>0$ renders the solution infeasible
+via feasibility-first constraint handling), \emph{fuel consumption}
+(total $\Delta V$ across the constellation), and \emph{tick latency}
+(wall-clock time for one simulation step).  Verified end-to-end:
+20~population $\times$ 5~generations (120~evaluations), all candidates
+safe (safety\_risk~$= 0$), best tick 13.3\,ms from 23\,ms baseline
+defaults.
+
+All~69 constants are overridable at runtime via \texttt{PROJECTBONK\_*}
+environment variables, enabling parameter sweeps without recompilation.
+
+\section{Development Timeline}\label{app:timeline}
+
+The project was developed over approximately 4~weeks across 60+~commits.
+Table~\ref{tab:timeline} highlights the major milestones.
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Phase} & \textbf{Milestone} \\
+\midrule
+Week~1 & Telemetry ingestion, SoA state store, J2 propagator, Kepler solver, basic REST endpoints \\
+Week~2 & Conservative broad-phase (shell + D-criterion), narrow-phase pipeline (TCA + MOID + RK4 refine), maneuver math (CW/ZEM), fuel and cooldown logic \\
+Week~3 & Shadow-gate observability, NSGA-II tuner, real-data scenario generator (27K objects), OpenMP parallelization, 69-param env-override system \\
+Week~4 & Frontend dashboard (6~pages), 3D$\to$2D pivot, Docker multi-stage build, CI gates, PS alignment, technical report \\
+\bottomrule
+\end{tabularx}
+\caption{Development timeline and major milestones.}
+\label{tab:timeline}
+\end{table}
 
 \end{document}
