@@ -86,6 +86,143 @@ Full automated verification:
 
 ---
 
+## End-to-End Demo (Collision Avoidance Proof)
+
+This section walks through a **complete, reproducible demo** that proves CASCADE's autonomous collision avoidance pipeline — from raw catalog ingestion through evasion burn execution, recovery planning, and machine-verified outcome. Expected wall-clock time: **~3 minutes**.
+
+### Prerequisites
+
+| Requirement | Check |
+|---|---|
+| Docker + Docker Compose | `docker compose version` |
+| Python 3.8+ | `python3 --version` |
+| `curl` | `curl --version` |
+| Data file: `3le_data.txt` (4.7 MB, Git LFS) | `git lfs pull` if file shows as pointer |
+| Port 8000 available | `lsof -i :8000` should be empty |
+
+> **Dataset note:** The data files (`3le_data.txt`, `data.txt`, `tle2025.txt`, `train_data.csv`, `test_data.csv`) are stored in **Git LFS**. After cloning, run `git lfs pull` to download them. If you see small pointer files instead of real data, LFS objects haven't been fetched yet.
+
+### Option A — One-Command Automated Demo
+
+```bash
+./scripts/run_ready_demo.sh
+```
+
+This script performs the entire sequence automatically:
+1. Restarts Docker services (`docker compose down && docker compose up -d`)
+2. Replays the `3le_data.txt` catalog (30,000+ TLE records → 10 operator satellites + debris)
+3. Injects two calibrated critical encounters (SAT-67060, SAT-67061 with 8 m miss distance)
+4. Steps the simulation: 60 s → 20 s → 60 s → 60 s → 27 s
+5. Runs `check_demo_readiness.py` (expects ≥ 2 collisions avoided)
+6. Verifies confirmed collision avoidance in `/api/debug/burns`
+
+If the script exits 0, the demo is **proven successful**. Open `http://localhost:8000` to observe the result in the dashboard.
+
+### Option B — Step-by-Step Manual Demo
+
+For presenting live or narrating each stage:
+
+**Step 1: Start the engine.**
+```bash
+docker compose down 2>/dev/null; docker compose up --build -d
+# Wait for the engine to be ready (~30s for Docker build on first run, ~2s on rebuild)
+until curl -sf http://localhost:8000/api/status > /dev/null 2>&1; do sleep 1; done
+echo "Engine ready"
+```
+
+**Step 2: Ingest real Space-Track catalog.**
+```bash
+# Replay 3LE catalog — creates 10 operator satellites + thousands of debris objects
+python3 scripts/replay_data_catalog.py \
+  --data 3le_data.txt \
+  --api-base http://localhost:8000 \
+  --satellite-mode catalog \
+  --operator-sats 10
+```
+Open `http://localhost:8000` → **Ground Track** view to see the constellation populated on the Mercator map.
+
+**Step 3: Inject calibrated collision threats.**
+```bash
+# Inject debris on intercept course with SAT-67060 (8m miss — well inside 100m threshold)
+python3 scripts/inject_synthetic_encounter.py \
+  --api-base http://localhost:8000 \
+  --mode single --target SAT-67060 \
+  --miss-km 0.008 --count 1 \
+  --encounter-hours 0.18 --future-model hcw \
+  --debris-start-id 97001 --seed 7
+
+# Inject debris on intercept course with SAT-67061
+python3 scripts/inject_synthetic_encounter.py \
+  --api-base http://localhost:8000 \
+  --mode single --target SAT-67061 \
+  --miss-km 0.008 --count 1 \
+  --encounter-hours 0.18 --future-model hcw \
+  --debris-start-id 97101 --seed 7
+```
+Switch to **Threat Assessment** view — the two CRITICAL conjunctions should appear on the bullseye plot.
+
+**Step 4: Advance simulation — triggers autonomous evasion.**
+```bash
+# Step forward in 5 increments — the engine detects threats, plans evasion burns,
+# executes them, and schedules recovery burns automatically.
+curl -s -X POST http://localhost:8000/api/simulate/step -H 'Content-Type: application/json' -d '{"step_seconds":60}'
+curl -s -X POST http://localhost:8000/api/simulate/step -H 'Content-Type: application/json' -d '{"step_seconds":20}'
+curl -s -X POST http://localhost:8000/api/simulate/step -H 'Content-Type: application/json' -d '{"step_seconds":60}'
+curl -s -X POST http://localhost:8000/api/simulate/step -H 'Content-Type: application/json' -d '{"step_seconds":60}'
+curl -s -X POST http://localhost:8000/api/simulate/step -H 'Content-Type: application/json' -d '{"step_seconds":27}'
+```
+Watch the **Burn Operations** view — evasion burns appear on the Gantt chart, followed by recovery burns. Check **Command Center** for collision-avoided counts.
+
+**Step 5: Verify collision avoidance.**
+```bash
+# Machine-verified readiness check
+python3 scripts/check_demo_readiness.py --api-base http://localhost:8000
+```
+
+Expected output includes `verdict: ready` with `collisions_avoided >= 2`.
+
+**Step 6: Inspect burn details.**
+```bash
+# Confirm both synthetic threats were autonomously avoided
+curl -s http://localhost:8000/api/debug/burns | python3 -m json.tool
+```
+
+Look for `"collision_avoided": true` entries with `trigger_debris_id` of `DEB-SYNTH-97001` and `DEB-SYNTH-97101`.
+
+### Dashboard Views to Show During Demo
+
+| View | URL | What to Point Out |
+|---|---|---|
+| **Command Center** | `http://localhost:8000/#/command` | Fleet status counts, active CDM warnings, executed burns |
+| **Ground Track** | `http://localhost:8000/#/track` | Real orbital trajectories, debris cloud, satellite trails |
+| **Threat Assessment** | `http://localhost:8000/#/threat` | CRITICAL conjunctions on polar bullseye (radial = time-to-TCA) |
+| **Burn Operations** | `http://localhost:8000/#/burn-ops` | Evasion + recovery burn Gantt, fuel gauges, cooldown markers |
+| **Fleet Status** | `http://localhost:8000/#/fleet-status` | Fuel heatmaps, ΔV usage, station-keeping drift |
+| **Scorecard** | `http://localhost:8000/#/scorecard` | PS §7 criteria mapped to live engine metrics |
+
+### What the Demo Proves
+
+| Capability | Evidence |
+|---|---|
+| Real-data catalog ingestion | 30,000+ TLE records parsed & propagated |
+| Zero false negatives | Both injected threats detected through full filter cascade |
+| Autonomous evasion planning | CDM → COLA burns planned without human intervention |
+| Physical constraint enforcement | Tsiolkovsky fuel, cooldown, thrust cap, ground-station LOS |
+| Recovery planning | Post-evasion CW/ZEM slot-recovery burns scheduled automatically |
+| Machine-verifiable outcome | `check_demo_readiness.py` asserts `collisions_avoided >= 2` |
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `3le_data.txt` is a small text pointer | Run `git lfs pull` to download actual data |
+| Port 8000 in use | `docker compose down` or set `PROJECTBONK_PORT=9000` |
+| `check_demo_readiness.py` says `weak` | Re-run from Step 1 — timing-sensitive encounter requires clean state |
+| Docker build fails at CTest | Safety gate regression — run `ctest --test-dir build --output-on-failure` locally |
+| Frontend not loading | Engine serves static assets — check `curl http://localhost:8000/` returns HTML |
+
+---
+
 ## Design Philosophy
 
 Three principles guided every architectural decision:
@@ -456,13 +593,12 @@ sudo apt-get install -y build-essential cmake git curl wget libboost-all-dev
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPROJECTBONK_ENABLE_JULIA_RUNTIME=OFF
 cmake --build build -j$(nproc)
-./build/ProjectBONK
 ```
 
 ### Run Safety Gates
 
 ```bash
-ctest --test-dir build --output-on-failure
+ctest --test-dir build --output-on-failure   # 8/8 must pass
 ```
 
 ### Individual Gates
@@ -472,6 +608,53 @@ ctest --test-dir build --output-on-failure
 ./scripts/broad_phase_sanity_gate.sh
 ./scripts/narrow_phase_false_negative_gate.sh
 ./scripts/recovery_planner_invariants_gate.sh
+```
+
+### Demo from Source (without Docker)
+
+After a successful build, run the full demo without Docker:
+
+```bash
+# 1. Start the engine (serves frontend at http://localhost:8000)
+./build/ProjectBONK &
+ENGINE_PID=$!
+
+# 2. Wait for readiness
+until curl -sf http://localhost:8000/api/status > /dev/null 2>&1; do sleep 0.5; done
+echo "Engine ready (PID $ENGINE_PID)"
+
+# 3. Fetch LFS data if needed
+git lfs pull
+
+# 4. Replay catalog
+python3 scripts/replay_data_catalog.py \
+  --data 3le_data.txt \
+  --api-base http://localhost:8000 \
+  --satellite-mode catalog \
+  --operator-sats 10
+
+# 5. Inject calibrated threats
+python3 scripts/inject_synthetic_encounter.py \
+  --api-base http://localhost:8000 \
+  --mode single --target SAT-67060 --miss-km 0.008 --count 1 \
+  --encounter-hours 0.18 --future-model hcw --debris-start-id 97001 --seed 7
+python3 scripts/inject_synthetic_encounter.py \
+  --api-base http://localhost:8000 \
+  --mode single --target SAT-67061 --miss-km 0.008 --count 1 \
+  --encounter-hours 0.18 --future-model hcw --debris-start-id 97101 --seed 7
+
+# 6. Step simulation (autonomous evasion + recovery)
+for step in 60 20 60 60 27; do
+  curl -s -X POST http://localhost:8000/api/simulate/step \
+    -H 'Content-Type: application/json' -d "{\"step_seconds\":$step}"
+done
+
+# 7. Verify — should print "verdict: ready" with collisions_avoided >= 2
+python3 scripts/check_demo_readiness.py --api-base http://localhost:8000
+
+# 8. Open http://localhost:8000 in a browser to see the dashboard
+# 9. When done:
+kill $ENGINE_PID
 ```
 
 ---
@@ -497,17 +680,23 @@ Full variable reference: `docs/implementation-plan.md`.
 
 ## Deployment
 
-### Docker
+### Docker (Recommended for Demo)
 
 ```bash
-docker build -t cascade:local .
-docker run --rm -p 8000:8000 cascade:local
-```
-
-Or with Compose:
-
-```bash
+# Build and start
 docker compose up --build -d
+
+# Verify engine is running
+curl -s http://localhost:8000/api/status | python3 -m json.tool
+
+# Run the full end-to-end collision avoidance demo
+./scripts/run_ready_demo.sh
+
+# Open the dashboard
+# → http://localhost:8000
+
+# Tear down
+docker compose down
 ```
 
 ### Docker Build Architecture
@@ -534,6 +723,7 @@ GitHub Actions enforces a four-stage gate on every push to `main`:
 ## Frontend Development
 
 ```bash
+# Start backend with CORS enabled for Vite dev server
 PROJECTBONK_CORS_ENABLE=true \
 PROJECTBONK_CORS_ALLOW_ORIGIN=http://localhost:5173 \
 ./build/ProjectBONK
@@ -545,14 +735,51 @@ Frontend dev server on port 5173:
 cd frontend && npm ci && npm run dev
 ```
 
+Open `http://localhost:5173` for hot-reload development. The Vite proxy forwards `/api/*` to the backend on port 8000.
+
+To see real data in the frontend during development, replay a catalog while the backend is running (in a separate terminal):
+```bash
+python3 scripts/replay_data_catalog.py --data 3le_data.txt --api-base http://localhost:8000 --satellite-mode catalog --operator-sats 10
+```
+
+---
+
+## Datasets (Git LFS)
+
+All large data files are tracked via [Git LFS](https://git-lfs.github.com/). After cloning, fetch them:
+
+```bash
+git lfs install   # one-time setup
+git lfs pull      # download all LFS objects
+```
+
+| File | Size | Format | LFS | Description |
+|---|---|---|---|---|
+| `3le_data.txt` | 4.7 MB | 3LE text | Yes | Modern TLE catalog — **recommended for demos** |
+| `data.txt` | 33 MB | OMM JSON | Yes | 30,000+ Space-Track OMM records |
+| `train_data.csv` | 223 MB | CSV | Yes | CDM ML training data (162K rows) |
+| `test_data.csv` | 34 MB | CSV | Yes | CDM ML test data (24K rows) |
+| `tle2025.txt` | 2.8 GB | TLE text | No | Full TLE archive — exceeds GitHub LFS 2 GB limit, local-only |
+
+To verify files are real data (not LFS pointers):
+```bash
+head -1 3le_data.txt   # should show a satellite name, not "version https://git-lfs.github.com/spec/v1"
+```
+
 ---
 
 ## Local Catalog Replay
 
-Replay the `data.txt` catalog through the telemetry API for local UI/backend testing:
+Replay the `data.txt` or `3le_data.txt` catalog through the telemetry API for local UI/backend testing:
 
 ```bash
+# OMM JSON replay (data.txt — 30K objects)
 python3 scripts/replay_data_catalog.py --api-base http://localhost:8000
+
+# 3LE replay (3le_data.txt — best visual density, recommended for demos)
+python3 scripts/replay_data_catalog.py \
+  --data 3le_data.txt \
+  --api-base http://localhost:8000
 ```
 
 Strict real-data mode (promote real payloads as operator fleet):
@@ -563,6 +790,8 @@ python3 scripts/replay_data_catalog.py \
   --satellite-mode catalog \
   --operator-sats 10
 ```
+
+After replay, open `http://localhost:8000` to see the constellation in the dashboard. To trigger collision avoidance, inject synthetic encounters and step the simulation — see the [End-to-End Demo](#end-to-end-demo-collision-avoidance-proof) section above.
 
 Supports OMM JSON and 3LE/TLE text catalogs, manifest-driven replay presets, scenario mining with LOS-aware scoring, and backend-assisted ranking. See `scripts/mine_strict_scenarios.py --help` for the full mining workflow.
 
@@ -594,6 +823,11 @@ Supports OMM JSON and 3LE/TLE text catalogs, manifest-driven replay presets, sce
 ├── CMakeLists.txt                  # C++20, FetchContent deps, Julia auto-install
 ├── Dockerfile                      # 3-stage build (ubuntu:22.04)
 ├── main.cpp                        # HTTP server + engine runtime entry point
+├── 3le_data.txt                    # [LFS] 4.7 MB 3LE catalog (demo data)
+├── data.txt                        # [LFS] 33 MB OMM JSON catalog (Space-Track)
+├── tle2025.txt                     # [LFS] 2.8 GB full TLE archive
+├── train_data.csv                  # [LFS] 223 MB CDM ML training data
+├── test_data.csv                   # [LFS] 34 MB CDM ML test data
 ├── src/
 │   ├── simulation_engine.cpp       # Master tick loop: propagate → broad → narrow → COLA
 │   ├── broad_phase.cpp             # O(N log N) SMA binning + D-criterion
@@ -610,7 +844,13 @@ Supports OMM JSON and 3LE/TLE text catalogs, manifest-driven replay presets, sce
 │   ├── nsga2_tuner.jl              # Pure Julia NSGA-II (69 params, 3 objectives)
 │   └── nsga2_jluna_bridge.cpp      # C++/Julia bridge
 ├── tools/                          # Gate binaries, benchmark harnesses
-├── scripts/                        # Gate runners, benchmark compare, replay, mining
+├── scripts/
+│   ├── run_ready_demo.sh           # One-command end-to-end demo
+│   ├── check_demo_readiness.py     # Machine-verify collision avoidance
+│   ├── replay_data_catalog.py      # Catalog ingestion tool
+│   ├── inject_synthetic_encounter.py  # Calibrated threat injection
+│   ├── docker_api_smoke.sh         # Docker lifecycle smoke test
+│   └── ...                         # Gate runners, benchmark compare, mining
 ├── docs/                           # Implementation plan, phase reports, groundstations.csv
 └── PS.md                           # National Space Hackathon 2026 problem statement
 ```

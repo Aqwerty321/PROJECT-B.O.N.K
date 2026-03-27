@@ -1,50 +1,58 @@
-# React + TypeScript + Vite
+# CASCADE Mission Console Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 / TypeScript / Vite SPA serving as the operational dashboard for the CASCADE engine. Renders 7 views via Canvas 2D and Three.js WebGL.
 
-Currently, two official plugins are available:
+## Quick Start (Development)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+# 1. Start the C++ backend with CORS enabled
+cd ..
+PROJECTBONK_CORS_ENABLE=true PROJECTBONK_CORS_ALLOW_ORIGIN=http://localhost:5173 ./build/ProjectBONK &
+until curl -sf http://localhost:8000/api/status > /dev/null 2>&1; do sleep 0.5; done
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
-
-- Configure the top-level `parserOptions` property like this:
-
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+# 2. Start Vite dev server (hot-reload on port 5173)
+cd frontend
+npm ci
+npm run dev
+# → Open http://localhost:5173
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+The Vite proxy forwards `/api/*` requests to the backend on port 8000 (configured in `vite.config.ts`).
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
+## Load Real Data Into the Dashboard
 
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
+With the backend running, replay a real Space-Track catalog to populate the views:
+
+```bash
+# In a separate terminal (from the repo root):
+git lfs pull   # ensure LFS datasets are downloaded
+python3 scripts/replay_data_catalog.py \
+  --data 3le_data.txt \
+  --api-base http://localhost:8000 \
+  --satellite-mode catalog \
+  --operator-sats 10
 ```
+
+Then navigate the dashboard views:
+- `http://localhost:5173/#/command` — Fleet posture summary
+- `http://localhost:5173/#/track` — Ground track with orbital trails
+- `http://localhost:5173/#/threat` — Polar bullseye threat view
+- `http://localhost:5173/#/burn-ops` — Maneuver Gantt timeline
+- `http://localhost:5173/#/fleet-status` — Fuel heatmaps, drift metrics
+- `http://localhost:5173/#/scorecard` — PS §7 evaluation scorecard
+
+## Full End-to-End Demo
+
+To demonstrate collision avoidance with the frontend visible, see the [main README demo walkthrough](../README.md#end-to-end-demo-collision-avoidance-proof).
+
+## Production Build
+
+```bash
+npm run build    # tsc + vite build → dist/
+```
+
+The production bundle is copied into the Docker image and served by the C++ engine at `/` — no separate web server needed.
+
+---
+
+*Built with Vite + React + TypeScript.*

@@ -3,6 +3,10 @@
 Date: 2026-03-25
 Status: Working reference
 
+> **Quick demo entry point:** Run `./scripts/run_ready_demo.sh` for the full automated demo, or follow the step-by-step walkthrough in [README.md → End-to-End Demo](../README.md#end-to-end-demo-collision-avoidance-proof).
+>
+> **Data files:** All catalog datasets (`3le_data.txt`, `data.txt`, `tle2025.txt`, `train_data.csv`, `test_data.csv`) are tracked via **Git LFS**. Run `git lfs pull` after cloning to download them.
+
 ## Why this document exists
 
 This is the single place to keep the real-data demo strategy, the PS compliance audit,
@@ -28,7 +32,7 @@ These decisions are already made for planning purposes unless later changed expl
 
 These items are already implemented and should be treated as current reality.
 
-- `.gitignore` now explicitly ignores `3le_data.txt`, `train_data.csv`, and `test_data.csv` in addition to the older local-only data files.
+- Data files (`data.txt`, `3le_data.txt`, `train_data.csv`, `test_data.csv`) are now tracked via **Git LFS** instead of being gitignored. Run `git lfs pull` after cloning. `tle2025.txt` (2.8 GB) exceeds GitHub's 2 GB LFS limit and remains local-only.
 - `scripts/replay_data_catalog.py` now supports stricter catalog-backed operator fleets via:
   - `--satellite-mode catalog`
   - `--operator-sats`

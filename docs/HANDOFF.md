@@ -2,6 +2,37 @@
 
 Date: 2026-03-18
 
+## End-to-End Demo (Quick Reference)
+
+**Fastest path to a working demo (Docker):**
+
+```bash
+git lfs pull                          # fetch LFS datasets (3le_data.txt etc.)
+docker compose up --build -d          # build & start engine
+./scripts/run_ready_demo.sh           # replay catalog, inject threats, verify avoidance
+# → Open http://localhost:8000 and navigate dashboard views
+docker compose down                   # tear down
+```
+
+**From source (no Docker):**
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPROJECTBONK_ENABLE_JULIA_RUNTIME=OFF
+cmake --build build -j$(nproc)
+./build/ProjectBONK &
+until curl -sf http://localhost:8000/api/status > /dev/null 2>&1; do sleep 0.5; done
+
+git lfs pull
+python3 scripts/replay_data_catalog.py --data 3le_data.txt --api-base http://localhost:8000 --satellite-mode catalog --operator-sats 10
+python3 scripts/inject_synthetic_encounter.py --api-base http://localhost:8000 --mode single --target SAT-67060 --miss-km 0.008 --count 1 --encounter-hours 0.18 --future-model hcw --debris-start-id 97001 --seed 7
+python3 scripts/inject_synthetic_encounter.py --api-base http://localhost:8000 --mode single --target SAT-67061 --miss-km 0.008 --count 1 --encounter-hours 0.18 --future-model hcw --debris-start-id 97101 --seed 7
+for s in 60 20 60 60 27; do curl -s -X POST http://localhost:8000/api/simulate/step -H 'Content-Type: application/json' -d "{\"step_seconds\":$s}"; done
+python3 scripts/check_demo_readiness.py --api-base http://localhost:8000
+# → Open http://localhost:8000
+```
+
+See the full walkthrough with dashboard views in [README.md → End-to-End Demo](../README.md#end-to-end-demo-collision-avoidance-proof).
+
 ## Current status snapshot
 
 - Phase 1 complete: state store + telemetry + clock + API wiring
