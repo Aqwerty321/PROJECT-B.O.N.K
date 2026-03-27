@@ -131,5 +131,22 @@ jobs:
       - name: Run CTest safety suite
         run: ctest --test-dir build --output-on-failure
 
+      - name: Run benchmark comparison smoke
+        run: |
+          mkdir -p build/benchmark-reports
+          python3 ./scripts/benchmark_compare.py \
+            --profile smoke \
+            --current-build-dir build \
+            --report-json build/benchmark-reports \
+            --report-md build/benchmark-reports
+
+      - name: Upload benchmark comparison reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-comparison-reports
+          path: build/benchmark-reports
+          if-no-files-found: warn
+
       - name: Run Docker API smoke gate
         run: ./scripts/docker_api_smoke.sh

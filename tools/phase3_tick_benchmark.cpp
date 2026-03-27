@@ -14,6 +14,7 @@
 #include "simulation_engine.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -56,6 +57,100 @@ bool env_flag_enabled(const char* key, bool fallback) {
     return std::atoi(raw) != 0;
 }
 
+std::uint64_t fnv1a_init() noexcept {
+    return 1469598103934665603ULL;
+}
+
+void fnv1a_mix_u64(std::uint64_t& state, std::uint64_t value) noexcept {
+    state ^= value;
+    state *= 1099511628211ULL;
+}
+
+void fnv1a_mix_double(std::uint64_t& state, double value) noexcept {
+    fnv1a_mix_u64(state, std::bit_cast<std::uint64_t>(value));
+}
+
+void fnv1a_mix_string(std::uint64_t& state, const std::string& value) noexcept {
+    for (unsigned char ch : value) {
+        fnv1a_mix_u64(state, static_cast<std::uint64_t>(ch));
+    }
+    fnv1a_mix_u64(state, 0xffULL);
+}
+
+struct FinalStateSummary {
+    std::uint64_t fingerprint = 0;
+    std::uint64_t satellite_nominal = 0;
+    std::uint64_t satellite_maneuvering = 0;
+    std::uint64_t satellite_fuel_low = 0;
+    std::uint64_t satellite_offline = 0;
+    double fuel_kg_sum = 0.0;
+    double mass_kg_sum = 0.0;
+    double position_l1_sum_km = 0.0;
+    double velocity_l1_sum_km_s = 0.0;
+    double telemetry_epoch_sum_s = 0.0;
+};
+
+FinalStateSummary summarize_state(const cascade::StateStore& store) noexcept {
+    FinalStateSummary out{};
+    out.fingerprint = fnv1a_init();
+
+    for (std::size_t idx = 0; idx < store.size(); ++idx) {
+        fnv1a_mix_string(out.fingerprint, store.id(idx));
+        fnv1a_mix_u64(out.fingerprint, static_cast<std::uint64_t>(store.type(idx)));
+        fnv1a_mix_u64(out.fingerprint, static_cast<std::uint64_t>(store.sat_status(idx)));
+        fnv1a_mix_u64(out.fingerprint, store.elements_valid(idx) ? 1ULL : 0ULL);
+
+        fnv1a_mix_double(out.fingerprint, store.rx(idx));
+        fnv1a_mix_double(out.fingerprint, store.ry(idx));
+        fnv1a_mix_double(out.fingerprint, store.rz(idx));
+        fnv1a_mix_double(out.fingerprint, store.vx(idx));
+        fnv1a_mix_double(out.fingerprint, store.vy(idx));
+        fnv1a_mix_double(out.fingerprint, store.vz(idx));
+        fnv1a_mix_double(out.fingerprint, store.fuel_kg(idx));
+        fnv1a_mix_double(out.fingerprint, store.mass_kg(idx));
+        fnv1a_mix_double(out.fingerprint, store.telemetry_epoch_s(idx));
+        fnv1a_mix_double(out.fingerprint, store.a_km(idx));
+        fnv1a_mix_double(out.fingerprint, store.e(idx));
+        fnv1a_mix_double(out.fingerprint, store.i_rad(idx));
+        fnv1a_mix_double(out.fingerprint, store.raan_rad(idx));
+        fnv1a_mix_double(out.fingerprint, store.argp_rad(idx));
+        fnv1a_mix_double(out.fingerprint, store.M_rad(idx));
+        fnv1a_mix_double(out.fingerprint, store.n_rad_s(idx));
+        fnv1a_mix_double(out.fingerprint, store.p_km(idx));
+        fnv1a_mix_double(out.fingerprint, store.rp_km(idx));
+        fnv1a_mix_double(out.fingerprint, store.ra_km(idx));
+
+        out.fuel_kg_sum += store.fuel_kg(idx);
+        out.mass_kg_sum += store.mass_kg(idx);
+        out.position_l1_sum_km +=
+            std::abs(store.rx(idx)) + std::abs(store.ry(idx)) + std::abs(store.rz(idx));
+        out.velocity_l1_sum_km_s +=
+            std::abs(store.vx(idx)) + std::abs(store.vy(idx)) + std::abs(store.vz(idx));
+        out.telemetry_epoch_sum_s += store.telemetry_epoch_s(idx);
+
+        if (store.type(idx) == cascade::ObjectType::SATELLITE) {
+            switch (store.sat_status(idx)) {
+                case cascade::SatStatus::NOMINAL:
+                    ++out.satellite_nominal;
+                    break;
+                case cascade::SatStatus::MANEUVERING:
+                    ++out.satellite_maneuvering;
+                    break;
+                case cascade::SatStatus::FUEL_LOW:
+                    ++out.satellite_fuel_low;
+                    break;
+                case cascade::SatStatus::OFFLINE:
+                    ++out.satellite_offline;
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    return out;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -65,20 +160,24 @@ int main(int argc, char** argv)
     int warmup_ticks = 10;
     int measure_ticks = 40;
     double step_seconds = 30.0;
+    std::uint64_t seed = 20260317ULL;
+    double start_epoch_s = 1773292800.0;
 
     if (argc >= 2) sat_count = std::max(1, std::atoi(argv[1]));
     if (argc >= 3) deb_count = std::max(1, std::atoi(argv[2]));
     if (argc >= 4) warmup_ticks = std::max(0, std::atoi(argv[3]));
     if (argc >= 5) measure_ticks = std::max(1, std::atoi(argv[4]));
     if (argc >= 6) step_seconds = std::max(1.0, std::atof(argv[5]));
+    if (argc >= 7) seed = static_cast<std::uint64_t>(std::strtoull(argv[6], nullptr, 10));
+    if (argc >= 8) start_epoch_s = std::atof(argv[7]);
 
     const int total_objects = sat_count + deb_count;
 
     cascade::StateStore store(static_cast<std::size_t>(total_objects + 128));
     cascade::SimClock clock;
-    clock.set_epoch_s(1773292800.0); // 2026-03-12T08:00:00Z
+    clock.set_epoch_s(start_epoch_s);
 
-    std::mt19937_64 rng(20260317ULL);
+    std::mt19937_64 rng(seed);
 
     std::uniform_real_distribution<double> sat_a(6778.0, 7378.0);
     std::uniform_real_distribution<double> sat_e(0.0, 0.01);
@@ -225,12 +324,16 @@ int main(int argc, char** argv)
     for (double ms : tick_ms) mean_ms += ms;
     if (!tick_ms.empty()) mean_ms /= static_cast<double>(tick_ms.size());
 
+    const FinalStateSummary final_state = summarize_state(store);
+
     std::cout << std::fixed << std::setprecision(3);
     std::cout << "CASCADE Phase3 Tick Benchmark\n";
     std::cout << "objects_total=" << store.size() << "\n";
     std::cout << "satellites=" << store.satellite_count() << "\n";
     std::cout << "debris=" << store.debris_count() << "\n";
     std::cout << "step_seconds=" << step_seconds << "\n";
+    std::cout << "rng_seed=" << seed << "\n";
+    std::cout << "start_epoch_s=" << start_epoch_s << "\n";
     std::cout << "warmup_ticks=" << warmup_ticks << "\n";
     std::cout << "measure_ticks=" << measure_ticks << "\n";
     std::cout << "broad_i_neighbor_filter="
@@ -268,6 +371,19 @@ int main(int argc, char** argv)
         const double accounted = (sum_propagation_us + sum_broad_phase_us + sum_narrow_precomp_us + sum_narrow_sweep_us) / n_ticks / 1000.0;
         std::cout << "phase_other_ms_mean=" << (mean_ms - accounted) << "\n";
     }
+
+    std::cout << std::hex;
+    std::cout << "final_state_fingerprint=0x" << final_state.fingerprint << "\n";
+    std::cout << std::dec;
+    std::cout << "final_satellite_nominal=" << final_state.satellite_nominal << "\n";
+    std::cout << "final_satellite_maneuvering=" << final_state.satellite_maneuvering << "\n";
+    std::cout << "final_satellite_fuel_low=" << final_state.satellite_fuel_low << "\n";
+    std::cout << "final_satellite_offline=" << final_state.satellite_offline << "\n";
+    std::cout << "final_fuel_kg_sum=" << final_state.fuel_kg_sum << "\n";
+    std::cout << "final_mass_kg_sum=" << final_state.mass_kg_sum << "\n";
+    std::cout << "final_position_l1_sum_km=" << final_state.position_l1_sum_km << "\n";
+    std::cout << "final_velocity_l1_sum_km_s=" << final_state.velocity_l1_sum_km_s << "\n";
+    std::cout << "final_telemetry_epoch_sum_s=" << final_state.telemetry_epoch_sum_s << "\n";
 
     return 0;
 }

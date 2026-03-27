@@ -147,7 +147,6 @@ struct MoidProxyGateResult {
 struct PerObjectPrecomp {
     OrbitalElements el{};      // J2-secularly propagated to target epoch
     Vec3  h_unit{};            // angular momentum unit vector
-    double h_norm = 0.0;       // magnitude of h (should be ~1 for valid)
     double phase  = 0.0;       // argp + M (wrapped 0..2pi) for plane/phase gate
     bool  elements_valid = false;   // elements present and finite
     bool  moid_eligible  = false;   // elements_valid && e <= moid_max_e
@@ -191,15 +190,33 @@ inline bool eci_position_at_mean_anomaly(const OrbitalElements& base,
 {
     OrbitalElements sample = base;
     sample.M_rad = wrap_0_2pi(mean_anomaly_rad);
-    Vec3 v_dummy{};
-    return elements_to_eci(sample, r_out, v_dummy);
+    return elements_to_eci_position(sample, r_out);
+}
+
+struct OrbitSamplePoint {
+    Vec3 r{};
+    bool valid = false;
+};
+
+inline void fill_orbit_samples(const OrbitalElements& el,
+                               std::uint32_t sample_count,
+                               double sample_step,
+                               std::vector<OrbitSamplePoint>& out) noexcept
+{
+    out.resize(sample_count);
+    for (std::uint32_t idx = 0; idx < sample_count; ++idx) {
+        const double u = sample_step * static_cast<double>(idx);
+        out[idx].valid = eci_position_at_mean_anomaly(el, u, out[idx].r);
+    }
 }
 
 // evaluate_plane_phase_gate — uses precomputed angular momentum unit vectors
 // and phase angles to avoid redundant trig + StateStore reads.
 inline PlanePhaseGateResult evaluate_plane_phase_gate(const PerObjectPrecomp& sat_pre,
                                                        const PerObjectPrecomp& obj_pre,
-                                                       const NarrowPhaseConfig& cfg) noexcept
+                                                       const NarrowPhaseConfig& cfg,
+                                                       double cos_plane_threshold,
+                                                       double cos_phase_threshold) noexcept
 {
     PlanePhaseGateResult out{};
     out.evaluated = true;
@@ -215,42 +232,33 @@ inline PlanePhaseGateResult evaluate_plane_phase_gate(const PerObjectPrecomp& sa
         return out;
     }
 
-    if (!(sat_pre.h_norm > EPS_NUM) || !(obj_pre.h_norm > EPS_NUM)) {
-        out.fail_open = true;
-        out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_ANGULAR_MOMENTUM_DEGENERATE;
-        return out;
-    }
-
     const double cos_plane = std::clamp(
         (sat_pre.h_unit.x * obj_pre.h_unit.x
          + sat_pre.h_unit.y * obj_pre.h_unit.y
-         + sat_pre.h_unit.z * obj_pre.h_unit.z)
-            / (sat_pre.h_norm * obj_pre.h_norm),
+         + sat_pre.h_unit.z * obj_pre.h_unit.z),
         -1.0,
         1.0
     );
-    const double plane_angle = std::acos(cos_plane);
-    if (!std::isfinite(plane_angle)) {
+    if (!std::isfinite(cos_plane)) {
         out.fail_open = true;
         out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_PLANE_ANGLE_NON_FINITE;
         return out;
     }
 
-    if (plane_angle > cfg.plane_angle_threshold_rad) {
+    if (cos_plane < cos_plane_threshold) {
         out.reject = true;
         out.reason = PlanePhaseGateResult::Reason::REJECT_PLANE_ANGLE;
         return out;
     }
 
-    const double phase_delta =
-        std::abs(wrap_0_2pi(sat_pre.phase - obj_pre.phase + PI) - PI);
-    if (!std::isfinite(phase_delta)) {
+    const double cos_phase = std::cos(sat_pre.phase - obj_pre.phase);
+    if (!std::isfinite(cos_phase)) {
         out.fail_open = true;
         out.reason = PlanePhaseGateResult::Reason::FAIL_OPEN_PHASE_ANGLE_NON_FINITE;
         return out;
     }
 
-    if (phase_delta > cfg.phase_angle_threshold_rad) {
+    if (cos_phase < cos_phase_threshold) {
         out.reject = true;
         out.reason = PlanePhaseGateResult::Reason::REJECT_PHASE_ANGLE;
     }
@@ -273,23 +281,28 @@ inline MoidProxyGateResult evaluate_moid_proxy_gate(const PerObjectPrecomp& sat_
     const std::uint32_t samples = std::max<std::uint32_t>(cfg.moid_samples, 6U);
     const double two_pi = TWO_PI;
     const double step = two_pi / static_cast<double>(samples);
+    const double threshold_km = std::max(0.0, cfg.moid_reject_threshold_km);
+    const double threshold_sq = threshold_km * threshold_km;
+
+    thread_local std::vector<OrbitSamplePoint> sat_samples;
+    thread_local std::vector<OrbitSamplePoint> obj_samples;
+    fill_orbit_samples(sat_el, samples, step, sat_samples);
+    fill_orbit_samples(obj_el, samples, step, obj_samples);
 
     double min_d2 = std::numeric_limits<double>::infinity();
     bool any_valid = false;
 
     for (std::uint32_t s = 0; s < samples; ++s) {
-        const double sat_u = step * static_cast<double>(s);
-        Vec3 sat_r{};
-        if (!eci_position_at_mean_anomaly(sat_el, sat_u, sat_r)) {
+        if (!sat_samples[s].valid) {
             continue;
         }
+        const Vec3& sat_r = sat_samples[s].r;
 
         for (std::uint32_t d = 0; d < samples; ++d) {
-            const double obj_u = step * static_cast<double>(d);
-            Vec3 obj_r{};
-            if (!eci_position_at_mean_anomaly(obj_el, obj_u, obj_r)) {
+            if (!obj_samples[d].valid) {
                 continue;
             }
+            const Vec3& obj_r = obj_samples[d].r;
 
             any_valid = true;
             const double dx = sat_r.x - obj_r.x;
@@ -308,8 +321,7 @@ inline MoidProxyGateResult evaluate_moid_proxy_gate(const PerObjectPrecomp& sat_
         return out;
     }
 
-    const double threshold_km = std::max(0.0, cfg.moid_reject_threshold_km);
-    out.reject = std::sqrt(min_d2) > threshold_km;
+    out.reject = min_d2 > threshold_sq;
     if (out.reject) {
         out.reason = MoidProxyGateResult::Reason::REJECT_DISTANCE_THRESHOLD;
     }
@@ -334,16 +346,13 @@ inline MoidProxyGateResult evaluate_moid_hf_gate(const PerObjectPrecomp& sat_pre
     const std::uint32_t base_samples = std::max<std::uint32_t>(cfg.moid_samples, 6U);
     const std::uint32_t coarse_samples = std::max<std::uint32_t>(base_samples * 2U, 12U);
     const double coarse_step = TWO_PI / static_cast<double>(coarse_samples);
+    const double threshold_km = std::max(0.0, cfg.moid_reject_threshold_km);
+    const double threshold_sq = threshold_km * threshold_km;
 
-    // B3: Pre-compute satellite orbit positions once and reuse for all debris.
-    // Avoids redundant trig calls when the same sat_el is tested against many
-    // debris objects.
-    struct SamplePoint { Vec3 r; bool valid; };
-    std::vector<SamplePoint> sat_samples(coarse_samples);
-    for (std::uint32_t s = 0; s < coarse_samples; ++s) {
-        const double sat_u = coarse_step * static_cast<double>(s);
-        sat_samples[s].valid = eci_position_at_mean_anomaly(sat_el, sat_u, sat_samples[s].r);
-    }
+    thread_local std::vector<OrbitSamplePoint> sat_samples;
+    thread_local std::vector<OrbitSamplePoint> obj_samples;
+    fill_orbit_samples(sat_el, coarse_samples, coarse_step, sat_samples);
+    fill_orbit_samples(obj_el, coarse_samples, coarse_step, obj_samples);
 
     double min_d2 = std::numeric_limits<double>::infinity();
     bool any_valid = false;
@@ -355,11 +364,10 @@ inline MoidProxyGateResult evaluate_moid_hf_gate(const PerObjectPrecomp& sat_pre
         const Vec3& sat_r = sat_samples[s].r;
 
         for (std::uint32_t d = 0; d < coarse_samples; ++d) {
-            const double obj_u = coarse_step * static_cast<double>(d);
-            Vec3 obj_r{};
-            if (!eci_position_at_mean_anomaly(obj_el, obj_u, obj_r)) {
+            if (!obj_samples[d].valid) {
                 continue;
             }
+            const Vec3& obj_r = obj_samples[d].r;
 
             any_valid = true;
             const double dx = sat_r.x - obj_r.x;
@@ -425,8 +433,7 @@ inline MoidProxyGateResult evaluate_moid_hf_gate(const PerObjectPrecomp& sat_pre
         return out;
     }
 
-    const double threshold_km = std::max(0.0, cfg.moid_reject_threshold_km);
-    out.reject = std::sqrt(min_d2) > threshold_km;
+    out.reject = min_d2 > threshold_sq;
     if (out.reject) {
         out.reason = MoidProxyGateResult::Reason::REJECT_DISTANCE_THRESHOLD;
     }
@@ -563,12 +570,16 @@ inline double refine_pair_min_d2_rk4(const Vec3& sat_r0,
     return min_d2;
 }
 
-inline double relative_speed_km_s(const Vec3& sat_v,
-                                  const Vec3& deb_v) noexcept
+inline double relative_speed_km_s(double sat_vx,
+                                  double sat_vy,
+                                  double sat_vz,
+                                  double obj_vx,
+                                  double obj_vy,
+                                  double obj_vz) noexcept
 {
-    const double dvx = sat_v.x - deb_v.x;
-    const double dvy = sat_v.y - deb_v.y;
-    const double dvz = sat_v.z - deb_v.z;
+    const double dvx = sat_vx - obj_vx;
+    const double dvy = sat_vy - obj_vy;
+    const double dvz = sat_vz - obj_vz;
     return std::sqrt(dvx * dvx + dvy * dvy + dvz * dvz);
 }
 
@@ -752,7 +763,6 @@ bool run_simulation_step(StateStore& store,
         const double sr = std::sin(p.el.raan_rad);
         const double cr = std::cos(p.el.raan_rad);
         p.h_unit = Vec3{ si * sr, -si * cr, ci };
-        p.h_norm = std::sqrt(norm2(p.h_unit.x, p.h_unit.y, p.h_unit.z));
 
         // Phase angle (argp + M)
         p.phase = wrap_0_2pi(p.el.argp_rad + p.el.M_rad);
@@ -826,6 +836,10 @@ bool run_simulation_step(StateStore& store,
     const bool plane_phase_filter = cfg.narrow_phase.plane_phase_filter;
     const bool moid_shadow = cfg.narrow_phase.moid_shadow;
     const bool moid_filter = cfg.narrow_phase.moid_filter;
+    const double cos_plane_threshold =
+        std::cos(std::clamp(cfg.narrow_phase.plane_angle_threshold_rad, 0.0, PI));
+    const double cos_phase_threshold =
+        std::cos(std::clamp(cfg.narrow_phase.phase_angle_threshold_rad, 0.0, PI));
 
     const double high_rel_speed_km_s = std::max(0.0, cfg.narrow_phase.high_rel_speed_km_s);
     const double high_rel_speed_extra_band_km =
@@ -833,6 +847,9 @@ bool run_simulation_step(StateStore& store,
     const double high_rel_speed_band_sq =
         (screening_threshold_km + full_refine_band_km + high_rel_speed_extra_band_km)
         * (screening_threshold_km + full_refine_band_km + high_rel_speed_extra_band_km);
+    const double conjunction_capture_sq =
+        (screening_threshold_km + full_refine_band_km)
+        * (screening_threshold_km + full_refine_band_km);
 
     const std::uint64_t pair_hint = out.failed_objects == 0
         ? static_cast<std::uint64_t>(broad.candidates.size())
@@ -877,15 +894,20 @@ bool run_simulation_step(StateStore& store,
     // Resolve MOID mode once per tick (not per-pair) to avoid hot-path
     // getenv() calls and mid-sweep mode changes.
     const NarrowPhaseConfig::MoidMode resolved_moid_mode = resolve_moid_mode(cfg.narrow_phase);
+    const double micro_refine_max_step_s =
+        std::max(0.1, cfg.narrow_phase.micro_refine_max_step_s);
+    const std::uint32_t full_refine_sample_count =
+        std::max<std::uint32_t>(cfg.narrow_phase.full_refine_samples, 1U);
+    const double full_refine_rk4_substep_s =
+        std::max(0.1, cfg.narrow_phase.full_refine_substep_s);
+    const double full_refine_dt =
+        step_seconds / static_cast<double>(full_refine_sample_count);
+    const double full_refine_inv_dt =
+        (full_refine_dt > EPS_NUM) ? (1.0 / full_refine_dt) : 0.0;
 
     const auto full_window_min_d2_rk4 = [&](std::size_t sat_idx,
                                             std::size_t obj_idx,
                                             bool& ok) noexcept {
-        const std::uint32_t sample_count =
-            std::max<std::uint32_t>(cfg.narrow_phase.full_refine_samples, 1U);
-        const double rk4_substep_s =
-            std::max(0.1, cfg.narrow_phase.full_refine_substep_s);
-
         Vec3 rs{rx0[sat_idx], ry0[sat_idx], rz0[sat_idx]};
         Vec3 vs{vx0[sat_idx], vy0[sat_idx], vz0[sat_idx]};
         Vec3 rd{rx0[obj_idx], ry0[obj_idx], rz0[obj_idx]};
@@ -893,8 +915,7 @@ bool run_simulation_step(StateStore& store,
 
         ok = true;
         double min_d2 = norm2(rs.x - rd.x, rs.y - rd.y, rs.z - rd.z);
-        const double dt = step_seconds / static_cast<double>(sample_count);
-        for (std::uint32_t s = 0; s < sample_count; ++s) {
+        for (std::uint32_t s = 0; s < full_refine_sample_count; ++s) {
             // Remember positions before this sub-step for linear interpolation
             const double prev_dx = rs.x - rd.x;
             const double prev_dy = rs.y - rd.y;
@@ -904,8 +925,8 @@ bool run_simulation_step(StateStore& store,
             const double rel_vy = vs.y - vd.y;
             const double rel_vz = vs.z - vd.z;
 
-            if (!propagate_rk4_j2_substep(rs, vs, dt, rk4_substep_s)
-                || !propagate_rk4_j2_substep(rd, vd, dt, rk4_substep_s)) {
+            if (!propagate_rk4_j2_substep(rs, vs, full_refine_dt, full_refine_rk4_substep_s)
+                || !propagate_rk4_j2_substep(rd, vd, full_refine_dt, full_refine_rk4_substep_s)) {
                 ok = false;
                 return 0.0;
             }
@@ -922,19 +943,19 @@ bool run_simulation_step(StateStore& store,
             const double interp_d2 = min_d2_linear_segment(
                 prev_dx, prev_dy, prev_dz,
                 rel_vx, rel_vy, rel_vz,
-                0.0, dt);
+                0.0, full_refine_dt);
             if (interp_d2 < min_d2) min_d2 = interp_d2;
 
             // Also use secant velocity (position difference / dt) for a
             // second linear TCA estimate that captures nonlinear curvature.
-            if (dt > EPS_NUM) {
-                const double sec_vx = (dx - prev_dx) / dt;
-                const double sec_vy = (dy - prev_dy) / dt;
-                const double sec_vz = (dz - prev_dz) / dt;
+            if (full_refine_inv_dt > 0.0) {
+                const double sec_vx = (dx - prev_dx) * full_refine_inv_dt;
+                const double sec_vy = (dy - prev_dy) * full_refine_inv_dt;
+                const double sec_vz = (dz - prev_dz) * full_refine_inv_dt;
                 const double sec_d2 = min_d2_linear_segment(
                     prev_dx, prev_dy, prev_dz,
                     sec_vx, sec_vy, sec_vz,
-                    0.0, dt);
+                    0.0, full_refine_dt);
                 if (sec_d2 < min_d2) min_d2 = sec_d2;
             }
         }
@@ -946,14 +967,22 @@ bool run_simulation_step(StateStore& store,
         ++local_out.narrow_pairs_checked;
 
         double d2 = tca_min_d2(sat_idx, obj_idx);
-        const double rel_speed = relative_speed_km_s(
-            Vec3{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)},
-            Vec3{store.vx(obj_idx), store.vy(obj_idx), store.vz(obj_idx)}
-        );
+        double rel_speed = 0.0;
+        bool rel_speed_ready = false;
+        const auto ensure_rel_speed = [&]() noexcept {
+            if (!rel_speed_ready) {
+                rel_speed = relative_speed_km_s(
+                    vx0[sat_idx], vy0[sat_idx], vz0[sat_idx],
+                    vx0[obj_idx], vy0[obj_idx], vz0[obj_idx]);
+                rel_speed_ready = true;
+            }
+            return rel_speed;
+        };
+
+        const bool needs_uncertainty_speed =
+            (d2 > full_refine_band_sq && d2 <= high_rel_speed_band_sq + 1e-9);
         const bool uncertainty_promoted =
-            (d2 > full_refine_band_sq
-             && rel_speed >= high_rel_speed_km_s
-             && d2 <= high_rel_speed_band_sq + 1e-9);
+            (needs_uncertainty_speed && ensure_rel_speed() >= high_rel_speed_km_s);
         if (uncertainty_promoted) {
             ++local_out.narrow_uncertainty_promoted_pairs;
         }
@@ -964,7 +993,12 @@ bool run_simulation_step(StateStore& store,
              || (d2 > collision_threshold_sq
                  && (d2 <= full_refine_band_sq + 1e-9 || uncertainty_promoted)));
         if (near_refine_window) {
-            plane_phase = evaluate_plane_phase_gate(obj_precomp[sat_idx], obj_precomp[obj_idx], cfg.narrow_phase);
+            plane_phase = evaluate_plane_phase_gate(
+                obj_precomp[sat_idx],
+                obj_precomp[obj_idx],
+                cfg.narrow_phase,
+                cos_plane_threshold,
+                cos_phase_threshold);
             if (plane_phase.evaluated) {
                 ++local_out.narrow_plane_phase_evaluated_pairs;
             }
@@ -1074,7 +1108,7 @@ bool run_simulation_step(StateStore& store,
                 deb_r0,
                 deb_v0,
                 step_seconds,
-                std::max(0.1, cfg.narrow_phase.micro_refine_max_step_s),
+                micro_refine_max_step_s,
                 refine_ok
             );
 
@@ -1135,14 +1169,14 @@ bool run_simulation_step(StateStore& store,
 
         // Capture conjunction events for visualization when miss distance
         // falls within the full refine band (close approaches worth tracking).
-        const double miss_dist = std::sqrt(d2);
-        if (miss_dist <= screening_threshold_km + full_refine_band_km) {
+        if (d2 <= conjunction_capture_sq) {
+            const double miss_dist = std::sqrt(d2);
             ConjunctionRecord rec;
             rec.satellite_id = store.id(sat_idx);
             rec.debris_id    = store.id(obj_idx);
             rec.tca_epoch_s  = target_epoch;
             rec.miss_distance_km = miss_dist;
-            rec.approach_speed_km_s = rel_speed;
+            rec.approach_speed_km_s = ensure_rel_speed();
             rec.sat_pos_eci_km = {store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
             rec.deb_pos_eci_km = {store.rx(obj_idx), store.ry(obj_idx), store.rz(obj_idx)};
             rec.collision = (d2 < collision_threshold_sq);

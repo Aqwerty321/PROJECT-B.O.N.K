@@ -77,6 +77,19 @@ inline double dcriterion_simple(const StateStore& store,
     return std::sqrt(da * da + de * de + di * di);
 }
 
+inline double dcriterion_simple(double a1,
+                                double a2,
+                                double e1,
+                                double e2,
+                                double i1,
+                                double i2) noexcept
+{
+    const double da = (a1 - a2) / (std::abs(a1 + a2) + EPS_NUM);
+    const double de = e1 - e2;
+    const double di = 2.0 * std::sin(0.5 * (i1 - i2));
+    return std::sqrt(da * da + de * de + di * di);
+}
+
 // Flat band-index entry, sorted by (a_bin, i_bin) for binary search.
 struct BandEntry {
     int      a_bin;
@@ -114,18 +127,43 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
 
     std::uint64_t fail_open_objects = 0;
 
+    std::vector<double> shell_min(n, 0.0);
+    std::vector<double> shell_max(n, 0.0);
+    std::vector<double> a_values(n, 0.0);
+    std::vector<double> e_values(n, 0.0);
+    std::vector<double> i_values(n, 0.0);
+    std::vector<int> a_bins(n, 0);
+    std::vector<int> i_bins(n, 0);
+    std::vector<std::uint8_t> elements_valid(n, 0);
+    std::vector<std::uint8_t> fail_open_flags(n, 0);
+    std::vector<std::uint8_t> debris_flags(n, 0);
+
     // Flat sorted band index replaces the nested unordered_map for better
     // cache locality and lower per-lookup overhead.
     std::vector<BandEntry> band_entries;
     band_entries.reserve(deb_count);
 
     for (std::size_t idx = 0; idx < n; ++idx) {
+        shell_bounds(store, idx, cfg, shell_min[idx], shell_max[idx]);
+
+        elements_valid[idx] = store.elements_valid(idx) ? 1U : 0U;
+        if (elements_valid[idx] != 0U) {
+            a_values[idx] = store.a_km(idx);
+            e_values[idx] = store.e(idx);
+            i_values[idx] = store.i_rad(idx);
+            a_bins[idx] = a_bin_of(a_values[idx], cfg.a_bin_width_km);
+            i_bins[idx] = i_bin_of(i_values[idx], cfg.i_bin_width_rad);
+        }
+
         const bool is_debris = store.type(idx) == ObjectType::DEBRIS;
+        debris_flags[idx] = is_debris ? 1U : 0U;
         if (is_debris) {
             debris_indices.push_back(static_cast<std::uint32_t>(idx));
         }
 
-        if (fail_open_object(store, idx, cfg)) {
+        const bool is_fail_open = fail_open_object(store, idx, cfg);
+        fail_open_flags[idx] = is_fail_open ? 1U : 0U;
+        if (is_fail_open) {
             ++fail_open_objects;
             if (is_debris) {
                 fail_open_debris_indices.push_back(static_cast<std::uint32_t>(idx));
@@ -137,9 +175,7 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
             continue;
         }
 
-        const int a_bin = a_bin_of(store.a_km(idx), cfg.a_bin_width_km);
-        const int i_bin = i_bin_of(store.i_rad(idx), cfg.i_bin_width_rad);
-        band_entries.push_back(BandEntry{a_bin, i_bin, static_cast<std::uint32_t>(idx)});
+        band_entries.push_back(BandEntry{a_bins[idx], i_bins[idx], static_cast<std::uint32_t>(idx)});
     }
 
     std::sort(band_entries.begin(), band_entries.end());
@@ -152,16 +188,14 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
     selected_debris_indices.reserve(deb_count);
 
     for (std::size_t i = 0; i < n; ++i) {
-        if (store.type(i) != ObjectType::SATELLITE) continue;
+        if (debris_flags[i] != 0U) continue;
 
         // For transparency, count full satellite-vs-debris pair space.
         out.pairs_considered += static_cast<std::uint64_t>(debris_indices.size());
 
-        double sat_min = 0.0;
-        double sat_max = 0.0;
-        shell_bounds(store, i, cfg, sat_min, sat_max);
-
-        const bool sat_fail_open = fail_open_object(store, i, cfg);
+        const double sat_min = shell_min[i];
+        const double sat_max = shell_max[i];
+        const bool sat_fail_open = fail_open_flags[i] != 0U;
         if (sat_fail_open) {
             ++out.fail_open_satellites;
             for (std::uint32_t j_u32 : debris_indices) {
@@ -169,21 +203,21 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
 
                 ++out.pairs_after_band_index;
 
-                double obj_min = 0.0;
-                double obj_max = 0.0;
-                shell_bounds(store, j, cfg, obj_min, obj_max);
-                if (!intervals_overlap(sat_min, sat_max, obj_min, obj_max)) {
+                if (!intervals_overlap(sat_min, sat_max, shell_min[j], shell_max[j])) {
                     continue;
                 }
 
                 ++out.shell_overlap_pass;
 
-                if (store.elements_valid(i)
-                    && store.elements_valid(j)
-                    && store.e(i) <= cfg.high_e_fail_open
-                    && store.e(j) <= cfg.high_e_fail_open)
+                if (elements_valid[i] != 0U
+                    && elements_valid[j] != 0U
+                    && e_values[i] <= cfg.high_e_fail_open
+                    && e_values[j] <= cfg.high_e_fail_open)
                 {
-                    const double d = dcriterion_simple(store, i, j);
+                    const double d = dcriterion_simple(
+                        a_values[i], a_values[j],
+                        e_values[i], e_values[j],
+                        i_values[i], i_values[j]);
                     if (cfg.shadow_dcriterion && d > cfg.dcriterion_threshold) {
                         ++out.dcriterion_shadow_rejected;
                     }
@@ -216,8 +250,8 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
             }
         }
 
-        const int sat_a_bin = a_bin_of(store.a_km(i), cfg.a_bin_width_km);
-        const int sat_i_bin = i_bin_of(store.i_rad(i), cfg.i_bin_width_rad);
+        const int sat_a_bin = a_bins[i];
+        const int sat_i_bin = i_bins[i];
 
         // For each neighbor a-bin, binary-search the sorted flat band
         // index for the contiguous range of matching entries, then filter
@@ -252,21 +286,21 @@ BroadPhaseResult generate_broad_phase_candidates(const StateStore& store,
 
             ++out.pairs_after_band_index;
 
-            double obj_min = 0.0;
-            double obj_max = 0.0;
-            shell_bounds(store, j, cfg, obj_min, obj_max);
-            if (!intervals_overlap(sat_min, sat_max, obj_min, obj_max)) {
+            if (!intervals_overlap(sat_min, sat_max, shell_min[j], shell_max[j])) {
                 continue;
             }
 
             ++out.shell_overlap_pass;
 
-            if (store.elements_valid(i)
-                && store.elements_valid(j)
-                && store.e(i) <= cfg.high_e_fail_open
-                && store.e(j) <= cfg.high_e_fail_open)
+            if (elements_valid[i] != 0U
+                && elements_valid[j] != 0U
+                && e_values[i] <= cfg.high_e_fail_open
+                && e_values[j] <= cfg.high_e_fail_open)
             {
-                const double d = dcriterion_simple(store, i, j);
+                const double d = dcriterion_simple(
+                    a_values[i], a_values[j],
+                    e_values[i], e_values[j],
+                    i_values[i], i_values[j]);
                 if (cfg.shadow_dcriterion && d > cfg.dcriterion_threshold) {
                     ++out.dcriterion_shadow_rejected;
                 }

@@ -15,6 +15,10 @@ bool eci_to_elements(const Vec3& r, const Vec3& v, OrbitalElements& out) noexcep
 // Returns false if elements are invalid.
 bool elements_to_eci(const OrbitalElements& el, Vec3& r_out, Vec3& v_out) noexcept;
 
+// Convert classical orbital elements to ECI position only.
+// Returns false if elements are invalid.
+bool elements_to_eci_position(const OrbitalElements& el, Vec3& r_out) noexcept;
+
 // Solve Kepler's equation M = E - e*sin(E) for elliptic orbits (0 <= e < 1).
 // Returns wrapped eccentric anomaly E in [0, 2*pi).
 double solve_kepler_elliptic(double M_rad, double e) noexcept;

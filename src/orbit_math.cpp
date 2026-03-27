@@ -111,7 +111,11 @@ bool eci_to_elements(const Vec3& r, const Vec3& v, OrbitalElements& out) noexcep
     return true;
 }
 
-bool elements_to_eci(const OrbitalElements& el, Vec3& r_out, Vec3& v_out) noexcept
+namespace {
+
+bool elements_to_eci_impl(const OrbitalElements& el,
+                          Vec3& r_out,
+                          Vec3* v_out) noexcept
 {
     if (!(el.a_km > 0.0) || !(el.e >= 0.0 && el.e < 1.0)) return false;
 
@@ -121,12 +125,9 @@ bool elements_to_eci(const OrbitalElements& el, Vec3& r_out, Vec3& v_out) noexce
     const double one_minus_ecE = 1.0 - el.e * cE;
     if (std::abs(one_minus_ecE) < EPS_NUM) return false;
 
+    const double sqrt_one_minus_e2 = std::sqrt(1.0 - el.e * el.e);
     const double x_pf = el.a_km * (cE - el.e);
-    const double y_pf = el.a_km * std::sqrt(1.0 - el.e * el.e) * sE;
-
-    const double n = std::sqrt(MU_KM3_S2 / (el.a_km * el.a_km * el.a_km));
-    const double vx_pf = -el.a_km * n * sE / one_minus_ecE;
-    const double vy_pf =  el.a_km * n * std::sqrt(1.0 - el.e * el.e) * cE / one_minus_ecE;
+    const double y_pf = el.a_km * sqrt_one_minus_e2 * sE;
 
     const double cO = std::cos(el.raan_rad);
     const double sO = std::sin(el.raan_rad);
@@ -146,11 +147,29 @@ bool elements_to_eci(const OrbitalElements& el, Vec3& r_out, Vec3& v_out) noexce
     r_out.y = R21 * x_pf + R22 * y_pf;
     r_out.z = R31 * x_pf + R32 * y_pf;
 
-    v_out.x = R11 * vx_pf + R12 * vy_pf;
-    v_out.y = R21 * vx_pf + R22 * vy_pf;
-    v_out.z = R31 * vx_pf + R32 * vy_pf;
+    if (v_out != nullptr) {
+        const double n = std::sqrt(MU_KM3_S2 / (el.a_km * el.a_km * el.a_km));
+        const double vx_pf = -el.a_km * n * sE / one_minus_ecE;
+        const double vy_pf =  el.a_km * n * sqrt_one_minus_e2 * cE / one_minus_ecE;
+
+        v_out->x = R11 * vx_pf + R12 * vy_pf;
+        v_out->y = R21 * vx_pf + R22 * vy_pf;
+        v_out->z = R31 * vx_pf + R32 * vy_pf;
+    }
 
     return true;
+}
+
+} // namespace
+
+bool elements_to_eci(const OrbitalElements& el, Vec3& r_out, Vec3& v_out) noexcept
+{
+    return elements_to_eci_impl(el, r_out, &v_out);
+}
+
+bool elements_to_eci_position(const OrbitalElements& el, Vec3& r_out) noexcept
+{
+    return elements_to_eci_impl(el, r_out, nullptr);
 }
 
 double j2_raan_dot(const OrbitalElements& el) noexcept

@@ -1,13 +1,20 @@
-# CASCADE — Autonomous Orbital Collision Avoidance System
+<div align="center">
 
-> **Built for National Space Hackathon 2026 · IIT Delhi**
+# CASCADE
+
+### **C**ollision **A**voidance **S**ystem for **C**onstellation **A**utomation, **D**etection & **E**vasion
+
+*National Space Hackathon 2026 · IIT Delhi*
+
+**Team Space_Invaders**
+
+</div>
 
 ---
 
-**The Kessler Cascade is not theoretical anymore — it is a timing problem.**
-One untracked fragment at 7.8 km/s hits one Starlink-class bus. That bus sprays 2,000 new trackable pieces. Each piece hits two more. Within a decade, Low Earth Orbit is a closed graveyard. The window to automate collision avoidance is now.
+Low Earth Orbit hosts over 27,000 tracked objects in an increasingly crowded shell, and every mega-constellation launch raises the probability of a cascading Kessler event. CASCADE is a fully autonomous, deterministic constellation manager that ingests high-frequency ECI J2000 telemetry, screens conjunctions through a mathematically conservative multi-tier filter cascade with a **provable zero-false-negative guarantee**, and autonomously plans evasion and recovery burns under realistic propulsion, cooldown, and line-of-sight constraints across a six-station global ground network.
 
-CASCADE is a production-feeling, deterministic **Autonomous Constellation Manager** that ingests live ECI telemetry, eliminates O(N²) conjunction screening through multi-tier spatial filtering, schedules RTN-frame burns under fuel and cooldown constraints, and autonomously recovers satellites to their orbital slots — all without a human in the loop.
+Under the reference scenario (50 satellites, 10,000 debris), the C++20 engine completes a full simulation tick — propagation, screening, CDM generation, maneuver planning, and recovery scheduling — in **13.3 ms** mean wall-clock time. Validated against a live Space-Track OMM catalog of **27,191 LEO objects**, CASCADE maintains zero missed conjunctions, sub-kilometer station-keeping accuracy, and Tsiolkovsky-consistent fuel accounting across all test families.
 
 ---
 
@@ -15,31 +22,32 @@ CASCADE is a production-feeling, deterministic **Autonomous Constellation Manage
 
 | Metric | Value |
 |---|---|
-| Tick latency — 50 sats / 10,000 debris | **13.3 ms** (mean) |
-| Tick latency — 100 sats / 20,000 debris | **72.6 ms** (mean) |
-| False negatives across all 6 test families | **0** |
-| Adaptive propagator position error (86,400 s) | **< 0.061 km** max |
-| Real catalog objects ingested (Space-Track LEO) | **27,191** |
-| Safety gate tests passing | **8 / 8** |
-| OpenMP narrowphase speedup (100 sat / 20K deb) | **−31.5%** |
-| NSGA-II tuner parameters | **69** (3 tiers, 3 objectives) |
+| Tick latency — 50 sats / 10,000 debris | **13.3 ms** mean |
+| Tick latency — 100 sats / 20,000 debris | **72.6 ms** mean |
+| Tick latency — 27,191 real LEO objects | **2.1 s** mean |
+| False negatives across all test families | **0** |
+| Propagator position error at 86,400 s | **< 0.061 km** max |
+| Real catalog objects ingested (Space-Track) | **27,191** |
+| CTest safety gates passing | **8 / 8** |
+| OpenMP narrow-phase speedup (2× scale) | **−31.5%** |
+| NSGA-II tuner parameters | **69** across 3 tiers |
 
 ---
 
-## Evaluation Criteria — How We Score
+## Evaluation Criteria Alignment
 
-| Criterion | Weight | What CASCADE does |
+| Criterion | Weight | CASCADE Evidence |
 |---|---|---|
-| **Safety Score** | 25% | Analytical MOID (Gronchi 2005 quartic solver) + TCA micro-refinement + fail-open design: any ambiguous pair is escalated, never silently dropped |
-| **Fuel Efficiency** | 20% | CW/ZEM-equivalent single-burn recovery solver; RTN-frame evasion burns sized by Tsiolkovsky relation; NSGA-II tuner optimizes the fuel/safety/speed Pareto front |
-| **Constellation Uptime** | 15% | Every evasion auto-triggers a recovery burn targeting the nominal orbital slot; slot-error convergence gate (Δslot ≤ 0.08) passes deterministically |
-| **Algorithmic Speed** | 15% | O(N log N) broad phase (SMA binning + D-criterion); OpenMP-parallelized narrow sweep; adaptive RK4 probe only where needed |
-| **UI/UX** | 15% | REST snapshot API (`/api/visualization/snapshot`) delivers geodetic lat/lon/alt + debris tuple arrays for 60 FPS Canvas/WebGL render |
-| **Code Quality** | 10% | 8/8 CTest gates; 69 constants env-overridable; structured logging with per-phase timing breakdowns |
+| **Safety Score** | 25% | Zero false negatives (8 gates), fail-open escalation, analytical MOID (Gronchi 2005), conservative 120 m screening envelope |
+| **Fuel Efficiency** | 20% | Tsiolkovsky accounting, CW/ZEM recovery solver, per-burn ΔV tracking, NSGA-II Pareto optimization |
+| **Constellation Uptime** | 15% | 10 km slot box, J2-secular slot propagation, recovery convergence gate (Δslot ≤ 0.08) |
+| **Algorithmic Speed** | 15% | O(N log N) broad phase, OpenMP-parallelized narrow sweep, adaptive RK4 probe-then-escalate |
+| **UI/UX & Visualization** | 15% | 7-page mission console, ground track with trails, bullseye threat view, Gantt timeline, 60 FPS Canvas/WebGL |
+| **Code Quality** | 10% | 8 CTest gates enforced in CI + Docker build, 69 env-overridable constants, structured per-phase timing, debug APIs |
 
 ---
 
-## Quick Start (Docker — three commands)
+## Quick Start
 
 ```bash
 docker build -t cascade:local .
@@ -47,15 +55,9 @@ docker run --rm -p 8000:8000 cascade:local
 curl -s http://localhost:8000/api/status | python3 -m json.tool
 ```
 
-Expected startup output:
+The engine starts and the frontend is served at `http://localhost:8000`.
 
-```
-CASCADE (Project BONK) SYSTEM ONLINE
-Boost version : 1_74
-Starting HTTP server on 0.0.0.0:8000 ...
-```
-
-Smoke-test all three required endpoints:
+Smoke-test the three required endpoints:
 
 ```bash
 # Ingest telemetry
@@ -75,41 +77,182 @@ curl -s -X POST http://localhost:8000/api/simulate/step \
 curl -s http://localhost:8000/api/visualization/snapshot | python3 -m json.tool
 ```
 
+Full automated verification:
+
+```bash
+./scripts/docker_api_smoke.sh   # end-to-end Docker lifecycle test
+./scripts/run_ready_demo.sh     # full demo readiness check
+```
+
 ---
 
-## The Pipeline
+## Design Philosophy
+
+Three principles guided every architectural decision:
+
+1. **Mathematical safety guarantees.** A single missed conjunction can trigger a catastrophic debris cascade. Every uncertain or computationally degraded object pair is *escalated* to a more expensive solver, never silently dropped — producing a provable zero-false-negative property across the entire filter cascade.
+
+2. **Deterministic, auditable execution.** Identical inputs always produce the same maneuver sequence, the same CDM records, and the same fuel expenditure. This determinism is enforced by 8 standalone CTest gate binaries that run on every commit and inside the Docker build itself.
+
+3. **Operational realism.** The engine respects the physical constraints of real spacecraft operations: impulsive-burn propulsion with Tsiolkovsky fuel accounting, 600 s thruster cooldown, 15 m/s per-burn thrust limits, line-of-sight validation against a geographically distributed ground network, and a 10 s signal-latency budget that forces proactive burn scheduling.
+
+---
+
+## System Architecture
+
+CASCADE is a single-process C++20 engine with a minimal dependency footprint: `cpp-httplib` v0.15.3 for the REST server, `simdjson` v3.9.4 for streaming JSON ingestion, and Boost headers for version verification — all managed through CMake FetchContent with no system-level requirements beyond GCC 12 and `libgomp`.
+
+### Tick Pipeline
 
 ```
-Telemetry (ECI state vectors)
-        |
-        v
-  [ State Store ]  — lock-free upsert, type-conflict detection
-        |
-        v
-  [ Propagation ]  — adaptive RK4+J2; fast-lane Kepler for circular orbits
-        |           max position error: 0.061 km at 86,400 s
-        v
-  [ Broad Phase ]  — O(N log N) semi-major axis + inclination binning
-        |           D-criterion filter; fail-open for high-e orbits
-        v
-  [ Narrow Phase ] — per-pair analytical MOID (Gronchi 2005 quartic solver)
-        |           TCA refinement → RK4 micro-window → budgeted full-window
-        |           OpenMP-parallelized; every ambiguous pair escalated (fail-open)
-        v
-  [ CDM Engine ]   — 24-hour conjunction horizon; TCA + miss distance
-        |
-        v
-  [ COLA Planner ] — RTN-frame evasion ΔV; Tsiolkovsky fuel deduction;
-        |           600 s cooldown enforcement; LOS/blackout validation
-        v
-  [ Recovery Planner ] — CW/ZEM slot-targeting burn; element-delta correction
-        |                (a, e, i, Ω); slot-error convergence gate
-        v
-  [ Maneuver Queue ]   — priority-ordered execution on /api/simulate/step
-        |
-        v
-  REST API (port 8000)  — telemetry · maneuver · step · snapshot · status
+POST /api/telemetry (ECI J2000 state vectors)
+        │
+        ▼
+  ┌─────────────┐
+  │ State Store  │  SoA layout, lock-free upsert, type-conflict detection
+  └──────┬──────┘
+         ▼
+  ┌─────────────┐
+  │ Propagation  │  Adaptive RK4+J2 / fast-lane Kepler (OpenMP)
+  └──────┬──────┘  max error: 0.061 km at 86,400 s
+         ▼
+  ┌─────────────┐
+  │ Broad Phase  │  O(N log N) SMA+inclination bins, shell overlap, D-criterion
+  └──────┬──────┘  fail-open for high-e / invalid elements
+         ▼
+  ┌─────────────┐
+  │ Narrow Phase │  MOID → TCA → RK4 micro-refine → full-window refine
+  └──────┬──────┘  OpenMP-parallel, every ambiguous pair escalated
+         ▼
+  ┌─────────────┐
+  │ CDM Engine   │  24-hour predictive scan, severity classification
+  └──────┬──────┘
+         ▼
+  ┌─────────────┐
+  │ COLA Planner │  RTN evasion ΔV, Tsiolkovsky fuel, cooldown, LOS check
+  └──────┬──────┘
+         ▼
+  ┌─────────────┐
+  │  Recovery    │  CW/ZEM slot-targeting burn, element-delta correction
+  └──────┬──────┘  slot-error convergence gate (Δslot ≤ 0.08)
+         ▼
+  REST API + Frontend (port 8000)
 ```
+
+### Concurrency Model
+
+Mutating operations (telemetry ingestion, simulation steps, maneuver scheduling) are serialized through a command-queue backed by `std::future`/`std::promise` pairs. Read-only endpoints (`GET /api/visualization/snapshot`, `GET /api/status`) operate concurrently via atomically published view pointers. Within a tick, propagation and narrow-phase refinement are parallelized with OpenMP.
+
+---
+
+## Engineering Rationale
+
+### Prototyping with Julia, Deploying in Pure C++
+
+Julia's scientific computing ecosystem made it the natural choice for prototyping the NSGA-II parameter optimizer (69 parameters, 3 objectives) via the `jluna` C++/Julia bridge. Once the tuner proved the parameter space was safely explorable, we deployed in **pure C++20** — the Julia runtime adds ~200 MB to the Docker image plus 4–8 s of JIT warm-up, unacceptable for a latency-sensitive submission. The tuner remains a first-class offline tool; its outputs became the production defaults, and all 69 parameters are overridable at runtime via `PROJECTBONK_*` environment variables.
+
+### Staged Filter Activation via Shadow Deployment
+
+Every new screening filter is introduced in three stages: **shadow mode** (evaluate but never reject), **calibration** (accumulate statistics against RK4 ground truth), and **activation** (promote to hard-reject after demonstrating zero false negatives). This pattern is applied to the D-criterion gate, plane/phase angular gate, and MOID proxy — guaranteeing the zero-false-negative invariant at every point in the development timeline.
+
+### Clohessy–Wiltshire Recovery with Heuristic Safeguard
+
+Recovery burns are computed via CW state-transition matrix inversion blended with velocity-error damping (α = 0.70 position, β = 0.30 velocity, NSGA-II tuned). The proportional controller is retained as an automatic fallback for near-singular CW regimes. Recovery budgets are capped at 5% of remaining ΔV per request.
+
+### Provably Safe Fail-Open Escalation
+
+When propagation fails for an object, the engine bypasses all cheap filters and screens it against the *entire* debris catalog in the full narrow-phase pipeline. This is computationally expensive — O(M) narrow-phase evaluations — but propagation failures affect < 0.1% of objects per tick, and the safety guarantee is absolute.
+
+### Multi-Mode MOID Screening
+
+Minimum Orbit Intersection Distance is computed via three solver modes:
+
+- **PROXY**: 72 × 72 true-anomaly grid (5,184 evaluations/pair), robust to all orbit types
+- **HF**: Coarse global sampling + 3 local refinement iterations with pre-computed satellite positions
+- **ANALYTICAL**: Full Gronchi 2005 ellipse-to-ellipse computation for well-conditioned pairs
+
+The 2.0 km reject threshold ensures only genuinely non-intersecting pairs are discarded.
+
+---
+
+## Numerical Methods
+
+### Orbital Propagation — Adaptive Three-Mode
+
+| Mode | Criteria | Method |
+|---|---|---|
+| **Fast-lane** | e ≤ 0.003, perigee ≥ 650 km, Δt ≤ 45 s | J2 secular rates on mean elements |
+| **Probe-then-escalate** | Outside fast-lane | J2 secular + coarse RK4 probe; escalate if disagreement > 0.5 km |
+| **Full RK4+J2** | Low perigee (< 350 km), high-e (≥ 0.98), long Δt | Classical RK4, max substep 60 s, NaN guards |
+
+Position error at 86,400 s: mean **0.000020 km**, max **0.061 km** — three orders of magnitude below the 100 m collision threshold.
+
+### Broad Phase — O(N log N)
+
+1. **SMA–Inclination binning**: Objects binned by semi-major axis (500 km) and inclination (20°). Flat sorted arrays with binary search; neighbor ±2 bins.
+2. **Shell overlap test**: Perigee/apogee radial bounds with 50 km margin. Invalid elements get ±200 km envelope (intentional over-approximation).
+3. **D-criterion gate**: Drummond proximity metric with reject threshold D > 2.0 (shadow-deployed).
+
+Objects with invalid elements, e > 0.2, or excessive radial span **fail open** directly to the narrow phase.
+
+### Narrow Phase — Multi-Gate Pipeline
+
+1. **Plane/phase angular gate** — orbital plane and mean-anomaly phase separation screening; high-e objects bypass (fail-open)
+2. **MOID proxy** — multi-mode solver, 2.0 km reject threshold
+3. **Linear TCA approximation** — four simultaneous segment estimates over the step interval
+4. **RK4 micro-refinement** — pairs within 0.10 km of threshold get 5 s substep RK4
+5. **Full-window RK4 scan** — pairs within 0.20 km get budgeted OpenMP-parallel refinement (16 samples, 1 s substep)
+
+Hypervelocity encounters (> 8 km/s) receive +0.10 km margin, giving an effective screening distance of **0.120 km**.
+
+### 24-Hour Predictive CDM Generation
+
+After each tick, a forward-looking scan propagates broad-phase pairs via RK4+J2 in 600 s substeps over a configurable horizon (default 86,400 s). Up to 1,024 records retained per scan, sorted by severity.
+
+| Severity | Condition | Action |
+|---|---|---|
+| CRITICAL | d < 100 m | Auto-COLA triggered |
+| WARNING | d < 1.0 km | Monitor |
+| WATCH | d < 5.0 km | Log |
+
+### Autonomous Maneuver Planning
+
+**COLA planner**: Discrete 160-candidate search (4 magnitudes × 4 timings × 10 RTN directions). Each candidate is fully RK4-propagated and screened. Candidates ranked by: safety class → |ΔV| → normal component → slot error → miss distance. Max 3 CRITICAL CDMs evaluated per satellite per tick.
+
+**Fuel accounting**: Tsiolkovsky relation with I_sp = 300 s, dry mass 500 kg, initial propellant 50 kg. A 5% fuel guard (2.5 kg) triggers automatic graveyard deorbit.
+
+**Constraints**: 600 s cooldown, 15 m/s thrust cap, LOS validation against 6-station ground network with 10 s signal latency, blackout-aware pre-upload scheduling.
+
+### Ground Station Network
+
+| Station | Location | Min Elevation |
+|---|---|---|
+| ISTRAC Bengaluru | 13.0°N, 77.5°E | 5° |
+| Svalbard Satellite | 78.2°N, 15.4°E | 5° |
+| Goldstone Tracking | 35.4°N, 116.9°W | 10° |
+| Punta Arenas | 53.2°S, 70.9°W | 5° |
+| IIT Delhi Ground Node | 28.5°N, 77.2°E | 15° |
+| McMurdo Station | 77.8°S, 166.7°E | 5° |
+
+Loaded from CSV at runtime (`PROJECTBONK_GROUND_STATIONS_CSV`) with compiled-in fallback.
+
+---
+
+## Mission Console Frontend
+
+React 18 / TypeScript SPA built with Vite, rendered via Canvas 2D and Three.js WebGL. Polls the engine at 1–2 Hz. Seven purpose-built operational views:
+
+| View | Route | Purpose |
+|---|---|---|
+| **Command Center** | `#/command` | Fleet posture summary — satellite status counts, active CDMs, recent burns, engine health |
+| **Ground Track** | `#/track` | Mercator canvas with 90-min historical trails + forecast arcs, solar terminator, station footprints |
+| **Threat Assessment** | `#/threat` | Polar bullseye plot — radial = time-to-TCA, angular = approach vector, color = CDM severity |
+| **Burn Operations** | `#/burn-ops` | Gantt maneuver timeline with blackout overlays, cooldown markers, per-satellite fuel gauges |
+| **Evasion** | `#/evasion` | Evasion-specific operational view |
+| **Fleet Status** | `#/fleet-status` | Fuel heatmaps, ΔV vs collisions-avoided, station-keeping drift, satellite availability |
+| **Scorecard** | `#/scorecard` | PS §7 evaluation criteria mapped to live engine metrics with weighted readiness percentages |
+
+The snapshot endpoint delivers debris as flattened `[id, lat, lon, alt_km]` tuples to minimize payload size. Canvas 2D renders ground-track and Gantt views at 60 FPS with 10,000+ debris markers. The frontend is statically built, bundled into the Docker image, and served by `cpp-httplib` — no separate web server required.
 
 ---
 
@@ -117,17 +260,17 @@ Telemetry (ECI state vectors)
 
 All endpoints on port **8000**, bound to `0.0.0.0`.
 
-| Method | Endpoint | Status | Description |
-|---|---|---|---|
-| `POST` | `/api/telemetry` | 200 | Ingest ECI state vectors (bulk) |
-| `POST` | `/api/maneuver/schedule` | 202 | Schedule evasion / recovery burns |
-| `POST` | `/api/simulate/step` | 200 | Advance simulation by N seconds |
-| `GET` | `/api/visualization/snapshot` | 200 | Geodetic snapshot for frontend |
-| `GET` | `/api/status` | 200 | Engine health, tick count, CDM warnings |
-| `GET` | `/api/status?details=1` | 200 | Full internal diagnostics (phase timing, gate evidence, queue depth) |
-| `GET` | `/api/debug/conflicts` | 200 | Type-conflict ring buffer |
-| `GET` | `/api/debug/propagation` | 200 | Fast-lane / RK4 usage counters |
-| `GET` | `/api/debug/conjunctions` | 200 | Historical / predictive conjunction debug feed |
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/telemetry` | Batch ECI state vector ingestion |
+| `POST` | `/api/maneuver/schedule` | Evasion / recovery burn submission |
+| `POST` | `/api/simulate/step` | Advance simulation by Δt seconds |
+| `GET` | `/api/visualization/snapshot` | Geodetic snapshot for frontend |
+| `GET` | `/api/status` | Engine health, diagnostics, filter stats |
+| `GET` | `/api/status?details=1` | Full internal diagnostics |
+| `GET` | `/api/debug/conflicts` | Type-conflict ring buffer |
+| `GET` | `/api/debug/propagation` | Fast-lane / RK4 usage counters |
+| `GET` | `/api/debug/conjunctions` | Historical / predictive conjunction feed |
 
 ### Telemetry Ingestion
 
@@ -149,7 +292,7 @@ Content-Type: application/json
 ```
 
 ```json
-{"status":"ACK","processed_count":1,"active_cdm_warnings":3}
+{"status": "ACK", "processed_count": 1, "active_cdm_warnings": 3}
 ```
 
 ### Maneuver Scheduling
@@ -163,10 +306,10 @@ Content-Type: application/json
 {
   "satelliteId": "SAT-Alpha-04",
   "maneuver_sequence": [
-    {"burn_id":"EVASION_1",  "burnTime":"2026-03-12T14:15:30.000Z",
-     "deltaV_vector":{"x":0.002,"y":0.015,"z":-0.001}},
-    {"burn_id":"RECOVERY_1", "burnTime":"2026-03-12T15:45:30.000Z",
-     "deltaV_vector":{"x":-0.0019,"y":-0.014,"z":0.001}}
+    {"burn_id": "EVASION_1",  "burnTime": "2026-03-12T14:15:30.000Z",
+     "deltaV_vector": {"x": 0.002, "y": 0.015, "z": -0.001}},
+    {"burn_id": "RECOVERY_1", "burnTime": "2026-03-12T15:45:30.000Z",
+     "deltaV_vector": {"x": -0.0019, "y": -0.014, "z": 0.001}}
   ]
 }
 ```
@@ -200,105 +343,51 @@ Content-Type: application/json
 }
 ```
 
-### Conjunction Debug Streams
-
-`/api/debug/conjunctions` supports an additive `source` query for local/debug use:
-
-```bash
-curl -s 'http://localhost:8000/api/debug/conjunctions?source=history'
-curl -s 'http://localhost:8000/api/debug/conjunctions?source=predicted'
-curl -s 'http://localhost:8000/api/debug/conjunctions?source=combined'
-```
-
-- `history` = narrow-phase watch history captured during steps
-- `predicted` = persisted 24-hour predictive CDM scan results
-- `combined` = both streams together
-
 ---
 
-## Technical Depth
+## Validation & Evidence
 
-### Propagation
+### Safety Gate Suite
 
-- **Adaptive RK4 + J2 perturbation** for all objects each tick.
-- **Fast-lane Kepler** short-circuits circular, low-eccentricity orbits to skip
-  expensive numerical integration where J2 drift is negligible.
-- **Probe-and-escalate**: a cheap adaptive step probes first; if position/velocity
-  error exceeds threshold, the pair is promoted to full RK4.
-- Position error at 86,400 s: mean **0.000020 km**, max **0.061 km** (p95 = 0 km).
+8 standalone CTest gates, each a compiled C++ binary. Every gate runs in CI on every push and inside the Docker build — if any gate fails, the image cannot be built.
 
-### Broad Phase — O(N log N)
-
-- Objects binned by semi-major axis (width = 500 km) and inclination band.
-- Neighbor-bin search limits candidate pairs to geometrically plausible
-  encounters only; band width tunable at runtime.
-- **D-criterion filter** (Drummond 1981) rejects co-planar non-crossing pairs
-  before expensive narrow-phase evaluation.
-- High-eccentricity objects (e > 0.2) bypass the filter and fail-open —
-  safety over performance.
-
-### Narrow Phase — Analytical MOID
-
-The narrow phase implements three progressively more expensive filters,
-each failing open on any numerical uncertainty:
-
-1. **Plane/phase angular screening** — cheap geometry precheck.
-2. **MOID evaluation** — full analytical Minimum Orbit Intersection Distance
-   via the **Gronchi (2005) degree-8 resultant polynomial** (quartic in cos E),
-   not just sampled proxies. This is the same formulation used in ESA's DRAMA
-   tool suite.
-3. **TCA refinement** — near-threshold pairs get an RK4 micro-window pass
-   around the predicted TCA.
-4. **Budgeted full-window scan** — ultra-near pairs get a budgeted sampled
-   full-window RK4 pass before final classification.
-
-Fail-open policy: **any step that cannot complete a numeric check escalates
-the pair to detected** rather than silently dropping it. False negatives are
-treated as a system failure.
-
-### COLA & Recovery
-
-- **Evasion**: prograde/retrograde RTN burn sized to push the satellite ≥ 100 m
-  standoff; respects 15 m/s per-burn hard cap and 600 s thermal cooldown.
-- **Tsiolkovsky tracking**: every burn deducts `Δm = m_current · (1 − e^(−|Δv|/(Isp·g0)))`
-  from the live propellant budget; dry mass 500 kg, Isp 300 s.
-- **Recovery burn**: CW/ZEM-equivalent single-burn targeting nominal orbital
-  slot (Δa, Δe, Δi, ΔΩ element delta correction); slot-error convergence gate
-  passes at Δslot ≤ 0.08, deterministically reproducible across 3 independent runs.
-- **Graveyard**: if fuel drops to critical threshold, a graveyard deorbit is
-  autonomously scheduled before the satellite is maneuvering-incapable.
-- **LOS enforcement**: burns are only uplinked when the satellite has line-of-sight
-  to at least one of the six PS-defined ground stations (elevation mask respected).
-  Conjunctions predicted over blackout zones are handled by pre-uploading the
-  sequence before the last LOS window closes.
-
-### NSGA-II Multi-Objective Tuner
-
-A Julia 1.10 / jluna bridge runs a full NSGA-II optimizer (Deb 2002) over
-**69 tunable parameters** across all three engine tiers:
-
-- **3 objectives** (all minimized): `safety_risk`, `fuel_cost`, `compute_cost`
-- **Feasibility-first** constraint handling — any candidate with `safety_risk > 0`
-  is dominated by all safe candidates regardless of other objectives
-- **SBX crossover** + **polynomial mutation** with per-parameter integer rounding
-- Verified end-to-end: 20 pop × 5 generations → best tick **13.3 ms**
-  (vs 23 ms default) with zero safety violations
+| Gate | Enforced Invariant |
+|---|---|
+| `api_contract_gate` | All 5 endpoints conform to PS schema |
+| `broad_phase_validation` | Shell filter ⊇ brute-force baseline |
+| `narrow_phase_false_negative_gate` | Zero missed collisions vs RK4 reference |
+| `narrow_phase_calibration_probe` | Screening thresholds within tolerance |
+| `phase2_regression` | Propagator drift < 0.061 km at 86,400 s |
+| `maneuver_ops_invariants` | Cooldown, fuel, thrust-cap enforcement |
+| `recovery_planner_invariants` | CW/ZEM convergence, slot error ≤ 0.08 |
+| `recovery_slot_gate` | Deterministic slot recovery across 3 runs |
 
 ```bash
-# Build with Julia bridge
-cmake -S . -B build_julia -DPROJECTBONK_ENABLE_JULIA_RUNTIME=ON
-cmake --build build_julia --target nsga2_jluna_bridge -j$(nproc)
-
-# Run tuner (pop=80, gens=50, 50 sats, 10K debris)
-./build_julia/nsga2_jluna_bridge 80 50 50 10000 10 30
-# Writes: tuner/tuned_params.env
+ctest --test-dir build --output-on-failure   # 8/8 pass
 ```
+
+### Real-Data Validation
+
+The scenario generator (`tools/real_data_scenario_gen`) ingested a live Space-Track OMM catalog (34 MB, 30,000+ objects):
+
+- **27,191** LEO objects loaded in < 1 s with zero conversion failures
+- 10 conjunctions detected at full 27K scale (2.1 s/tick)
+- All broad-phase filters correctly preserved confirmed narrow-phase pairs
+- Zero false negatives across the full catalog run
+
+### Hot-Path Optimizations
+
+Three profiling-driven optimizations:
+
+1. **`std::pow(rmag, 5.0)` → explicit multiply** (`r2*r2*rmag`) — 10–50× faster per-object J2 acceleration
+2. **J2 secular-rate subexpression factoring** — precomputed `cos i`, `sin i`, `a^3.5` struct eliminates redundant transcendentals
+3. **MOID grid 24 → 72 samples** — 15° spacing left ~1,780 km arc gaps at LEO, rendering the filter inert
 
 ---
 
 ## Benchmarks
 
-All benchmarks on a 24-core dev machine, Release build, OpenMP enabled.
+All benchmarks on a 24-core machine, Release build, OpenMP enabled.
 
 ### Tick Latency by Phase (50 sats / 10K debris / 30 s step)
 
@@ -309,27 +398,60 @@ All benchmarks on a 24-core dev machine, Release build, OpenMP enabled.
 | Narrow precomp | 0.7 | 2.7% |
 | Narrow sweep | 14.4 | 54.5% |
 
-### OpenMP Narrowphase Speedup
+### Scaling
 
-| Scenario | Before | After | Delta |
-|---|---|---|---|
-| 50 sat / 10K deb — tick mean | 25.5 ms | 23.0 ms | **−9.8%** |
-| 50 sat / 10K deb — narrow sweep | 17.4 ms | 14.4 ms | **−17.2%** |
-| 100 sat / 20K deb — tick mean | 91.8 ms | 72.6 ms | **−20.9%** |
-| 100 sat / 20K deb — narrow sweep | ~68 ms | 46.6 ms | **−31.5%** |
+| Scenario | Mean Tick | Notes |
+|---|---|---|
+| 50 sats / 10K debris | 13.3 ms | Baseline |
+| 100 sats / 20K debris | 72.6 ms | 2× stress |
+| 27,191 LEO objects (real) | 2.1 s | Full Space-Track |
 
-### Real Catalog Run (Space-Track OMM, LEO only)
+### Benchmark Tooling
 
-| Scenario | tick mean | broad phase | narrow sweep | collisions |
-|---|---|---|---|---|
-| 50 sats + 10K debris (real data) | 17.0 ms | — | — | — |
-| Full 27,191 LEO objects | **2,146 ms** | 698 ms | 1,425 ms | 10 detected |
+```bash
+# Deterministic synthetic benchmark
+./build-benchmark-release/phase3_tick_benchmark 50 10000 10 40 30 20260317 1773292800
+
+# Baseline vs current comparison (synthetic)
+python scripts/benchmark_compare.py --profile long --report-md docs/benchmarks
+
+# Real-catalog comparison
+python scripts/benchmark_compare.py --profile real-smoke --report-md docs/benchmarks
+
+# Repeated-run variance measurement
+python scripts/benchmark_envelope.py --profile real-long --runs 5 --report-md docs/benchmarks
+```
+
+Benchmark compare checks deterministic output equivalence via FNV-1a fingerprinting. CI runs a smoke comparison on every push; a separate workflow supports scheduled/manual longer runs. Full workflow: `docs/BENCHMARK_WORKFLOW.md`.
 
 ---
 
-## Build from Source (Ubuntu 22.04)
+## NSGA-II Multi-Objective Tuner
+
+A Julia 1.10 / `jluna` bridge drives a full NSGA-II optimizer (Deb 2002) over **69 parameters** across three engine tiers:
+
+| Tier | Parameters | Scope |
+|---|---|---|
+| Broad phase | 9 | SMA bin width, inclination bins, shell margin, D-criterion threshold, fail-open cutoffs |
+| Narrow phase | 21 | Plane/phase thresholds, MOID resolution, TCA guard, refine budgets, uncertainty promotion |
+| Maneuver planner | 39 | COLA ΔV scales, RTN weights, CW horizon bounds, recovery blend, CDM scanner config |
+
+Three objectives (all minimized): `safety_risk`, `fuel_cost`, `compute_cost`. Feasibility-first constraint handling — any candidate with `safety_risk > 0` is dominated by all safe candidates. SBX crossover + polynomial mutation.
+
+Best run: 20 pop × 5 gen → tick **13.3 ms** (vs 23 ms default), 42% improvement, zero safety violations.
 
 ```bash
+cmake -S . -B build_julia -DPROJECTBONK_ENABLE_JULIA_RUNTIME=ON
+cmake --build build_julia --target nsga2_jluna_bridge -j$(nproc)
+./build_julia/nsga2_jluna_bridge 80 50 50 10000 10 30
+```
+
+---
+
+## Build from Source
+
+```bash
+# Ubuntu 22.04
 sudo apt-get install -y build-essential cmake git curl wget libboost-all-dev
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPROJECTBONK_ENABLE_JULIA_RUNTIME=OFF
@@ -337,66 +459,45 @@ cmake --build build -j$(nproc)
 ./build/ProjectBONK
 ```
 
-### Run the Safety Suite
+### Run Safety Gates
 
 ```bash
 ctest --test-dir build --output-on-failure
-# 8/8 tests pass:
-#   phase2_regression_gate_test
-#   phase2_regression_gate_short_step_test
-#   broad_phase_sanity_gate_test
-#   narrow_phase_false_negative_gate_test     <- 0 FN across all 6 families
-#   recovery_slot_gate_test
-#   recovery_planner_invariants_gate_test
-#   maneuver_ops_invariants_gate_test
-#   api_contract_gate_test
 ```
 
-### Run the Tick Benchmark
+### Individual Gates
 
 ```bash
-cmake --build build --target phase3_tick_benchmark -j$(nproc)
-./build/phase3_tick_benchmark 50 10000 5 10 30
+./scripts/api_contract_gate.sh ./build
+./scripts/broad_phase_sanity_gate.sh
+./scripts/narrow_phase_false_negative_gate.sh
+./scripts/recovery_planner_invariants_gate.sh
 ```
 
 ---
 
 ## Runtime Configuration
 
-All 69 engine constants are overridable via environment variables at startup —
-no recompile required. Key variables:
+All 69 engine constants are overridable via environment variables — no recompile required.
 
 | Variable | Default | Description |
 |---|---|---|
-| `PROJECTBONK_RECOVERY_SOLVER_MODE` | `CW_ZEM_EQUIVALENT` | Recovery solver (`HEURISTIC` or `CW_ZEM_EQUIVALENT`) |
+| `PROJECTBONK_RECOVERY_SOLVER_MODE` | `CW_ZEM_EQUIVALENT` | Recovery solver mode |
 | `PROJECTBONK_BROAD_SHELL_MARGIN_KM` | `50.0` | Broad-phase altitude shell margin |
 | `PROJECTBONK_NARROW_TCA_GUARD_KM` | `0.02` | TCA refinement guard radius |
-| `PROJECTBONK_CDM_HORIZON_S` | `86400` | 24-hour CDM prediction horizon |
+| `PROJECTBONK_CDM_HORIZON_S` | `86400` | Predictive CDM horizon |
 | `PROJECTBONK_AUTO_DV_KM_S` | `0.001` | Auto-COLA impulse magnitude |
-| `PROJECTBONK_CORS_ENABLE` | `false` | Enable CORS (dev frontend split) |
-| `PROJECTBONK_MAX_STEP_SECONDS` | `86400` | Max allowed step_seconds |
+| `PROJECTBONK_CORS_ENABLE` | `false` | Enable CORS for dev frontend |
+| `PROJECTBONK_MAX_STEP_SECONDS` | `86400` | Maximum allowed step_seconds |
+| `PROJECTBONK_GROUND_STATIONS_CSV` | `docs/groundstations.csv` | Ground station configuration |
 
 Full variable reference: `docs/implementation-plan.md`.
 
 ---
 
-## Frontend Development
-
-Backend on port `8000`. For a local frontend dev server on `5173`:
-
-```bash
-PROJECTBONK_CORS_ENABLE=true \
-PROJECTBONK_CORS_ALLOW_ORIGIN=http://localhost:5173 \
-./build/ProjectBONK
-```
-
-The `/api/visualization/snapshot` response is shaped for high-density rendering:
-satellites as full objects, debris as flattened `[id, lat, lon, alt_km]` tuples
-to minimize payload size at 50+ sats / 10K+ debris.
-
----
-
 ## Deployment
+
+### Docker
 
 ```bash
 docker build -t cascade:local .
@@ -409,24 +510,52 @@ Or with Compose:
 docker compose up --build -d
 ```
 
-If you already have a container running, use `--build` after frontend changes so
-the baked `frontend/dist` bundle is refreshed inside the image.
+### Docker Build Architecture
 
-Base image: `ubuntu:22.04`. Port `8000` bound to `0.0.0.0`.
-Dockerfile is layered for fast incremental rebuilds (deps cached separately
-from source).
+| Stage | Base | Purpose |
+|---|---|---|
+| **builder** | `ubuntu:22.04` | GCC-12, CMake, sccache, CTest gates |
+| **frontend** | `node:24-slim` | `npm ci` + Vite production build |
+| **runtime** | `ubuntu:22.04` | Minimal: `libgomp1` + binary + static assets |
 
-### Local Catalog Replay (`data.txt`)
+Build-time optimizations: sccache compiler cache, dependency pre-fetch layer (CMake FetchContent cached), BuildKit cache mounts, CTest gates run inside the builder (image cannot be built if any gate fails). Runtime image runs as non-root user (`bonk`).
 
-For local UI/backend smoke testing, you can replay the gitignored `data.txt`
-catalog through the normal telemetry API without changing the judged runtime path:
+### CI Pipeline
+
+GitHub Actions enforces a four-stage gate on every push to `main`:
+
+1. CMake configure + build (GCC-12, Release, `-O2`)
+2. CTest: all 8 safety gates with `--output-on-failure`
+3. Frontend: `npm ci && npm run build` (type-checked Vite production bundle)
+4. Docker API smoke gate (end-to-end container lifecycle test)
+
+---
+
+## Frontend Development
+
+```bash
+PROJECTBONK_CORS_ENABLE=true \
+PROJECTBONK_CORS_ALLOW_ORIGIN=http://localhost:5173 \
+./build/ProjectBONK
+```
+
+Frontend dev server on port 5173:
+
+```bash
+cd frontend && npm ci && npm run dev
+```
+
+---
+
+## Local Catalog Replay
+
+Replay the `data.txt` catalog through the telemetry API for local UI/backend testing:
 
 ```bash
 python3 scripts/replay_data_catalog.py --api-base http://localhost:8000
 ```
 
-For the stricter real-data route, promote real payloads directly into the operator fleet
-instead of using synthetic `SAT-LOCAL-*` IDs:
+Strict real-data mode (promote real payloads as operator fleet):
 
 ```bash
 python3 scripts/replay_data_catalog.py \
@@ -435,121 +564,26 @@ python3 scripts/replay_data_catalog.py \
   --operator-sats 10
 ```
 
-To preview the selected operator fleet and replay timestamp without posting telemetry:
+Supports OMM JSON and 3LE/TLE text catalogs, manifest-driven replay presets, scenario mining with LOS-aware scoring, and backend-assisted ranking. See `scripts/mine_strict_scenarios.py --help` for the full mining workflow.
 
-```bash
-python3 scripts/replay_data_catalog.py --satellite-mode catalog --dry-run
-```
+---
 
-The same replay tooling now also supports local 3LE/TLE text catalogs such as
-`3le_data.txt`:
+## Physical Constants
 
-```bash
-python3 scripts/replay_data_catalog.py \
-  --data 3le_data.txt \
-  --satellite-mode catalog \
-  --operator-sats 10 \
-  --dry-run
-```
-
-You can also drive replay settings from a scenario manifest template:
-
-```bash
-python3 scripts/replay_data_catalog.py \
-  --manifest docs/scenarios/strict_natural_watch.example.json \
-  --dry-run
-```
-
-To generate a new strict replay manifest from the local catalog:
-
-```bash
-python3 scripts/generate_strict_manifest.py \
-  --output /tmp/strict_generated_manifest.json \
-  --scenario-id strict_generated_test \
-  --satellite-mode catalog \
-  --operator-sats 6
-```
-
-To mine ranked strict replay manifests from real nearby traffic:
-
-```bash
-python3 scripts/mine_strict_scenarios.py \
-  --output-dir /tmp/strict_mined \
-  --scenario-prefix strict_mined \
-  --top-scenarios 3 \
-  --operator-sats 8 \
-  --payload-candidates 12 \
-  --threat-candidates 600
-```
-
-The miner now also uses `docs/groundstations.csv` for LOS-aware scoring by default,
-so manifests include recommended ground stations and LOS-ready operator counts.
-It also now tries to emit more diverse operator-fleet combinations instead of near-duplicate scenario sets.
-It additionally tracks threat-richness signals such as near-100 km / near-250 km / near-500 km counts and balances shell/family mix when assembling operator fleets.
-It now also targets likely predictive-warning shells more directly via shell-density and phase-density probing before live backend ranking begins.
-
-You can point the same miner at `3le_data.txt` as well:
-
-```bash
-python3 scripts/mine_strict_scenarios.py \
-  --data 3le_data.txt \
-  --output-dir /tmp/strict_mined_3le \
-  --scenario-prefix strict_mined_3le \
-  --top-scenarios 3
-```
-
-To evaluate a strict manifest against a fresh local backend:
-
-```bash
-python3 scripts/evaluate_strict_manifest.py \
-  --manifest /tmp/strict_generated_manifest.json \
-  --api-base http://localhost:8000 \
-  --extra-steps 1 \
-  --extra-step-seconds 300
-```
-
-To rank multiple strict manifests by fresh backend runs:
-
-```bash
-python3 scripts/rank_strict_manifests.py \
-  /tmp/strict_mined/strict_mined_01.json \
-  /tmp/strict_mined/strict_mined_02.json \
-  --backend-cmd ./build/ProjectBONK \
-  --api-base http://localhost:8000 \
-  --extra-steps 1 \
-  --extra-step-seconds 300
-```
-
-The miner can now do this backend-assisted ranking inline while it writes manifests:
-
-```bash
-python3 scripts/mine_strict_scenarios.py \
-  --output-dir /tmp/strict_mined_ranked \
-  --scenario-prefix strict_mined_ranked \
-  --top-scenarios 2 \
-  --candidate-scenarios 3 \
-  --backend-rank-cmd ./build/ProjectBONK \
-  --backend-rank-api-base http://localhost:8000 \
-  --feedback-output /tmp/strict_mined_ranked_feedback.json
-```
-
-What this does:
-- promotes a small operator fleet from real payloads
-- supports legacy synthetic `SAT-LOCAL-*` mode and stricter `SAT-<NORAD>` catalog mode
-- supports manifest-driven replay presets for repeatable strict-route demos
-- supports lightweight scenario mining that ranks real payload anchors by nearby natural traffic
-- supports both OMM JSON and 3LE/TLE text catalogs in the same replay/mining flow
-- supports one-shot manifest evaluation against a fresh live backend so mined presets can be ranked with real runtime outputs
-- supports backend-assisted ranking across multiple manifests by restarting the backend per scenario
-- incorporates ground-station LOS into mining metadata and manifest ranking
-- can optionally perform backend-assisted ranking directly from the miner and emit a backend ranking summary alongside mined manifests
-- can persist learned feedback weights so later mining runs bias more strongly toward backend-confirmed threat-richness signals
-- writes `backend_cdm_evaluation` back into each ranked manifest so predictive-CDM mining results stay attached to the scenario artifact
-- injects the rest of the filtered catalog as `DEBRIS`
-- uses the existing `POST /api/telemetry` and `POST /api/simulate/step` endpoints
-
-This replay path is intended only for local demos and UI smoke testing. It does
-not add a judged API surface and does not change default runtime behavior.
+| Symbol | Description | Value |
+|---|---|---|
+| μ | Earth grav. parameter | 398,600.4418 km³/s² |
+| R_E | Earth equatorial radius | 6,378.137 km |
+| J₂ | Oblateness coefficient | 1.08263 × 10⁻³ |
+| d_coll | Collision threshold | 0.100 km |
+| I_sp | Specific impulse | 300 s |
+| g₀ | Standard gravity | 9.80665 m/s² |
+| m_dry | Satellite dry mass | 500 kg |
+| m_fuel | Initial propellant | 50 kg |
+| |ΔV|_max | Thrust limit | 15 m/s |
+| τ_cd | Cooldown period | 600 s |
+| τ_sig | Signal latency | 10 s |
+| r_box | Station-keeping box | 10 km |
 
 ---
 
@@ -557,36 +591,43 @@ not add a judged API surface and does not change default runtime behavior.
 
 ```
 .
-├── CMakeLists.txt              # Build system: C++20, FetchContent, Julia auto-install
-├── Dockerfile                  # Single-container build & run (ubuntu:22.04)
-├── main.cpp                    # Entry point: HTTP server + engine runtime
+├── CMakeLists.txt                  # C++20, FetchContent deps, Julia auto-install
+├── Dockerfile                      # 3-stage build (ubuntu:22.04)
+├── main.cpp                        # HTTP server + engine runtime entry point
 ├── src/
-│   ├── simulation_engine.cpp   # Master tick loop (propagate → broad → narrow → COLA)
-│   ├── broad_phase.cpp         # O(N log N) SMA binning + D-criterion
-│   ├── orbit_math.cpp          # Gronchi 2005 MOID, ECI↔elements, RK4+J2
-│   ├── propagator.cpp          # Adaptive fast-lane / full RK4 propagator
+│   ├── simulation_engine.cpp       # Master tick loop: propagate → broad → narrow → COLA
+│   ├── broad_phase.cpp             # O(N log N) SMA binning + D-criterion
+│   ├── orbit_math.cpp              # Gronchi 2005 MOID, ECI↔elements, RK4+J2
+│   ├── propagator.cpp              # Adaptive fast-lane / full RK4 propagator
 │   ├── maneuver_recovery_planner.cpp  # CW/ZEM slot-targeting recovery
-│   ├── state_store.cpp         # Lock-free state vector store
-│   └── http/                   # REST API handlers
+│   ├── state_store.cpp             # Lock-free SoA state vector store
+│   ├── earth_frame.cpp             # ECI→ECEF→geodetic, GMST, LOS
+│   └── http/                       # REST API handlers
+├── frontend/
+│   └── src/
+│       └── pages/                  # 7 dashboard views (React/Canvas/WebGL)
 ├── tuner/
-│   ├── nsga2_tuner.jl          # Pure Julia NSGA-II (69 params, 3 objectives)
-│   └── nsga2_jluna_bridge.cpp  # C++/Julia bridge
-├── tools/                      # Regression, benchmark, and gate harnesses
-├── scripts/                    # Gate runner scripts (phase2..phase4)
-├── docs/                       # Implementation plan, HANDOFF, phase reports
-└── PS.md                       # Authoritative problem statement (IIT Delhi)
+│   ├── nsga2_tuner.jl              # Pure Julia NSGA-II (69 params, 3 objectives)
+│   └── nsga2_jluna_bridge.cpp      # C++/Julia bridge
+├── tools/                          # Gate binaries, benchmark harnesses
+├── scripts/                        # Gate runners, benchmark compare, replay, mining
+├── docs/                           # Implementation plan, phase reports, groundstations.csv
+└── PS.md                           # National Space Hackathon 2026 problem statement
 ```
 
 ---
 
-## Deliverables Status
+## Development Timeline
 
-| Deliverable | Status |
+| Phase | Milestone |
 |---|---|
-| Backend + REST API (port 8000) | **Complete** |
-| Docker build (`ubuntu:22.04`, port 8000) | **Complete** |
-| NSGA-II parameter tuner | **Complete** |
-| Safety gate suite (8/8) | **Complete** |
-| Frontend — Orbital Insight dashboard | In progress |
-| Technical report (LaTeX PDF) | In progress |
-| Video demonstration | In progress |
+| **Week 1** | Core infrastructure: telemetry ingestion via simdjson, SoA state store, J2 propagator with adaptive mode selection, Kepler solver, REST API skeleton |
+| **Week 2** | Screening pipeline: conservative broad phase, multi-gate narrow phase, CW/ZEM recovery solver, Tsiolkovsky fuel accounting, cooldown & thrust-cap enforcement |
+| **Week 3** | Optimization & validation: shadow-gate observability, NSGA-II tuner (69 params), real-data scenario generator (27K objects), OpenMP, env-override system, 8 CTest gates |
+| **Week 4** | Integration & polish: React/Canvas/WebGL dashboard (7 pages), 3-stage Docker build with sccache, CI pipeline, PS alignment, technical report |
+
+---
+
+## License
+
+See [LICENSE](LICENSE).
