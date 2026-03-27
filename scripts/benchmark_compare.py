@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -381,7 +381,7 @@ def main() -> int:
         mismatches = compare_metrics(baseline_metrics, current_metrics)
         delta_metrics = build_delta_table(baseline_metrics, current_metrics)
         correctness_status = "MISMATCH" if mismatches else "MATCH"
-        generated_at_utc = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        generated_at_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         report_stem = f"benchmark-compare-{args.profile}-{generated_at_utc.replace(':', '').replace('-', '')}"
 
         payload: dict[str, object] = {
