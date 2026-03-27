@@ -12,10 +12,12 @@
 #include "orbit_math.hpp"
 #include "propagator.hpp"
 
+#include <array>
 #include <algorithm>
 #include <cstdlib>
 #include <cmath>
 #include <exception>
+#include <limits>
 #include <mutex>
 #include <string_view>
 #include <type_traits>
@@ -113,6 +115,24 @@ static double cola_auto_dv_km_s() noexcept
     return v;
 }
 
+static double cola_min_lead_s() noexcept
+{
+    static const double v = env_double("PROJECTBONK_AUTO_COLA_MIN_LEAD_S", 120.0, 10.0, 3600.0);
+    return v;
+}
+
+static int cola_trigger_limit() noexcept
+{
+    static const int v = env_int("PROJECTBONK_AUTO_COLA_TRIGGER_LIMIT", 3, 1, 8);
+    return v;
+}
+
+static double cola_target_miss_km() noexcept
+{
+    static const double v = env_double("PROJECTBONK_AUTO_COLA_TARGET_MISS_KM", 0.15, 0.101, 5.0);
+    return v;
+}
+
 struct CdmWarningScanResult {
     std::uint64_t warning_count = 0;
     std::vector<ConjunctionRecord> records;
@@ -152,6 +172,44 @@ void append_conjunction_record_limited(std::vector<ConjunctionRecord>& records,
 inline double vector_norm2(const Vec3& v) noexcept
 {
     return v.x * v.x + v.y * v.y + v.z * v.z;
+}
+
+inline double vector_norm(const Vec3& v) noexcept
+{
+    return std::sqrt(vector_norm2(v));
+}
+
+inline Vec3 vector_add(const Vec3& a, const Vec3& b) noexcept
+{
+    return Vec3{a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+inline Vec3 vector_scale(const Vec3& v, double s) noexcept
+{
+    return Vec3{v.x * s, v.y * s, v.z * s};
+}
+
+inline double vector_dot(const Vec3& a, const Vec3& b) noexcept
+{
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+inline Vec3 vector_cross(const Vec3& a, const Vec3& b) noexcept
+{
+    return Vec3{
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    };
+}
+
+inline Vec3 vector_normalize(const Vec3& v) noexcept
+{
+    const double n = vector_norm(v);
+    if (n < EPS_NUM) {
+        return Vec3{};
+    }
+    return vector_scale(v, 1.0 / n);
 }
 
 template <typename BurnT>
@@ -230,6 +288,328 @@ PairMinSeparationScan scan_pair_minimum_separation(Vec3 sat_pos,
     }
 
     return out;
+}
+
+struct AutoColaRtnFrame {
+    Vec3 r_hat{};
+    Vec3 t_hat{};
+    Vec3 n_hat{};
+    bool valid = false;
+};
+
+AutoColaRtnFrame compute_auto_cola_rtn_frame(const Vec3& r,
+                                             const Vec3& v) noexcept
+{
+    AutoColaRtnFrame frame;
+    const double r_norm = vector_norm(r);
+    if (r_norm < EPS_NUM) {
+        return frame;
+    }
+    frame.r_hat = vector_scale(r, 1.0 / r_norm);
+
+    const Vec3 h = vector_cross(r, v);
+    const double h_norm = vector_norm(h);
+    if (h_norm < EPS_NUM) {
+        return frame;
+    }
+
+    frame.n_hat = vector_scale(h, 1.0 / h_norm);
+    frame.t_hat = vector_cross(frame.n_hat, frame.r_hat);
+    const double t_norm = vector_norm(frame.t_hat);
+    if (t_norm < EPS_NUM) {
+        return frame;
+    }
+
+    frame.t_hat = vector_scale(frame.t_hat, 1.0 / t_norm);
+    frame.valid = true;
+    return frame;
+}
+
+struct AutoColaPlan {
+    bool valid = false;
+    const ConjunctionRecord* trigger = nullptr;
+    double burn_epoch_s = 0.0;
+    double upload_epoch_s = 0.0;
+    std::string upload_station_id;
+    Vec3 dv{};
+    double dv_norm_km_s = 0.0;
+    double predicted_miss_distance_km = 0.0;
+    double slot_error_score = std::numeric_limits<double>::infinity();
+    double normal_component_km_s = 0.0;
+    double tca_lead_s = 0.0;
+    int safety_class = -1;
+};
+
+int auto_cola_safety_class(double predicted_miss_distance_km,
+                           double trigger_miss_distance_km) noexcept
+{
+    const double target_miss_km = std::max(cola_target_miss_km(), trigger_miss_distance_km + 0.05);
+    if (predicted_miss_distance_km >= target_miss_km) return 2;
+    if (predicted_miss_distance_km > COLLISION_THRESHOLD_KM + EPS_NUM) return 1;
+    return 0;
+}
+
+bool auto_cola_plan_better(const AutoColaPlan& lhs,
+                           const AutoColaPlan& rhs) noexcept
+{
+    if (!rhs.valid) return lhs.valid;
+    if (!lhs.valid) return false;
+
+    if (lhs.safety_class != rhs.safety_class) {
+        return lhs.safety_class > rhs.safety_class;
+    }
+
+    if (lhs.safety_class >= 1) {
+        if (std::abs(lhs.dv_norm_km_s - rhs.dv_norm_km_s) > 1.0e-9) {
+            return lhs.dv_norm_km_s < rhs.dv_norm_km_s;
+        }
+        if (std::abs(lhs.normal_component_km_s - rhs.normal_component_km_s) > 1.0e-9) {
+            return lhs.normal_component_km_s < rhs.normal_component_km_s;
+        }
+        if (std::abs(lhs.slot_error_score - rhs.slot_error_score) > 1.0e-9) {
+            return lhs.slot_error_score < rhs.slot_error_score;
+        }
+        if (std::abs(lhs.predicted_miss_distance_km - rhs.predicted_miss_distance_km) > 1.0e-9) {
+            return lhs.predicted_miss_distance_km > rhs.predicted_miss_distance_km;
+        }
+    } else {
+        if (std::abs(lhs.predicted_miss_distance_km - rhs.predicted_miss_distance_km) > 1.0e-9) {
+            return lhs.predicted_miss_distance_km > rhs.predicted_miss_distance_km;
+        }
+        if (std::abs(lhs.dv_norm_km_s - rhs.dv_norm_km_s) > 1.0e-9) {
+            return lhs.dv_norm_km_s < rhs.dv_norm_km_s;
+        }
+        if (std::abs(lhs.normal_component_km_s - rhs.normal_component_km_s) > 1.0e-9) {
+            return lhs.normal_component_km_s < rhs.normal_component_km_s;
+        }
+        if (std::abs(lhs.slot_error_score - rhs.slot_error_score) > 1.0e-9) {
+            return lhs.slot_error_score < rhs.slot_error_score;
+        }
+    }
+
+    if (std::abs(lhs.tca_lead_s - rhs.tca_lead_s) > 1.0e-6) {
+        return lhs.tca_lead_s < rhs.tca_lead_s;
+    }
+    if (std::abs(lhs.burn_epoch_s - rhs.burn_epoch_s) > 1.0e-6) {
+        return lhs.burn_epoch_s > rhs.burn_epoch_s;
+    }
+    return false;
+}
+
+PairMinSeparationScan scan_pair_minimum_separation_with_impulse(Vec3 sat_pos,
+                                                                Vec3 sat_vel,
+                                                                Vec3 deb_pos,
+                                                                Vec3 deb_vel,
+                                                                double current_epoch_s,
+                                                                double burn_epoch_s,
+                                                                const Vec3& dv_impulse,
+                                                                double horizon_s,
+                                                                double substep_s,
+                                                                double max_step_s) noexcept
+{
+    PairMinSeparationScan out;
+    if (burn_epoch_s < current_epoch_s - EPS_NUM) {
+        out.fail_open = true;
+        return out;
+    }
+
+    const double preburn_dt = std::max(0.0, burn_epoch_s - current_epoch_s);
+    if (preburn_dt > EPS_NUM) {
+        if (!propagate_rk4_j2_substep(sat_pos, sat_vel, preburn_dt, max_step_s)
+            || !propagate_rk4_j2_substep(deb_pos, deb_vel, preburn_dt, max_step_s)) {
+            out.fail_open = true;
+            return out;
+        }
+    }
+
+    sat_vel = vector_add(sat_vel, dv_impulse);
+    const double remaining_horizon_s = std::max(substep_s, horizon_s - preburn_dt);
+    return scan_pair_minimum_separation(
+        sat_pos,
+        sat_vel,
+        deb_pos,
+        deb_vel,
+        burn_epoch_s,
+        remaining_horizon_s,
+        substep_s,
+        max_step_s
+    );
+}
+
+double predict_slot_error_after_impulse(const StateStore& store,
+                                        std::size_t sat_idx,
+                                        std::unordered_map<std::string, SlotReference>& slot_reference_by_sat,
+                                        double current_epoch_s,
+                                        double burn_epoch_s,
+                                        const Vec3& dv_impulse) noexcept
+{
+    if (sat_idx >= store.size() || store.type(sat_idx) != ObjectType::SATELLITE) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    OrbitalElements slot{};
+    if (!slot_elements_at_epoch(slot_reference_by_sat, store.id(sat_idx), burn_epoch_s, slot)) {
+        (void)derive_slot_elements_if_needed(store, sat_idx, slot_reference_by_sat);
+        if (!slot_elements_at_epoch(slot_reference_by_sat, store.id(sat_idx), burn_epoch_s, slot)) {
+            return std::numeric_limits<double>::infinity();
+        }
+    }
+
+    Vec3 r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+    Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+    const double dt = std::max(0.0, burn_epoch_s - current_epoch_s);
+    if (dt > EPS_NUM && !propagate_rk4_j2_substep(r, v, dt, cdm_params().rk4_max_step_s)) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    v = vector_add(v, dv_impulse);
+    OrbitalElements cur{};
+    if (!eci_to_elements(r, v, cur)) {
+        return std::numeric_limits<double>::infinity();
+    }
+    return slot_error_score(slot, cur);
+}
+
+AutoColaPlan build_auto_cola_plan(const StateStore& store,
+                                  std::size_t sat_idx,
+                                  const std::vector<ConjunctionRecord>& predictive_records,
+                                  double epoch_s,
+                                  const std::vector<ScheduledBurn>& burn_queue,
+                                  const std::unordered_map<std::string, double>& last_burn_epoch_by_sat,
+                                  std::unordered_map<std::string, SlotReference>& slot_reference_by_sat) noexcept
+{
+    AutoColaPlan best;
+    if (sat_idx >= store.size() || store.type(sat_idx) != ObjectType::SATELLITE) {
+        return best;
+    }
+
+    const std::string& sat_id = store.id(sat_idx);
+    const Vec3 sat_pos0{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
+    const Vec3 sat_vel0{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
+    const AutoColaRtnFrame frame = compute_auto_cola_rtn_frame(sat_pos0, sat_vel0);
+    if (!frame.valid) {
+        return best;
+    }
+
+    double earliest_burn_epoch = epoch_s + ops_signal_latency_s();
+    const auto last_it = last_burn_epoch_by_sat.find(sat_id);
+    if (last_it != last_burn_epoch_by_sat.end()) {
+        earliest_burn_epoch = std::max(earliest_burn_epoch, last_it->second + SAT_COOLDOWN_S);
+    }
+
+    constexpr std::array<double, 4> kBurnScales{0.5, 1.0, 2.0, 4.0};
+    constexpr std::array<double, 4> kBurnFractions{0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0};
+    const std::array<Vec3, 10> kDirections{
+        frame.t_hat,
+        vector_scale(frame.t_hat, -1.0),
+        frame.r_hat,
+        vector_scale(frame.r_hat, -1.0),
+        vector_normalize(vector_add(frame.t_hat, frame.r_hat)),
+        vector_normalize(vector_add(frame.t_hat, vector_scale(frame.r_hat, -1.0))),
+        vector_normalize(vector_add(vector_scale(frame.t_hat, -1.0), frame.r_hat)),
+        vector_normalize(vector_add(vector_scale(frame.t_hat, -1.0), vector_scale(frame.r_hat, -1.0))),
+        frame.n_hat,
+        vector_scale(frame.n_hat, -1.0),
+    };
+
+    int triggers_considered = 0;
+    for (const auto& trigger : predictive_records) {
+        if (trigger.satellite_id != sat_id) continue;
+        if (trigger.severity != CdmSeverity::CRITICAL) continue;
+        if (trigger.fail_open) continue;
+        if (trigger.tca_epoch_s <= earliest_burn_epoch + cola_min_lead_s()) continue;
+
+        const std::size_t deb_idx = store.find(trigger.debris_id);
+        if (deb_idx >= store.size() || store.type(deb_idx) != ObjectType::DEBRIS) {
+            continue;
+        }
+
+        const double latest_burn_epoch = std::min(
+            earliest_burn_epoch + ops_auto_upload_horizon_s(),
+            trigger.tca_epoch_s - cola_min_lead_s()
+        );
+        if (latest_burn_epoch + EPS_NUM < earliest_burn_epoch) {
+            continue;
+        }
+
+        ++triggers_considered;
+        const Vec3 deb_pos0{store.rx(deb_idx), store.ry(deb_idx), store.rz(deb_idx)};
+        const Vec3 deb_vel0{store.vx(deb_idx), store.vy(deb_idx), store.vz(deb_idx)};
+
+        for (double fraction : kBurnFractions) {
+            const double burn_epoch = earliest_burn_epoch + (latest_burn_epoch - earliest_burn_epoch) * fraction;
+            double upload_epoch = 0.0;
+            std::string upload_station;
+            if (!compute_upload_plan_for_burn(store, sat_idx, epoch_s, burn_epoch, upload_epoch, upload_station)) {
+                continue;
+            }
+            if (has_pending_burn_in_cooldown_window(burn_queue, sat_id, burn_epoch)) {
+                continue;
+            }
+
+            const double horizon_s = std::min(
+                cdm_params().horizon_s,
+                std::max(cdm_params().substep_s, trigger.tca_epoch_s - epoch_s + 1800.0)
+            );
+
+            for (double scale : kBurnScales) {
+                const double dv_norm = std::min(SAT_MAX_DELTAV_KM_S, cola_auto_dv_km_s() * scale);
+                if (dv_norm <= EPS_NUM) continue;
+
+                for (const Vec3& dir : kDirections) {
+                    if (vector_norm2(dir) < EPS_NUM) continue;
+                    const Vec3 dv = vector_scale(dir, dv_norm);
+                    const PairMinSeparationScan scan = scan_pair_minimum_separation_with_impulse(
+                        sat_pos0,
+                        sat_vel0,
+                        deb_pos0,
+                        deb_vel0,
+                        epoch_s,
+                        burn_epoch,
+                        dv,
+                        horizon_s,
+                        cdm_params().substep_s,
+                        cdm_params().rk4_max_step_s
+                    );
+                    if (scan.fail_open) continue;
+
+                    AutoColaPlan candidate;
+                    candidate.valid = true;
+                    candidate.trigger = &trigger;
+                    candidate.burn_epoch_s = burn_epoch;
+                    candidate.upload_epoch_s = upload_epoch;
+                    candidate.upload_station_id = upload_station;
+                    candidate.dv = dv;
+                    candidate.dv_norm_km_s = dv_norm;
+                    candidate.predicted_miss_distance_km = std::sqrt(std::max(0.0, scan.min_d2));
+                    candidate.slot_error_score = predict_slot_error_after_impulse(
+                        store,
+                        sat_idx,
+                        slot_reference_by_sat,
+                        epoch_s,
+                        burn_epoch,
+                        dv
+                    );
+                    candidate.normal_component_km_s = std::abs(vector_dot(dv, frame.n_hat));
+                    candidate.tca_lead_s = trigger.tca_epoch_s - burn_epoch;
+                    candidate.safety_class = auto_cola_safety_class(
+                        candidate.predicted_miss_distance_km,
+                        trigger.miss_distance_km
+                    );
+
+                    if (auto_cola_plan_better(candidate, best)) {
+                        best = std::move(candidate);
+                    }
+                }
+            }
+        }
+
+        if (triggers_considered >= cola_trigger_limit()) {
+            break;
+        }
+    }
+
+    return best;
 }
 
 const ConjunctionRecord* best_predictive_record_for_satellite(
@@ -314,6 +694,7 @@ std::uint64_t plan_collision_avoidance_burns(
     std::uint64_t tick_id,
     std::vector<ScheduledBurn>& burn_queue,
     std::unordered_map<std::string, double>& last_burn_epoch_by_sat,
+    std::unordered_map<std::string, SlotReference>& slot_reference_by_sat,
     std::unordered_map<std::string, bool>& graveyard_completed_by_sat,
     std::unordered_map<std::string, bool>& graveyard_requested_by_sat
 )
@@ -345,42 +726,22 @@ std::uint64_t plan_collision_avoidance_burns(
             continue;
         }
 
-        const Vec3 r{store.rx(sat_idx), store.ry(sat_idx), store.rz(sat_idx)};
-        const Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
-        const double r_norm = std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z);
-        const double v_norm = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-        if (v_norm < EPS_NUM || r_norm < EPS_NUM) {
+        const AutoColaPlan plan = build_auto_cola_plan(
+            store,
+            sat_idx,
+            predictive_records,
+            epoch_s,
+            burn_queue,
+            last_burn_epoch_by_sat,
+            slot_reference_by_sat
+        );
+        if (!plan.valid || plan.trigger == nullptr) {
             continue;
         }
-
-        // Compute RTN frame unit vectors:
-        //   T-hat = velocity direction (tangential / prograde)
-        //   N-hat = h / |h| where h = r × v  (orbit-normal)
-        //   R-hat = r / |r|  (radial, not directly used for prograde burn)
-        // For auto-COLA, apply 1 m/s impulse along T-hat (prograde).
-        const Vec3 t_hat{v.x / v_norm, v.y / v_norm, v.z / v_norm};
-
-        // Cross product h = r × v for orbit-normal validation
-        const double hx = r.y * v.z - r.z * v.y;
-        const double hy = r.z * v.x - r.x * v.z;
-        const double hz = r.x * v.y - r.y * v.x;
-        const double h_norm = std::sqrt(hx * hx + hy * hy + hz * hz);
-        if (h_norm < EPS_NUM) {
-            // Degenerate orbit (r and v are parallel) — skip
-            continue;
-        }
-
-        const double k_auto_dv_km_s = cola_auto_dv_km_s();
-        // Prograde (T-hat) burn in RTN frame
-        const Vec3 dv{
-            t_hat.x * k_auto_dv_km_s,
-            t_hat.y * k_auto_dv_km_s,
-            t_hat.z * k_auto_dv_km_s
-        };
 
         const double mass_before = store.mass_kg(sat_idx);
         const double fuel_before = store.fuel_kg(sat_idx);
-        const double fuel_need = cascade::propellant_used_kg(mass_before, k_auto_dv_km_s);
+        const double fuel_need = cascade::propellant_used_kg(mass_before, plan.dv_norm_km_s);
         const double fuel_after = fuel_before - fuel_need;
         if (fuel_after <= SAT_FUEL_EOL_KG + EPS_NUM) {
             store.set_sat_status(sat_idx, SatStatus::FUEL_LOW);
@@ -388,49 +749,24 @@ std::uint64_t plan_collision_avoidance_burns(
             continue;
         }
 
-        double earliest_burn_epoch = epoch_s + ops_signal_latency_s();
-        if (last_it != last_burn_epoch_by_sat.end()) {
-            earliest_burn_epoch = std::max(earliest_burn_epoch, last_it->second + SAT_COOLDOWN_S);
-        }
-
-        double burn_epoch = 0.0;
-        double upload_epoch = 0.0;
-        std::string upload_station;
-        if (!cascade::choose_burn_epoch_with_upload(
-                store,
-                burn_queue,
-                last_burn_epoch_by_sat,
-                sat_idx,
-                epoch_s,
-                earliest_burn_epoch,
-                earliest_burn_epoch + ops_auto_upload_horizon_s(),
-                burn_epoch,
-                upload_epoch,
-                upload_station)) {
-            continue;
-        }
-
         ScheduledBurn burn;
         burn.id = "AUTO-COLA-" + std::to_string(tick_id) + "-" + std::to_string(planned);
         burn.satellite_id = sat_id;
-        burn.upload_station_id = upload_station;
-        burn.upload_epoch_s = upload_epoch;
-        burn.burn_epoch_s = burn_epoch;
-        burn.delta_v_km_s = dv;
-        burn.delta_v_norm_km_s = k_auto_dv_km_s;
+        burn.upload_station_id = plan.upload_station_id;
+        burn.upload_epoch_s = plan.upload_epoch_s;
+        burn.burn_epoch_s = plan.burn_epoch_s;
+        burn.delta_v_km_s = plan.dv;
+        burn.delta_v_norm_km_s = plan.dv_norm_km_s;
         burn.auto_generated = true;
         burn.recovery_burn = false;
         burn.graveyard_burn = false;
-        burn.blackout_overlap = cascade::burn_overlaps_blackout(store, sat_idx, burn_epoch);
-
-        if (const ConjunctionRecord* trigger = best_predictive_record_for_satellite(predictive_records, sat_id)) {
-            burn.scheduled_from_predictive_cdm = true;
-            burn.trigger_debris_id = trigger->debris_id;
-            burn.trigger_tca_epoch_s = trigger->tca_epoch_s;
-            burn.trigger_miss_distance_km = trigger->miss_distance_km;
-            burn.trigger_approach_speed_km_s = trigger->approach_speed_km_s;
-            burn.trigger_fail_open = trigger->fail_open;
-        }
+        burn.blackout_overlap = cascade::burn_overlaps_blackout(store, sat_idx, plan.burn_epoch_s);
+        burn.scheduled_from_predictive_cdm = true;
+        burn.trigger_debris_id = plan.trigger->debris_id;
+        burn.trigger_tca_epoch_s = plan.trigger->tca_epoch_s;
+        burn.trigger_miss_distance_km = plan.trigger->miss_distance_km;
+        burn.trigger_approach_speed_km_s = plan.trigger->approach_speed_km_s;
+        burn.trigger_fail_open = plan.trigger->fail_open;
 
         burn_queue.push_back(std::move(burn));
         ++planned;
@@ -2329,6 +2665,7 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
             tick_id,
             burn_queue_,
             last_burn_epoch_by_sat_,
+            slot_reference_by_sat_,
             graveyard_completed_by_sat_,
             graveyard_requested_by_sat_
         );

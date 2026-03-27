@@ -264,6 +264,27 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     : 'Link Pending';
   const missionDetail = `Tick ${status?.tick_count.toLocaleString() ?? '--'} / ${satellites.length.toLocaleString()} sats / ${debris.length.toLocaleString()} debris`;
 
+  const propagationLastTick = status?.internal_metrics?.propagation_last_tick;
+  const slotOutsideBox = propagationLastTick?.stationkeeping_outside_box ?? 0;
+  const uploadMissed = propagationLastTick?.upload_window_missed ?? 0;
+  const slotErrorMaxKm = propagationLastTick?.stationkeeping_slot_radius_error_max_km ?? 0;
+  const recoveryPlanned = propagationLastTick?.recovery_planned ?? 0;
+  const opsHealthValue = slotOutsideBox > 0
+    ? `${slotOutsideBox} outside box`
+    : uploadMissed > 0
+      ? `${uploadMissed} upload slips`
+      : recoveryPlanned > 0
+        ? `${recoveryPlanned} recoveries`
+        : 'Within slot box';
+  const opsHealthDetail = slotOutsideBox > 0
+    ? `Worst slot drift ${slotErrorMaxKm.toFixed(2)} km on the last tick.`
+    : uploadMissed > 0
+      ? `${uploadMissed} maneuver uploads missed their transmit window on the last tick.`
+      : recoveryPlanned > 0
+        ? `${recoveryPlanned} recovery maneuvers were planned to regain nominal slot keeping.`
+        : 'No slot-box violations or upload misses were reported on the last tick.';
+  const opsHealthWarn = slotOutsideBox > 0 || uploadMissed > 0;
+
   const heroModeValue = selectedSatId ?? 'Fleet';
   const heroPathValue = trajectory?.satellite_id ?? 'Standby';
 
@@ -315,6 +336,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     heroModeValue,
     heroPathValue,
     operationsLiveSummary,
+    opsHealthValue,
+    opsHealthDetail,
+    opsHealthWarn,
   }), [
     activeSatellite,
     avgFuelKg,
@@ -335,6 +359,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     nextPendingBurn,
     nextThreat,
     nowEpochS,
+    opsHealthDetail,
+    opsHealthValue,
+    opsHealthWarn,
     operationsLiveSummary,
     pendingBurns,
     burnSummary,

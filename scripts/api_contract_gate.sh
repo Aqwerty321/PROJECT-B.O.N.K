@@ -5,6 +5,25 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${1:-$ROOT_DIR/build}"
 PORT="${PROJECTBONK_API_CONTRACT_PORT:-8000}"
 
+port_has_listener() {
+  local port="$1"
+  if exec 3<>"/dev/tcp/127.0.0.1/${port}" 2>/dev/null; then
+    exec 3>&-
+    exec 3<&-
+    return 0
+  fi
+  return 1
+}
+
+if [[ -z "${PROJECTBONK_API_CONTRACT_PORT:-}" ]] && port_has_listener "$PORT"; then
+  for candidate in 18000 18001 18002 18003 18004 18005 18006 18007 18008 18009; do
+    if ! port_has_listener "$candidate"; then
+      PORT="$candidate"
+      break
+    fi
+  done
+fi
+
 cmake --build "$BUILD_DIR" --target ProjectBONK
 cmake --build "$BUILD_DIR" --target api_contract_gate
 
@@ -21,6 +40,7 @@ PROJECTBONK_CORS_ALLOW_ORIGIN="${PROJECTBONK_CORS_ALLOW_ORIGIN:-http://localhost
 PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH="${PROJECTBONK_MAX_COMMAND_QUEUE_DEPTH:-1}" \
 PROJECTBONK_SCHEDULE_SUCCESS_STATUS="${PROJECTBONK_SCHEDULE_SUCCESS_STATUS:-202}" \
 PROJECTBONK_MAX_STEP_SECONDS="${PROJECTBONK_MAX_STEP_SECONDS:-86400}" \
+PROJECTBONK_PORT="$PORT" \
 "$BUILD_DIR/ProjectBONK" >/tmp/projectbonk_api_contract_server.log 2>&1 &
 SERVER_PID=$!
 

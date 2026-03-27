@@ -55,6 +55,13 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
       detail={`${droppedCount} dropped commands included in context`}
       tone={droppedCount > 0 ? 'critical' : 'primary'}
     />,
+    <SummaryCard
+      key="ops"
+      label="Slot Integrity"
+      value={model.opsHealthValue}
+      detail={model.opsHealthDetail}
+      tone={model.opsHealthWarn ? 'critical' : 'accent'}
+    />,
   ];
 
   return (
@@ -73,7 +80,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
         }
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: '10px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, minmax(0, 1fr))', gap: '10px' }}>
         {cards}
       </div>
 

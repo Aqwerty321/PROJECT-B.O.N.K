@@ -4,6 +4,8 @@
 
 #include <iostream>
 #include <filesystem>
+#include <cstdlib>
+#include <limits>
 
 #if PROJECTBONK_ENABLE_JULIA_RUNTIME
 #include <jluna.hpp>
@@ -14,6 +16,29 @@
 #include "http/api_server.hpp"
 #include "engine_runtime.hpp"
 
+namespace {
+
+int resolve_listen_port() noexcept
+{
+    constexpr int kDefaultPort = 8000;
+    const char* raw = std::getenv("PROJECTBONK_PORT");
+    if (raw == nullptr || *raw == '\0') {
+        return kDefaultPort;
+    }
+
+    char* end = nullptr;
+    const long parsed = std::strtol(raw, &end, 10);
+    if (end == raw || (end != nullptr && *end != '\0')) {
+        return kDefaultPort;
+    }
+    if (parsed <= 0 || parsed > 65535) {
+        return kDefaultPort;
+    }
+    return static_cast<int>(parsed);
+}
+
+} // namespace
+
 int main()
 {
 #if PROJECTBONK_ENABLE_JULIA_RUNTIME
@@ -22,7 +47,8 @@ int main()
 
     std::cout << "CASCADE (Project BONK) SYSTEM ONLINE\n";
     std::cout << "Boost version : " << BOOST_LIB_VERSION << "\n";
-    std::cout << "Starting HTTP server on 0.0.0.0:8000 ...\n";
+    const int listen_port = resolve_listen_port();
+    std::cout << "Starting HTTP server on 0.0.0.0:" << listen_port << " ...\n";
 
     cascade::EngineRuntime runtime;
     httplib::Server svr;
@@ -39,8 +65,8 @@ int main()
         std::cout << "Serving static frontend from ./" << static_dir << "\n";
     }
 
-    if (!svr.listen("0.0.0.0", 8000)) {
-        std::cerr << "FATAL: failed to bind to 0.0.0.0:8000\n";
+    if (!svr.listen("0.0.0.0", listen_port)) {
+        std::cerr << "FATAL: failed to bind to 0.0.0.0:" << listen_port << "\n";
         return 1;
     }
 

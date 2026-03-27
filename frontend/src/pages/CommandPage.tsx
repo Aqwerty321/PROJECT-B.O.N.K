@@ -124,6 +124,7 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
               <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px', paddingTop: '6px', borderTop: `1px solid ${theme.colors.border}` }}>
                 <HeroMetric label="Threat Watch" value={model.threatValue} detail={model.threatDetail} tone={model.threatCounts.red > 0 ? 'critical' : model.threatCounts.yellow > 0 ? 'warning' : 'accent'} />
                 <HeroMetric label="Burn Window" value={model.burnValue} detail={model.burnDetail} tone={model.watchedPendingBurns.length > 0 ? 'warning' : 'primary'} />
+                <HeroMetric label="Slot Integrity" value={model.opsHealthValue} detail={model.opsHealthDetail} tone={model.opsHealthWarn ? 'critical' : 'accent'} />
                 <HeroMetric label="Fuel Posture" value={model.resourceValue} detail={model.resourceDetail} tone={model.lowestFuelSatellite && model.lowestFuelSatellite.fuel_kg < 10 ? 'critical' : 'warning'} />
               </div>
 

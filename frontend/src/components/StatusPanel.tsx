@@ -203,6 +203,35 @@ export const StatusPanel = React.memo(function StatusPanel({ status, apiError, s
             warn={metrics.failed_objects_last_tick > 0}
           />
 
+          {metrics.propagation_last_tick && (
+            <>
+              <div style={{ height: '6px' }} />
+              <div style={sectionLabelStyle}>
+                Ops Health
+              </div>
+              <MetricRow
+                label="Outside Slot Box"
+                value={metrics.propagation_last_tick.stationkeeping_outside_box}
+                warn={metrics.propagation_last_tick.stationkeeping_outside_box > 0}
+              />
+              <MetricRow
+                label="Upload Missed"
+                value={metrics.propagation_last_tick.upload_window_missed}
+                warn={metrics.propagation_last_tick.upload_window_missed > 0}
+              />
+              <MetricRow
+                label="Worst Slot Drift"
+                value={`${metrics.propagation_last_tick.stationkeeping_slot_radius_error_max_km.toFixed(2)} km`}
+                warn={metrics.propagation_last_tick.stationkeeping_slot_radius_error_max_km > 10}
+              />
+              <MetricRow
+                label="Recovery Planned"
+                value={metrics.propagation_last_tick.recovery_planned}
+                highlight={metrics.propagation_last_tick.recovery_planned > 0}
+              />
+            </>
+          )}
+
           {metrics.command_latency_us && (
             <>
               <div style={{ height: '6px' }} />

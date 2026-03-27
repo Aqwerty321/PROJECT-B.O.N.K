@@ -230,6 +230,86 @@ python3 scripts/inject_synthetic_encounter.py --target SAT-25544 --miss-km 0.5 -
 python3 scripts/inject_synthetic_encounter.py --miss-km 2.0 --count 3 --encounter-hours 6.0
 ```
 
+### Reproducible local `ready` sequence
+
+This is the currently verified local-only sequence that reaches two confirmed
+`collision_avoided` outcomes on the fresh Docker backend.
+
+Important note:
+
+- Burns execute at the end of each `simulate/step`, so the final burn needs a
+  tight final step to avoid slipping late and losing the second avoid credit.
+
+```bash
+# 1) Fresh container from current source
+docker compose down
+docker compose up -d
+
+# 2) Seed real catalog-backed scene
+python3 scripts/replay_data_catalog.py \
+  --data 3le_data.txt \
+  --api-base http://localhost:8000 \
+  --satellite-mode catalog \
+  --operator-sats 10
+
+# 3) Inject two calibrated future criticals
+python3 scripts/inject_synthetic_encounter.py \
+  --api-base http://localhost:8000 \
+  --mode single \
+  --target SAT-67060 \
+  --miss-km 0.008 \
+  --count 1 \
+  --encounter-hours 0.18 \
+  --future-model hcw \
+  --debris-start-id 97001 \
+  --seed 7
+
+python3 scripts/inject_synthetic_encounter.py \
+  --api-base http://localhost:8000 \
+  --mode single \
+  --target SAT-67061 \
+  --miss-km 0.008 \
+  --count 1 \
+  --encounter-hours 0.18 \
+  --future-model hcw \
+  --debris-start-id 97101 \
+  --seed 7
+
+# 4) Advance with timing-sensitive steps
+curl -s -X POST http://localhost:8000/api/simulate/step \
+  -H 'Content-Type: application/json' \
+  -d '{"step_seconds":60}'
+
+curl -s -X POST http://localhost:8000/api/simulate/step \
+  -H 'Content-Type: application/json' \
+  -d '{"step_seconds":20}'
+
+curl -s -X POST http://localhost:8000/api/simulate/step \
+  -H 'Content-Type: application/json' \
+  -d '{"step_seconds":60}'
+
+curl -s -X POST http://localhost:8000/api/simulate/step \
+  -H 'Content-Type: application/json' \
+  -d '{"step_seconds":60}'
+
+curl -s -X POST http://localhost:8000/api/simulate/step \
+  -H 'Content-Type: application/json' \
+  -d '{"step_seconds":27}'
+
+# 5) Verify ready state
+python3 scripts/check_demo_readiness.py --api-base http://localhost:8000
+curl -s http://localhost:8000/api/debug/burns
+```
+
+Expected local result from the verified run:
+
+- `successful_avoids = 2`
+- `fleet_collisions_avoided = 2`
+- `verdict = ready`
+- confirmed avoids:
+  - `SAT-67060` / `DEB-SYNTH-97001` -> mitigation miss `0.134399 km`
+  - `SAT-67061` / `DEB-SYNTH-97101` -> mitigation miss `0.100521 km`
+
 ### Main verification commands already used
 
 ```bash
@@ -327,6 +407,11 @@ Latest validation update:
 - manifest evaluation/ranking now incorporates dropped-burn penalties and avoidance-effectiveness metrics
 - a fresh replay of `strict_natural_watch.example.json` still produced zero predictive warnings and zero burns, which confirms the remaining bottleneck is scenario quality rather than backend plumbing
 - a follow-up miner refinement pass now reliably finds denser, closer natural opportunity banks (for example ~`10-16 km` heuristic misses instead of the earlier ~`17-100+ km` bands), but a reduced-cap backend validation run still produced zero predictive warnings, so the remaining gap is now mostly backend-threshold alignment rather than scenario-window selection alone
+- calibrated HCW synthetic injection now provides a reproducible local demo-readiness path on the fresh Docker backend:
+  - two `~8 m` predictive critical injections on `SAT-67060` and `SAT-67061`
+  - two auto-COLA burns scheduled and executed before TCA
+  - two confirmed `collision_avoided = true` outcomes when the final burn is stepped with tight timing
+  - readiness helper reaches `verdict = ready`
 
 Status update:
 

@@ -45,6 +45,25 @@ export interface StatusResponse {
     command_queue_rejected_total: number;
     command_queue_timeout_total: number;
     command_latency_us: Record<string, LatencyStats>;
+    propagation_last_tick?: {
+      collisions_detected: number;
+      maneuvers_executed: number;
+      auto_planned_maneuvers: number;
+      recovery_planned: number;
+      recovery_deferred: number;
+      recovery_completed: number;
+      graveyard_planned: number;
+      graveyard_deferred: number;
+      graveyard_completed: number;
+      upload_window_missed: number;
+      stationkeeping_outside_box: number;
+      stationkeeping_uptime_penalty_mean: number;
+      stationkeeping_slot_radius_error_mean_km: number;
+      stationkeeping_slot_radius_error_max_km: number;
+      recovery_pending_marked: number;
+      recovery_slot_error_mean: number;
+      recovery_slot_error_max: number;
+    };
   };
 }
 

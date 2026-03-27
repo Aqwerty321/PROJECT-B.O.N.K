@@ -114,6 +114,9 @@ export interface DashboardViewModel {
   heroModeValue: string;
   heroPathValue: string;
   operationsLiveSummary: string;
+  opsHealthValue: string;
+  opsHealthDetail: string;
+  opsHealthWarn: boolean;
 }
 
 export interface DashboardContextValue {
