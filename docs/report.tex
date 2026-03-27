@@ -1,0 +1,715 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+%% ── Packages ──────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tabularx}
+\usepackage{float}
+
+%% ── Colors ────────────────────────────────────────────────────────────────
+\definecolor{cascadeblue}{HTML}{0088FF}
+\definecolor{cascadedark}{HTML}{001824}
+\definecolor{codebg}{HTML}{F5F5F5}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=cascadeblue,
+  urlcolor=cascadeblue,
+  citecolor=cascadeblue
+}
+
+%% ── Listings ──────────────────────────────────────────────────────────────
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\scriptsize,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{gray!30},
+  columns=fullflexible,
+  keepspaces=true,
+  xleftmargin=4pt,
+  xrightmargin=4pt,
+  aboveskip=6pt,
+  belowskip=6pt
+}
+
+%% ── Section formatting ───────────────────────────────────────────────────
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{10pt}{4pt}
+\titlespacing*{\subsection}{0pt}{8pt}{3pt}
+\setlength{\columnsep}{0.25in}
+
+%% ── Header/Footer ────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textsc{CASCADE}}
+\fancyhead[R]{\small National Space Hackathon 2026}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+%% ── Title ─────────────────────────────────────────────────────────────────
+\title{
+  \vspace{-1.5em}
+  {\LARGE\bfseries CASCADE: Autonomous Orbital Collision\\[2pt]
+  Avoidance for Congested LEO}\\[6pt]
+  {\normalsize National Space Hackathon 2026 --- IIT Delhi}
+}
+\author{
+  Team B.O.N.K\\[2pt]
+  \small \url{https://github.com/Aqwerty321/PROJECT-B.O.N.K}
+}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\begin{abstract}
+\noindent
+Low Earth Orbit faces an escalating Kessler-syndrome risk as mega-constellation
+deployments collide with a legacy debris population exceeding 27{,}000 tracked
+objects.  We present \textbf{CASCADE}, a deterministic, single-container
+Autonomous Constellation Manager that ingests high-frequency ECI telemetry,
+screens for conjunctions through a multi-tier filtering cascade, and
+autonomously schedules collision-avoidance and recovery burns under fuel,
+cooldown, and line-of-sight constraints.  The engine processes 50~satellites
+against 10{,}000~debris fragments in \textbf{13.3\,ms} mean tick latency with
+\textbf{zero false negatives} across all test families.  A React/Canvas/WebGL
+frontend delivers a mission-console experience at 60\,FPS.  CASCADE ships as a
+single Docker image (\texttt{ubuntu:22.04}, port~8000) with 8/8~CTest safety
+gates enforced in CI, meeting every deployment and API contract specified in
+the problem statement.
+\end{abstract}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Introduction and Design Goals}
+
+The National Space Hackathon 2026 challenges teams to build an Autonomous
+Constellation Manager (ACM) that can (i)~ingest high-frequency ECI state
+vectors, (ii)~predict conjunctions up to 24\,hours ahead without $O(N^{2})$
+bottlenecks, (iii)~autonomously compute and schedule evasion and recovery
+maneuvers, and (iv)~visualize the operational state in a real-time mission
+dashboard.
+
+CASCADE addresses these objectives under a strict \emph{safety-first} design
+philosophy:
+
+\begin{itemize}[nosep,leftmargin=*]
+  \item \textbf{Zero false negatives}: every ambiguous pair is escalated to a
+    more expensive solver, never silently dropped.
+  \item \textbf{Deterministic runtime}: identical inputs always produce the same
+    maneuver sequence, enabling reproducible CI gates.
+  \item \textbf{Conservative classification}: the engine prefers false positives
+    (unnecessary screening work) over false negatives (missed collisions).
+  \item \textbf{Single-container deployment}: one \texttt{docker build} yields a
+    self-contained binary and frontend, exposed on port~8000.
+\end{itemize}
+
+The remainder of this report details the system architecture
+(\S\ref{sec:arch}), numerical methods (\S\ref{sec:methods}), frontend
+console (\S\ref{sec:frontend}), validation evidence (\S\ref{sec:validation}),
+and deployment pipeline (\S\ref{sec:deploy}).
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{System Architecture}\label{sec:arch}
+
+Figure~\ref{fig:pipeline} illustrates the end-to-end data path.  The system
+is a single-process C++20 engine linked against two FetchContent dependencies
+--- \texttt{cpp-httplib}~v0.15.3 (HTTP) and \texttt{simdjson}~v3.9.4 (JSON
+parsing) --- with Boost headers for version verification.
+
+\begin{figure}[h]
+\centering
+\fbox{\parbox{0.95\linewidth}{\small\ttfamily
+\begin{tabbing}
+POST /api/telemetry \\
+\quad $\downarrow$ \\
+{[State Store]} -- lock-free SoA upsert \\
+\quad $\downarrow$ \\
+{[Propagation]} -- adaptive RK4+J2 \\
+\quad $\downarrow$ \\
+{[Broad Phase]} -- $O(N \log N)$ SMA+incl bins \\
+\quad $\downarrow$ \\
+{[Narrow Phase]} -- MOID + TCA + RK4 refine \\
+\quad $\downarrow$ \\
+{[CDM Engine]} -- 24\,h conjunction horizon \\
+\quad $\downarrow$ \\
+{[COLA Planner]} -- RTN evasion + Tsiolkovsky \\
+\quad $\downarrow$ \\
+{[Recovery]} -- CW/ZEM slot-targeting burn \\
+\quad $\downarrow$ \\
+REST API (port 8000)
+\end{tabbing}
+}}
+\caption{End-to-end simulation tick pipeline.}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{State Representation}
+
+All objects are stored in a Structure-of-Arrays (SoA) layout indexed by
+string identifier.  Each record holds:
+
+\begin{itemize}[nosep,leftmargin=*]
+  \item 6-DOF ECI state vector $(\vec{r}, \vec{v})$ in km and km/s
+  \item Precomputed Keplerian elements $(a, e, i, \Omega, \omega, M)$
+  \item Radial bounds $(r_{\min}, r_{\max})$ for shell overlap
+  \item Fuel mass, cooldown timer, slot reference, burn history
+\end{itemize}
+
+\subsection{API Surface}
+
+The engine exposes five primary endpoints on port~8000, bound to
+\texttt{0.0.0.0}:
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Endpoint} & \textbf{Purpose} \\
+\midrule
+\texttt{POST /api/telemetry}       & Bulk ECI state ingestion \\
+\texttt{POST /api/maneuver/schedule} & Evasion/recovery burn submission \\
+\texttt{POST /api/simulate/step}    & Advance simulation by $\Delta t$\,s \\
+\texttt{GET /api/visualization/snapshot} & Geodetic snapshot for frontend \\
+\texttt{GET /api/status}            & Engine health \& diagnostics \\
+\bottomrule
+\end{tabularx}
+\caption{Primary REST API endpoints.}
+\label{tab:api}
+\end{table}
+
+\noindent
+Additional debug endpoints (\texttt{/api/debug/\{burns, conjunctions,
+propagation, conflicts\}}) expose internal ring buffers for observability.
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Numerical Methods}\label{sec:methods}
+
+\subsection{Orbital Propagation}
+
+The propagator implements an adaptive three-mode scheme:
+
+\paragraph{Mode 1 --- J2 Secular Fast Path.}
+For low-eccentricity ($e \leq 0.02$), high-perigee ($\geq 500$\,km) objects
+with $\Delta t \leq 30$\,s, we apply closed-form J2 secular rates to mean
+elements:
+%
+\begin{align}
+  \dot{\Omega} &= -\frac{3}{2} n J_2 \!\left(\frac{R_E}{p}\right)^{\!2} \cos i \\
+  \dot{\omega} &= \frac{3}{4} n J_2 \!\left(\frac{R_E}{p}\right)^{\!2} (5\cos^{2}\!i - 1)
+\end{align}
+%
+where $n = \sqrt{\mu / a^3}$, $p = a(1-e^2)$, and $R_E = 6378.137$\,km.
+An extended fast lane admits $e \leq 0.003$, perigee $\geq 650$\,km,
+$\Delta t \leq 45$\,s.  Long horizons are sub-stepped at 300\,s intervals.
+
+\paragraph{Mode 2 --- Probe-Then-Escalate.}
+Objects outside the fast lane first receive a J2-secular prediction, then a
+coarse RK4 probe (max step 120\,s) validates the result.  If drift exceeds
+0.5\,km in position or 0.5\,m/s in velocity, the engine escalates to full RK4.
+
+\paragraph{Mode 3 --- Full RK4+J2.}
+Forced for $\Delta t > 21{,}600$\,s (6\,h), perigee $< 350$\,km, or
+$e \geq 0.98$.  Classical fourth-order Runge--Kutta with maximum substep
+60\,s, integrating the acceleration:
+%
+\begin{equation}
+  \vec{a}_{J2} = \frac{3}{2}\frac{J_2\,\mu\,R_E^2}{r^5}
+  \begin{bmatrix}
+    x(5z^2/r^2 - 1) \\
+    y(5z^2/r^2 - 1) \\
+    z(5z^2/r^2 - 3)
+  \end{bmatrix}
+\label{eq:j2}
+\end{equation}
+%
+Finite-value guards after every substep prevent NaN propagation.
+
+\paragraph{Validation.}  Maximum position error at 86{,}400\,s
+(a full day) is \textbf{$<$\,0.061\,km}, verified by regression gate
+\texttt{phase2\_regression\_gate}.
+
+\subsection{Broad-Phase Candidate Generation}
+
+The broad phase reduces the $O(N^2)$ all-pairs space through three
+sequential filters:
+
+\begin{enumerate}[nosep,leftmargin=*]
+  \item \textbf{SMA--Inclination Band Indexing.}
+    Objects are binned by semi-major axis ($\Delta a = 500$\,km) and
+    inclination ($\Delta i = 20^{\circ}$).  Flat sorted arrays with binary search
+    replace hash maps for cache locality.  Neighbor search extends
+    $\pm 2$~bins in each dimension.
+
+  \item \textbf{Shell Overlap Test.}
+    Perigee $r_{\min} = a(1-e)$ and apogee $r_{\max} = a(1+e)$ are
+    compared with a 50\,km margin.  Objects with invalid elements fall back
+    to instantaneous radius $\pm 200$\,km --- an intentional
+    over-approximation that preserves the zero-false-negative guarantee.
+
+  \item \textbf{D-Criterion Gate.}
+    A simplified Drummond metric:
+    %
+    \begin{equation}
+      D = \sqrt{(\Delta a / \bar{a})^2 + \Delta e^2
+          + (2\sin(\Delta i / 2))^2}
+    \end{equation}
+    %
+    with reject threshold $D > 2.0$.  Currently deployed in
+    \emph{shadow mode}: the gate logs hypothetical rejections but does
+    not discard pairs, enabling safe validation before activation.
+\end{enumerate}
+
+\noindent
+\textbf{Fail-Open Path.}  Objects with invalid elements,
+$e > 0.2$, or radial span exceeding bin coverage bypass all cheap filters
+and are checked against every debris object.  Detailed fail-open counters
+are exposed in \texttt{/api/status?details=1}.
+
+\subsection{Narrow-Phase Collision Screening}
+
+Candidate pairs from the broad phase enter a multi-gate narrow pipeline:
+
+\begin{enumerate}[nosep,leftmargin=*]
+  \item \textbf{Plane/Phase Angular Gate.}
+    Angular momentum vectors computed from $(i, \Omega)$.
+    Pairs with orbital plane angle $> 75^{\circ}$ or mean anomaly phase
+    separation $> 150^{\circ}$ are rejected.  Objects with $e > 0.2$ bypass
+    this gate (fail-open).
+
+  \item \textbf{MOID Proxy.}
+    A sampled orbit--orbit minimum distance using a $72 \times 72$ true-anomaly
+    grid (5{,}184 evaluations per pair).  Reject threshold: 2.0\,km.
+    Deployed in shadow mode for safe rollout validation.
+
+  \item \textbf{Linear TCA Approximation.}
+    Four simultaneous linear-segment minimum-distance estimates
+    (start velocities, end velocities backward, averaged, and secant).
+    The minimum $d^2$ across all four approximations determines whether
+    the pair passes.
+
+  \item \textbf{RK4 Micro-Refinement.}
+    Pairs within 0.10\,km above the screening threshold receive a
+    fine-grained RK4 propagation ($\Delta t_{\max} = 5$\,s).
+
+  \item \textbf{Full-Window RK4 Refinement.}
+    Pairs within 0.20\,km receive a budget-limited, OpenMP-parallelized
+    full-window refinement (16~samples, 1\,s substep).
+    Thread-safe atomic budget decrement prevents compute runaway:
+    base budget 64, dynamically scaled by pair count and step size,
+    clamped to $[8, 192]$.
+\end{enumerate}
+
+\noindent
+Uncertainty promotion adds 0.10\,km to the screening band for pairs with
+relative speed exceeding 8\,km/s.  The effective screening distance is:
+%
+\begin{equation}
+  d_{\text{screen}} = \underbrace{0.100}_{\text{collision}} +
+                      \underbrace{0.020}_{\text{TCA guard}} = 0.120 \;\text{km}
+\end{equation}
+
+\subsection{Maneuver Planning}
+
+\subsubsection{Autonomous COLA}
+
+When a predictive CDM record reaches CRITICAL severity ($d < 100$\,m),
+the engine triggers an autonomous evasion burn search over a discrete grid:
+
+\begin{itemize}[nosep,leftmargin=*]
+  \item 4~burn-time fractions of the remaining lead time
+  \item 4~$\Delta V$ scales: $\{0.5, 1, 2, 4\} \times 0.001$\,km/s
+  \item 10~RTN directions: $\pm T$, $\pm R$, 4~diagonal $T/R$, $\pm N$
+\end{itemize}
+
+The RTN frame is constructed as:
+\begin{equation}
+  \hat{r} = \frac{\vec{r}}{|\vec{r}|}, \quad
+  \hat{n} = \frac{\vec{r} \times \vec{v}}{|\vec{r} \times \vec{v}|}, \quad
+  \hat{t} = \hat{n} \times \hat{r}
+\end{equation}
+
+Candidates are ranked by a multi-criteria comparator: safety class
+(miss distance relative to target 0.15\,km) $\to$ $|\Delta V|$ $\to$
+normal component magnitude $\to$ slot error $\to$ predicted miss distance.
+The top 3~critical records per satellite are evaluated.
+
+\subsubsection{Fuel Accounting}
+
+Propellant expenditure follows the Tsiolkovsky relation:
+%
+\begin{equation}
+  \Delta m = m_{\text{current}} \!\left(1 - e^{-|\Delta\vec{v}| / v_e}\right),
+  \quad v_e = I_{\text{sp}} \cdot g_0
+\label{eq:tsiolkovsky}
+\end{equation}
+%
+with $I_{\text{sp}} = 300$\,s, $g_0 = 9.80665$\,m/s$^2$,
+$m_{\text{dry}} = 500$\,kg, $m_{\text{fuel,init}} = 50$\,kg.
+A 5\%~fuel guard (2.5\,kg) triggers automatic graveyard orbit transfer.
+
+\subsubsection{Constraint Enforcement}
+
+\begin{itemize}[nosep,leftmargin=*]
+  \item \textbf{Cooldown}: 600\,s mandatory rest between burns on the same
+    satellite.
+  \item \textbf{Thrust cap}: $|\Delta V| \leq 15$\,m/s per burn.
+  \item \textbf{LOS validation}: Upload windows scanned in 20\,s steps
+    across a 1{,}800\,s horizon against 6~ground stations. 10\,s signal
+    latency enforced.
+  \item \textbf{Blackout handling}: Burns must be computed and queued
+    before the satellite leaves the last ground-station footprint.
+\end{itemize}
+
+\subsection{Recovery Planning (CW/ZEM)}
+
+Every evasion maneuver triggers a paired recovery burn computed via the
+Clohessy--Wiltshire (CW) state-transition formulation.  The default solver
+(\texttt{CW\_ZEM\_EQUIVALENT}) inverts the in-plane $2\times2$ $\Phi_{rv}$
+submatrix:
+%
+\begin{equation}
+  \Delta\vec{v}_{\text{rec}} = \alpha\,\Phi_{rv}^{-1}\,\delta\vec{r}
+    + \beta\,\delta\vec{v}
+\end{equation}
+%
+with $\alpha = 0.70$ (position correction weight),
+$\beta = 0.30$ (velocity damping weight),
+CW horizon $= 0.25 \times T_{\text{orbit}}$ clamped to $[300, 5400]$\,s.
+The correction is capped at 15\%~of remaining $\Delta V$ budget and 40\%~of
+heuristic norm to prevent over-correction.  A heuristic fallback
+(proportional RTN gains) activates when the CW matrix is near-singular
+($nt \approx k \cdot 2\pi$).
+
+The station-keeping box is defined as a 10\,km spherical radius around the
+nominal orbital slot.  Slot references are bootstrapped from first telemetry
+and J2-secularly propagated.  The regression gate
+\texttt{recovery\_slot\_gate} enforces $\Delta_{\text{slot}} \leq 0.08$
+deterministically.
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Frontend Mission Console}\label{sec:frontend}
+
+The frontend is a React 18 / TypeScript single-page application built with
+Vite and rendered via Canvas~2D and Three.js~WebGL.  It polls the engine's
+REST API at 1--2\,Hz and presents six operational views:
+
+\begin{enumerate}[nosep,leftmargin=*]
+  \item \textbf{Command Center} (\texttt{\#/command}):
+    Fleet-wide posture summary with satellite counts by status,
+    active CDM warnings, recent burn history, and engine health.
+
+  \item \textbf{Ground Track} (\texttt{\#/track}):
+    Mercator-projection canvas rendering all satellite markers
+    with 90-minute historical trails, 90-minute forecast paths,
+    live solar terminator overlay, ground station markers, and a
+    persistent map legend with epoch timestamp.
+
+  \item \textbf{Threat Assessment} (\texttt{\#/threat}):
+    Polar ``bullseye'' plot of debris in the selected satellite's
+    proximity.  Radial distance encodes time-to-closest-approach;
+    angular position encodes approach vector.  Color-coded by
+    CDM severity (green/yellow/red).
+
+  \item \textbf{Burn Operations} (\texttt{\#/burn-ops}):
+    Maneuver timeline showing evasion and recovery burns with
+    blackout zone overlays and cooldown friction markers.
+    Fuel gauges per satellite.
+
+  \item \textbf{Fleet Status} (\texttt{\#/fleet-status}):
+    Aggregated constellation health with fuel heatmaps,
+    $\Delta V$-cost versus collisions-avoided plots, and
+    station-keeping metrics.
+
+  \item \textbf{Scorecard} (\texttt{\#/scorecard}):
+    Judge-facing evidence dashboard rolling up all six PS~\S7
+    criteria with weighted readiness percentage, live evidence
+    matrix, and submission gap tracking.
+\end{enumerate}
+
+\noindent
+Rendering uses requestAnimationFrame with Canvas~2D for the ground track and
+Three.js for the 3D polar view.  The snapshot endpoint delivers geodetic
+coordinates and a compressed debris tuple array (\texttt{[id, lat, lon, alt]})
+to minimize payload size and maintain 60\,FPS at 10{,}000+ debris markers.
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Validation and Evidence}\label{sec:validation}
+
+\subsection{Test Infrastructure}
+
+CASCADE maintains 8 CTest gate tests, each a standalone C++ binary in
+\texttt{tools/} driven by shell harnesses in \texttt{scripts/}.  All gates
+are enforced in GitHub Actions CI, and the Docker build itself fails if any
+test fails.
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Gate} & \textbf{Invariant} \\
+\midrule
+\texttt{api\_contract\_gate}       & All 5 endpoints conform to PS schema \\
+\texttt{broad\_phase\_validation}  & Shell filter $\supseteq$ brute-force baseline \\
+\texttt{narrow\_phase\_false\_negative} & Zero missed collisions vs.\ RK4 reference \\
+\texttt{narrow\_phase\_calibration}     & Screening thresholds within tolerance \\
+\texttt{phase2\_regression}        & Propagator drift $<$ 0.061\,km at 86{,}400\,s \\
+\texttt{maneuver\_ops\_invariants} & Cooldown, fuel, thrust-cap enforcement \\
+\texttt{recovery\_planner\_invariants} & CW/ZEM convergence, slot error $\leq 0.08$ \\
+\texttt{recovery\_slot\_gate}       & Deterministic slot recovery \\
+\bottomrule
+\end{tabularx}
+\caption{CTest safety gates and their enforced invariants.}
+\label{tab:gates}
+\end{table}
+
+\subsection{Safety Score Evidence}
+
+\begin{itemize}[nosep,leftmargin=*]
+  \item \textbf{False negatives}: 0 across 6 test families (broad-phase
+    sanity, narrow-phase canary, false-negative gate, calibration probe,
+    regression, maneuver-ops).
+  \item \textbf{Fail-open counters}: Tracked per tick. Every object with
+    uncertain elements is escalated, never discarded.
+  \item \textbf{Screening threshold}: Effective $0.120$\,km with
+    uncertainty promotion to $0.220$\,km for hypervelocity pairs.
+\end{itemize}
+
+\subsection{Fuel Efficiency Evidence}
+
+\begin{itemize}[nosep,leftmargin=*]
+  \item Tsiolkovsky fuel accounting validated in
+    \texttt{maneuver\_ops\_invariants\_gate}.
+  \item CW/ZEM recovery solver minimizes $|\Delta V|$ relative to
+    the heuristic proportional controller.
+  \item Avoidance fuel vs.\ total fuel tracked separately in burn summaries.
+\end{itemize}
+
+\subsection{Algorithmic Speed Evidence}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}lrl@{}}
+\toprule
+\textbf{Scenario} & \textbf{Mean Tick} & \textbf{Scale} \\
+\midrule
+50 sats / 10{,}000 debris   & 13.3\,ms & Baseline \\
+100 sats / 20{,}000 debris  & 72.6\,ms & 2$\times$ stress \\
+\bottomrule
+\end{tabular}
+\caption{Tick latency benchmarks (\texttt{phase3\_tick\_benchmark}).}
+\label{tab:perf}
+\end{table}
+
+\noindent
+The broad phase reduces candidate count from $O(N \cdot M)$ to a small
+fraction via SMA/inclination binning.  OpenMP parallelization of the
+narrow-phase sweep yields a 31.5\% speedup at 2$\times$ scale.
+
+\subsection{Deployment Verification}
+
+The Docker API smoke gate (\texttt{scripts/docker\_api\_smoke.sh}) performs
+an automated release-verification cycle:
+
+\begin{enumerate}[nosep,leftmargin=*]
+  \item Build Docker image from \texttt{Dockerfile}
+  \item Boot container on auto-selected port
+  \item Probe \texttt{/api/status}, POST telemetry, POST simulate/step,
+    GET snapshot
+  \item Validate each response with Python assertions
+  \item Tear down container
+\end{enumerate}
+
+\noindent
+This gate runs in CI and catches regressions before any push reaches main.
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Deployment}\label{sec:deploy}
+
+\subsection{Docker Build}
+
+CASCADE uses a 3-stage multi-stage Dockerfile:
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}llX@{}}
+\toprule
+\textbf{Stage} & \textbf{Base} & \textbf{Purpose} \\
+\midrule
+builder  & \texttt{ubuntu:22.04} & GCC-12, CMake, CTest gates \\
+frontend & \texttt{node:24-slim}  & \texttt{npm ci} + Vite production build \\
+runtime  & \texttt{ubuntu:22.04} & Minimal: \texttt{libgomp1} only \\
+\bottomrule
+\end{tabularx}
+\caption{Docker build stages.}
+\label{tab:docker}
+\end{table}
+
+\noindent
+BuildKit cache mounts accelerate rebuilds (\texttt{apt}, \texttt{\_deps},
+\texttt{sccache}).  A \texttt{PROJECTBONK\_PREFETCH\_ONLY} step pre-fetches
+all FetchContent dependencies before source copy, maximizing layer-cache hits.
+The runtime image runs as a non-root user (\texttt{bonk}).
+
+\subsection{Quick Start}
+
+\begin{lstlisting}[language=bash]
+# Build and run
+docker build -t cascade:local .
+docker run --rm -p 8000:8000 cascade:local
+
+# Smoke test
+curl -s http://localhost:8000/api/status \
+  | python3 -m json.tool
+
+# Full verification
+./scripts/docker_api_smoke.sh
+./scripts/run_ready_demo.sh
+\end{lstlisting}
+
+\subsection{CI Pipeline}
+
+GitHub Actions runs on every push to \texttt{main}:
+
+\begin{enumerate}[nosep,leftmargin=*]
+  \item CMake configure + build (\texttt{gcc-12}, Release)
+  \item CTest: all 8 safety gates
+  \item Frontend: \texttt{npm ci \&\& npm run build}
+  \item Docker API smoke gate
+\end{enumerate}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Limitations and Future Work}
+
+\begin{itemize}[nosep,leftmargin=*]
+  \item \textbf{Propagation fidelity}:
+    The engine uses J2-only perturbation.  Atmospheric drag is applied
+    heuristically for perigee $< 350$\,km orbits.  Lunar/solar
+    third-body and SRP effects are not modeled.
+
+  \item \textbf{MOID solver}:
+    The current 72$\times$72 sampled proxy achieves sufficient accuracy
+    for hackathon-scale screening but could be replaced with a
+    Gronchi~(2005) analytical quartic solver for production use.
+
+  \item \textbf{Maneuver optimization}:
+    The grid-search COLA planner explores a discrete candidate space.
+    A continuous NLP or sequential convex programming approach would
+    yield lower-$\Delta V$ evasion sequences.
+
+  \item \textbf{Dense-scene FPS}:
+    Frontend rendering at 10{,}000+ debris has been tested in development
+    but formal 60\,FPS proof under worst-case load needs finalization.
+
+  \item \textbf{Demo video}:
+    The narrated demonstration video is planned around
+    \texttt{scripts/run\_ready\_demo.sh} but awaits final recording.
+\end{itemize}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section*{Acknowledgments}
+
+We thank the organizers of the National Space Hackathon 2026 at IIT~Delhi
+for designing a challenging and technically rigorous problem statement.
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\appendix
+
+\section{Key Physical Constants}\label{app:constants}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{Symbol} & \textbf{Description} & \textbf{Value} \\
+\midrule
+$\mu$       & Earth grav.\ parameter  & 398\,600.4418\,km$^3$/s$^2$ \\
+$R_E$       & Earth equatorial radius  & 6\,378.137\,km \\
+$J_2$       & Oblateness coefficient   & $1.08263 \times 10^{-3}$ \\
+$d_{\text{coll}}$ & Collision threshold & 0.100\,km \\
+$I_{\text{sp}}$ & Specific impulse      & 300\,s \\
+$g_0$       & Standard gravity         & 9.80665\,m/s$^2$ \\
+$m_{\text{dry}}$ & Satellite dry mass   & 500\,kg \\
+$m_{\text{fuel}}$ & Initial propellant  & 50\,kg \\
+$|\Delta V|_{\max}$ & Thrust limit     & 15\,m/s \\
+$\tau_{\text{cd}}$ & Cooldown period    & 600\,s \\
+$m_{\text{EOL}}$ & Fuel EOL guard       & 2.5\,kg \\
+$\tau_{\text{sig}}$ & Signal latency    & 10\,s \\
+$r_{\text{box}}$ & Station-keeping box  & 10\,km \\
+\bottomrule
+\end{tabular}
+\caption{System constants (from \texttt{src/types.hpp}).}
+\label{tab:constants}
+\end{table}
+
+\section{CDM Severity Tiers}\label{app:cdm}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}llc@{}}
+\toprule
+\textbf{Tier} & \textbf{Condition} & \textbf{Auto-COLA} \\
+\midrule
+CRITICAL & $d < 0.100$\,km  & Yes \\
+WARNING  & $d < 1.0$\,km    & No (monitor) \\
+WATCH    & $d < 5.0$\,km    & No (log)     \\
+\bottomrule
+\end{tabular}
+\caption{Conjunction severity classification.}
+\label{tab:cdm}
+\end{table}
+
+\section{Verification Commands}\label{app:cmds}
+
+\begin{lstlisting}[language=bash]
+# Build (local)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target ProjectBONK
+
+# Run all safety gates
+ctest --test-dir build --output-on-failure
+
+# Individual gates
+./scripts/api_contract_gate.sh ./build
+./scripts/broad_phase_sanity_gate.sh
+./scripts/narrow_phase_false_negative_gate.sh
+./scripts/recovery_planner_invariants_gate.sh
+
+# Docker release verification
+./scripts/docker_api_smoke.sh
+
+# Frontend build
+cd frontend && npm ci && npm run build
+
+# Ready demo
+./scripts/run_ready_demo.sh
+\end{lstlisting}
+
+\section{NSGA-II Tuner Parameters}\label{app:tuner}
+
+The offline multi-objective tuner optimizes 69~parameters across 3~tiers
+(broad phase, narrow phase, maneuver planner) against 3~objectives:
+safety (zero false negatives), fuel efficiency (total $\Delta V$), and
+speed (tick latency).  The tuner runs as a standalone C++ Monte-Carlo
+harness, separate from the production runtime.  Parameter values are
+injected at compile time or via environment variable overrides (all~69
+constants are \texttt{PROJECTBONK\_*} configurable).
+
+\end{document}
