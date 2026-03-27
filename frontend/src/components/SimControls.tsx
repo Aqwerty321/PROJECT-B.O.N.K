@@ -22,6 +22,11 @@ const STEP_OPTIONS = [
 
 const SPINNER_FRAMES = ['|', '/', '-', '\\'] as const;
 
+/** Delay between auto-play steps (ms). */
+const AUTO_STEP_DELAY_MS = 3000;
+/** Auto-play advances 1 hour per tick. */
+const AUTO_STEP_HOURS = 1;
+
 function formatStepTimestamp(timestamp: string): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return 'UTC pending';
@@ -65,14 +70,23 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
   const [flashBtn, setFlashBtn] = useState<string | null>(null);
   const [spinnerFrame, setSpinnerFrame] = useState(0);
+  const [autoPlay, setAutoPlay] = useState(false);
   const flashTimeoutRef = useRef<number | null>(null);
+  const autoPlayRef = useRef(false);
+  const autoTimerRef = useRef<number | null>(null);
   const isStepping = stepStatus.tone === 'busy';
   const activeStepLabel = stepStatus.activeLabel ?? null;
+
+  // Keep ref in sync so the async loop can read current state
+  autoPlayRef.current = autoPlay;
 
   useEffect(() => {
     return () => {
       if (flashTimeoutRef.current !== null) {
         window.clearTimeout(flashTimeoutRef.current);
+      }
+      if (autoTimerRef.current !== null) {
+        window.clearTimeout(autoTimerRef.current);
       }
     };
   }, []);
@@ -90,8 +104,92 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
     return () => window.clearInterval(intervalId);
   }, [isStepping]);
 
+  // ---------- Auto-play loop ----------
+  const runAutoStep = useCallback(async () => {
+    if (!autoPlayRef.current) return;
+
+    setStepStatus({
+      tone: 'busy',
+      title: 'AUTO-STEPPING 1H',
+      detail: 'Auto-play active. Advancing simulation 1H per cycle.',
+      activeLabel: 'AUTO',
+      updatedAt: Date.now(),
+    });
+
+    try {
+      const step = await postStep(AUTO_STEP_HOURS);
+      if (!autoPlayRef.current) return; // stopped while in-flight
+
+      setStepStatus({
+        tone: step.collisions_detected > 0 || step.maneuvers_executed > 0 ? 'warning' : 'ok',
+        title: 'AUTO STEP OK',
+        detail: `1H committed / ${formatStepTimestamp(step.new_timestamp)} / ${step.maneuvers_executed} maneuvers / ${step.collisions_detected} collisions`,
+        activeLabel: null,
+        updatedAt: Date.now(),
+      });
+
+      // Schedule next tick
+      if (autoPlayRef.current) {
+        autoTimerRef.current = window.setTimeout(runAutoStep, AUTO_STEP_DELAY_MS);
+      }
+    } catch {
+      // Stop auto-play on error
+      autoPlayRef.current = false;
+      setAutoPlay(false);
+      setStepStatus({
+        tone: 'error',
+        title: 'AUTO-PLAY STOPPED',
+        detail: 'A step failed during auto-play. Halted to prevent cascading errors.',
+        activeLabel: null,
+        updatedAt: Date.now(),
+      });
+    }
+  }, [setStepStatus]);
+
+  const toggleAutoPlay = useCallback(() => {
+    if (disabled) return;
+
+    if (autoPlay) {
+      // Stop
+      autoPlayRef.current = false;
+      setAutoPlay(false);
+      if (autoTimerRef.current !== null) {
+        window.clearTimeout(autoTimerRef.current);
+        autoTimerRef.current = null;
+      }
+      play('buttonPress');
+      setStepStatus({
+        tone: 'ok',
+        title: 'AUTO-PLAY OFF',
+        detail: 'Simulation auto-advance stopped. Use manual step buttons to continue.',
+        activeLabel: null,
+        updatedAt: Date.now(),
+      });
+    } else {
+      // Start
+      if (isStepping) return; // don't start while a manual step is in-flight
+      autoPlayRef.current = true;
+      setAutoPlay(true);
+      play('buttonPress');
+      // Kick off first step immediately
+      runAutoStep();
+    }
+  }, [disabled, autoPlay, isStepping, play, setStepStatus, runAutoStep]);
+
+  // Stop auto-play if component is disabled externally
+  useEffect(() => {
+    if (disabled && autoPlay) {
+      autoPlayRef.current = false;
+      setAutoPlay(false);
+      if (autoTimerRef.current !== null) {
+        window.clearTimeout(autoTimerRef.current);
+        autoTimerRef.current = null;
+      }
+    }
+  }, [disabled, autoPlay]);
+
   const handleStep = useCallback(async (hours: number, label: string) => {
-    if (disabled || isStepping) return;
+    if (disabled || isStepping || autoPlay) return;
 
     play('buttonPress');
     setHoveredBtn(null);
@@ -130,7 +228,7 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
         updatedAt: Date.now(),
       });
     }
-  }, [disabled, isStepping, play, setStepStatus]);
+  }, [disabled, isStepping, autoPlay, play, setStepStatus]);
 
   const liveStatus = isStepping
     ? {
@@ -139,6 +237,8 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
       }
     : stepStatus;
   const liveStatusColor = statusToneColor(liveStatus.tone);
+
+  const manualDisabled = disabled || isStepping || autoPlay;
 
   return (
     <div style={styles.container}>
@@ -151,10 +251,10 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
           return (
             <button
               key={opt.label}
-              disabled={disabled || isStepping}
+              disabled={manualDisabled}
               onClick={() => handleStep(opt.hours, opt.label)}
               onMouseEnter={() => {
-                if (disabled || isStepping) return;
+                if (manualDisabled) return;
                 setHoveredBtn(opt.label);
                 play('hover');
               }}
@@ -178,14 +278,50 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
                   : isHovered
                   ? '0 0 12px rgba(58, 159, 232, 0.25)'
                   : 'none',
-                cursor: disabled || isStepping ? 'not-allowed' : styles.button.cursor,
-                opacity: disabled || isStepping ? 0.58 : 1,
+                cursor: manualDisabled ? 'not-allowed' : styles.button.cursor,
+                opacity: manualDisabled ? 0.58 : 1,
               }}
             >
               {isActive ? `${opt.label}...` : opt.label}
             </button>
           );
         })}
+
+        {/* Auto-play toggle */}
+        <button
+          disabled={disabled || (isStepping && !autoPlay)}
+          onClick={toggleAutoPlay}
+          onMouseEnter={() => {
+            if (!disabled && !isStepping) {
+              setHoveredBtn('AUTO');
+              play('hover');
+            }
+          }}
+          onMouseLeave={() => setHoveredBtn(null)}
+          style={{
+            ...styles.button,
+            background: autoPlay
+              ? 'rgba(57, 217, 138, 0.18)'
+              : hoveredBtn === 'AUTO'
+                ? 'rgba(57, 217, 138, 0.10)'
+                : 'rgba(57, 217, 138, 0.04)',
+            borderColor: autoPlay
+              ? 'rgba(57, 217, 138, 0.72)'
+              : hoveredBtn === 'AUTO'
+                ? 'rgba(57, 217, 138, 0.45)'
+                : 'rgba(57, 217, 138, 0.28)',
+            color: autoPlay ? theme.colors.accent : theme.colors.textDim,
+            boxShadow: autoPlay
+              ? `0 0 16px rgba(57, 217, 138, 0.22), inset 0 0 12px rgba(57, 217, 138, 0.08)`
+              : hoveredBtn === 'AUTO'
+                ? '0 0 12px rgba(57, 217, 138, 0.18)'
+                : 'none',
+            cursor: disabled || (isStepping && !autoPlay) ? 'not-allowed' : 'pointer',
+            opacity: disabled ? 0.58 : 1,
+          }}
+        >
+          {autoPlay ? 'AUTO \u25A0' : 'AUTO \u25B6'}
+        </button>
       </div>
       <div
         role="status"
@@ -204,23 +340,27 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
       >
         <div style={styles.statusHeader}>
           <span style={{ ...styles.statusEyebrow, color: liveStatusColor }}>
-            {isStepping ? 'Command Uplink' : 'Step Status'}
+            {autoPlay ? 'Auto-Play Active' : isStepping ? 'Command Uplink' : 'Step Status'}
           </span>
           <div style={styles.statusMeter} aria-hidden="true">
             {SPINNER_FRAMES.map((_, index) => {
               const isLit = isStepping
                 ? index === spinnerFrame
-                : liveStatus.tone === 'idle'
-                  ? index < 2
-                  : liveStatus.tone === 'error'
-                    ? index === 0
-                    : true;
+                : autoPlay
+                  ? true
+                  : liveStatus.tone === 'idle'
+                    ? index < 2
+                    : liveStatus.tone === 'error'
+                      ? index === 0
+                      : true;
               return (
                 <span
                   key={index}
                   style={{
                     ...styles.statusMeterBar,
-                    background: isLit ? liveStatusColor : 'rgba(255, 255, 255, 0.08)',
+                    background: isLit
+                      ? (autoPlay && !isStepping ? theme.colors.accent : liveStatusColor)
+                      : 'rgba(255, 255, 255, 0.08)',
                     opacity: isLit ? 1 : 0.45,
                   }}
                 />

@@ -6,6 +6,10 @@
   padding: 0;
 }
 
+button, input, select, textarea {
+  font-family: inherit;
+}
+
 :root {
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
   line-height: 1.4;

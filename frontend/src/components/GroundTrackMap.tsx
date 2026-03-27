@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import type { VisualizationSnapshot, SatelliteSnapshot, TrajectoryResponse } from '../types/api';
 import { latLonToMercator, computeTerminator, hexColor } from '../utils/geo';
 import { GROUND_STATIONS, statusColor } from '../types/api';
@@ -23,6 +23,36 @@ const COLOR_TERMINATOR = 'rgba(0,0,0,0.45)';
 const COLOR_DEBRIS = 'rgba(239,68,68,0.55)';
 const COLOR_GS = '#7dd3fc';
 
+function wrapToEdge(
+  ctx: CanvasRenderingContext2D,
+  prevX: number,
+  prevY: number,
+  px: number,
+  py: number,
+  w: number,
+) {
+  // Satellite crossed the antimeridian — interpolate to the map edge.
+  if (px > prevX) {
+    // prevX near left edge, px near right → satellite went LEFT off the map
+    const unwrapped = px - w;
+    const t = (0 - prevX) / (unwrapped - prevX);
+    const edgeY = prevY + t * (py - prevY);
+    ctx.lineTo(0, edgeY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(w, edgeY);
+  } else {
+    // prevX near right edge, px near left → satellite went RIGHT off the map
+    const unwrapped = px + w;
+    const t = (w - prevX) / (unwrapped - prevX);
+    const edgeY = prevY + t * (py - prevY);
+    ctx.lineTo(w, edgeY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, edgeY);
+  }
+}
+
 function drawWrappedPath(
   ctx: CanvasRenderingContext2D,
   points: Array<[number, number]>,
@@ -41,19 +71,20 @@ function drawWrappedPath(
 
   let firstPoint = true;
   let prevX = 0;
+  let prevY = 0;
   for (const [lat, lon] of points) {
     const [px, py] = latLonToMercator(lat, lon, w, h);
     if (firstPoint) {
       ctx.moveTo(px, py);
       firstPoint = false;
     } else if (Math.abs(px - prevX) > w * 0.5) {
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(px, py);
+      wrapToEdge(ctx, prevX, prevY, px, py, w);
+      ctx.lineTo(px, py);
     } else {
       ctx.lineTo(px, py);
     }
     prevX = px;
+    prevY = py;
   }
 
   ctx.stroke();
@@ -83,25 +114,30 @@ function drawTimedWrappedPath(
   let hasOpenSegment = false;
   let prevEpochS = 0;
   let prevX = 0;
+  let prevY = 0;
 
   for (const [epochS, lat, lon] of points) {
     const [px, py] = latLonToMercator(lat, lon, w, h);
     const hasLargeGap = hasOpenSegment && (epochS - prevEpochS > options.maxGapS);
     const wrapsAcrossMap = hasOpenSegment && Math.abs(px - prevX) > w * 0.5;
 
-    if (!hasOpenSegment || hasLargeGap || wrapsAcrossMap) {
+    if (!hasOpenSegment || hasLargeGap) {
       if (hasOpenSegment) {
         ctx.stroke();
       }
       ctx.beginPath();
       ctx.moveTo(px, py);
       hasOpenSegment = true;
+    } else if (wrapsAcrossMap) {
+      wrapToEdge(ctx, prevX, prevY, px, py, w);
+      ctx.lineTo(px, py);
     } else {
       ctx.lineTo(px, py);
     }
 
     prevEpochS = epochS;
     prevX = px;
+    prevY = py;
   }
 
   if (hasOpenSegment) {
@@ -288,6 +324,22 @@ function drawEmptyMapState(ctx: CanvasRenderingContext2D, w: number, h: number) 
 export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, selectedSatId, onSelectSat, trackHistory, trackVersion, trajectory }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawRef = useRef<() => void>(() => {});
+  const mapImgRef = useRef<HTMLImageElement | null>(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+
+  // Load the Mercator SVG map once on mount
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      mapImgRef.current = img;
+      setMapLoaded(true);
+    };
+    img.onerror = () => {
+      // Fallback: coastline polygons will be drawn instead
+      console.warn('[GroundTrackMap] Failed to load earth_mercator.svg — using polygon fallback');
+    };
+    img.src = '/earth_mercator.svg';
+  }, []);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -306,16 +358,14 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
     ctx.fillStyle = BG_OCEAN;
     ctx.fillRect(0, 0, w, h);
 
-    // Background land-mass approximation gradient
-    const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, 'rgba(17,34,64,0.0)');
-    grad.addColorStop(0.5, 'rgba(17,34,64,0.6)');
-    grad.addColorStop(1, 'rgba(17,34,64,0.0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, h);
-
     drawGraticule(ctx, w, h);
-    drawCoastlines(ctx, w, h);
+
+    // Draw SVG map if loaded, otherwise fall back to polygon coastlines
+    if (mapImgRef.current) {
+      ctx.drawImage(mapImgRef.current, 0, 0, w, h);
+    } else {
+      drawCoastlines(ctx, w, h);
+    }
 
     if (snapshot) {
       drawTerminator(ctx, snapshot.timestamp, w, h);
@@ -341,18 +391,23 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
 
     const trajectoryTargetId = trajectory?.satellite_id ?? null;
 
-    // --- Satellite tracks ---
+    // --- Satellite tracks (non-focused: wrap-only, no time-gap breaks) ---
     for (const sat of snapshot.satellites) {
       if (trajectoryTargetId && sat.id === trajectoryTargetId) continue;
       const history = trackHistory.get(sat.id);
       if (history && history.length > 1) {
-        drawTimedWrappedPath(ctx, history, w, h, {
-          color: `${hexColor(statusColor(sat.status))}88`,
-          width: 0.8,
-          dash: [3, 2],
-          alpha: 0.8,
-          maxGapS: MAX_TRAIL_GAP_S,
-        });
+        drawWrappedPath(
+          ctx,
+          history.map(([, lat, lon]) => [lat, lon] as [number, number]),
+          w,
+          h,
+          {
+            color: `${hexColor(statusColor(sat.status))}88`,
+            width: 0.8,
+            dash: [3, 2],
+            alpha: 0.8,
+          },
+        );
       }
     }
 
@@ -427,7 +482,7 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
     }
 
     ctx.restore();
-  }, [snapshot, selectedSatId, trackHistory, trackVersion, trajectory]);
+  }, [snapshot, selectedSatId, trackHistory, trackVersion, trajectory, mapLoaded]);
 
   // Keep drawRef pointing at the latest draw function
   drawRef.current = draw;

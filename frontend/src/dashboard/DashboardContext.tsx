@@ -117,6 +117,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         history = [];
         map.set(satellite.id, history);
       }
+      // Skip duplicate epoch (same sim tick polled multiple times)
+      const last = history[history.length - 1];
+      if (last && last[0] === snapshotEpochS) continue;
       history.push([snapshotEpochS, satellite.lat, satellite.lon]);
       while (history.length > 0 && snapshotEpochS - history[0][0] > TRACK_HISTORY_WINDOW_S) {
         history.shift();

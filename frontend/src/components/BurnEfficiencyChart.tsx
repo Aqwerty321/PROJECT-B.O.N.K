@@ -133,12 +133,12 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
   ) + 0.5;
 
   const chart = {
-    width: 620,
-    height: 270,
-    left: 62,
-    right: 22,
-    top: 18,
-    bottom: 40,
+    width: 960,
+    height: 450,
+    left: 96,
+    right: 34,
+    top: 84,
+    bottom: 62,
   };
   const plotWidth = chart.width - chart.left - chart.right;
   const plotHeight = chart.height - chart.top - chart.bottom;
@@ -188,17 +188,16 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
   ];
 
   return (
-    <div style={{ display: 'flex', gap: '14px', minHeight: 0, flex: 1 }}>
+    <div style={{ display: 'flex', gap: '14px', minHeight: 0, flex: 1, alignItems: 'start' }}>
       <div
         style={{
           flex: '1 1 0',
           minWidth: 0,
-          minHeight: 0,
           position: 'relative',
           overflow: 'visible',
         }}
       >
-        <svg viewBox={`0 0 ${chart.width} ${chart.height}`} style={{ width: '100%', height: '100%', display: 'block' }}>
+        <svg viewBox={`0 0 ${chart.width} ${chart.height}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
           <defs>
             <linearGradient id="efficiency-fill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="rgba(57, 217, 138, 0.16)" />
@@ -213,7 +212,7 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
             return (
               <g key={`x-${index}`}>
                 <line x1={x} y1={chart.top} x2={x} y2={chart.height - chart.bottom} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-                <text x={x} y={chart.height - 14} fill={theme.colors.textMuted} fontSize="10" textAnchor="middle">
+                <text x={x} y={chart.height - 22} fill={theme.colors.textMuted} fontSize="10" textAnchor="middle">
                   {tick.toFixed(tick >= 10 ? 0 : 1)}
                 </text>
               </g>
@@ -225,7 +224,7 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
             return (
               <g key={`y-${index}`}>
                 <line x1={chart.left} y1={y} x2={chart.width - chart.right} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-                <text x={chart.left - 10} y={y + 4} fill={theme.colors.textMuted} fontSize="10" textAnchor="end">
+                <text x={chart.left - 16} y={y + 5} fill={theme.colors.textMuted} fontSize="10" textAnchor="end">
                   {tick.toFixed(tick >= 2 ? 0 : 1)}
                 </text>
               </g>
@@ -235,8 +234,8 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
           <line x1={chart.left} y1={chart.top} x2={chart.left} y2={chart.height - chart.bottom} stroke="rgba(255,255,255,0.28)" strokeWidth="1.2" />
           <line x1={chart.left} y1={chart.height - chart.bottom} x2={chart.width - chart.right} y2={chart.height - chart.bottom} stroke="rgba(255,255,255,0.28)" strokeWidth="1.2" />
 
-          <text x={chart.left} y={12} fill={theme.colors.textDim} fontSize="11" letterSpacing="1.8px">COLLISIONS AVOIDED</text>
-          <text x={chart.width - chart.right} y={chart.height - 8} fill={theme.colors.textDim} fontSize="11" textAnchor="end" letterSpacing="1.8px">FUEL CONSUMED (KG)</text>
+          <text x={chart.left + 4} y={chart.top + 14} fill={theme.colors.textDim} fontSize="10" letterSpacing="1px" opacity="0.7">COLLISIONS AVOIDED</text>
+          <text x={chart.width - chart.right} y={chart.height - 12} fill={theme.colors.textDim} fontSize="10" textAnchor="end" letterSpacing="1px">FUEL CONSUMED (KG)</text>
 
           <polyline
             fill="none"
@@ -256,7 +255,7 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
                 <circle cx={x} cy={y} r={radius} fill={color} stroke="rgba(6, 7, 10, 0.95)" strokeWidth="1.4" />
                 {point.satelliteId === selectedSatId ? <circle cx={x} cy={y} r={radius + 4.5} fill="none" stroke={theme.colors.primary} strokeWidth="1.5" opacity="0.9" /> : null}
                 {(point.collisionsAvoided > 0 || point.satelliteId === selectedSatId) ? (
-                  <text x={x} y={y - radius - 8} fill={color} fontSize="10" textAnchor="middle">
+                  <text x={x} y={y - radius - 12} fill={color} fontSize="10" textAnchor="middle">
                     {compactSatLabel(point.satelliteId)}
                   </text>
                 ) : null}
@@ -265,12 +264,12 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
           })}
 
           <polygon
-            points={`${toX(summary.fuel_consumed_kg)},${toY(summary.collisions_avoided) - 8} ${toX(summary.fuel_consumed_kg) + 8},${toY(summary.collisions_avoided)} ${toX(summary.fuel_consumed_kg)},${toY(summary.collisions_avoided) + 8} ${toX(summary.fuel_consumed_kg) - 8},${toY(summary.collisions_avoided)}`}
+            points={`${toX(summary.fuel_consumed_kg)},${toY(summary.collisions_avoided) - 10} ${toX(summary.fuel_consumed_kg) + 10},${toY(summary.collisions_avoided)} ${toX(summary.fuel_consumed_kg)},${toY(summary.collisions_avoided) + 10} ${toX(summary.fuel_consumed_kg) - 10},${toY(summary.collisions_avoided)}`}
             fill={theme.colors.warning}
             stroke="rgba(5, 7, 10, 0.98)"
             strokeWidth="1.2"
           />
-          <text x={toX(summary.fuel_consumed_kg) + 12} y={toY(summary.collisions_avoided) - 10} fill={theme.colors.warning} fontSize="10">
+          <text x={toX(summary.fuel_consumed_kg) + 16} y={toY(summary.collisions_avoided) - 12} fill={theme.colors.warning} fontSize="10">
             Fleet summary
           </text>
 
@@ -298,7 +297,7 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
           ) : null}
         </svg>
 
-        <div style={{ position: 'absolute', left: '14px', top: '12px', display: 'flex', flexDirection: 'column', gap: '4px', pointerEvents: 'none' }}>
+        <div style={{ position: 'absolute', left: '14px', top: '4px', display: 'flex', flexDirection: 'column', gap: '4px', pointerEvents: 'none' }}>
           <span style={{ color: theme.colors.textDim, fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
             Efficiency reference
           </span>

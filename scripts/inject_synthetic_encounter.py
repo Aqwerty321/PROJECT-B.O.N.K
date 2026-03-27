@@ -49,7 +49,11 @@ def die(msg: str) -> None:
     raise SystemExit(1)
 
 
-def api_get(base: str, path: str) -> Any:
+def api_get(base: str, path: str, *, fallback_path: str | None = None) -> Any:
+    """
+    GET JSON from the backend.  If parsing fails and *fallback_path* is given,
+    retry with the simpler endpoint (e.g. /api/status without ?details=1).
+    """
     url = f"{base}{path}"
     try:
         req = urllib.request.Request(url, method="GET")
@@ -58,6 +62,11 @@ def api_get(base: str, path: str) -> Any:
     except urllib.error.HTTPError as e:
         body = e.read().decode() if e.fp else ""
         die(f"GET {path} → HTTP {e.code}: {body[:300]}")
+    except json.JSONDecodeError:
+        if fallback_path:
+            print(f"[warn] GET {path} returned invalid JSON, retrying with {fallback_path}")
+            return api_get(base, fallback_path)
+        die(f"GET {path} returned invalid JSON")
     except Exception as e:
         die(f"GET {path} failed: {e}")
 
@@ -502,7 +511,10 @@ def main() -> None:
     print(f"[inject] Mode: {args.mode}")
 
     # 1. Get current simulation state
-    status = api_get(args.api_base, "/api/status?details=1")
+    #    Use ?details=1 for richer info, but fall back to /api/status if the
+    #    backend's detailed JSON serializer truncates / emits invalid JSON.
+    status = api_get(args.api_base, "/api/status?details=1",
+                     fallback_path="/api/status")
     print(f"[inject] Engine status: {status.get('status', '?')}, tick={status.get('tick_count', '?')}")
 
     # 2. Get current snapshot for satellite positions

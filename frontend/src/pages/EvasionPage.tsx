@@ -58,7 +58,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
   ];
 
   return (
-    <section aria-labelledby="evasion-heading" style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%' }}>
+    <section aria-labelledby="evasion-heading" style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '100%', overflow: 'auto' }}>
       <SectionHeader
         kicker="Evasion Deck"
         title="Fuel-to-Mitigation Efficiency"
@@ -82,7 +82,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
         noPadding
         priority="primary"
         accentColor={theme.colors.primary}
-        style={{ flex: 1, minHeight: 0 }}
+        style={{ flex: 1, minHeight: '340px' }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px 14px 14px', flex: 1, minHeight: 0 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '72ch', flexShrink: 0 }}>
@@ -91,7 +91,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
               Fuel draw versus backend-tracked avoided collisions, with dropped-command visibility so the chart reflects operational friction rather than idealized outcomes.
             </p>
           </div>
-          <div style={{ flex: 1, minHeight: 0, overflow: 'visible', border: '1px solid rgba(88, 184, 255, 0.24)', background: 'linear-gradient(180deg, rgba(9, 12, 17, 0.96), rgba(5, 7, 10, 0.98))' }}>
+          <div style={{ flex: '1 1 auto', minHeight: '280px', overflow: 'visible', border: '1px solid rgba(88, 184, 255, 0.24)', background: 'linear-gradient(180deg, rgba(9, 12, 17, 0.96), rgba(5, 7, 10, 0.98))' }}>
             <BurnEfficiencyChart burns={model.burns} selectedSatId={selectedSatId} />
           </div>
         </div>
