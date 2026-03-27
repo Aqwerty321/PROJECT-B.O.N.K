@@ -72,6 +72,15 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
   - `ctest --test-dir build --output-on-failure`
   - `cd frontend && npm run build`
 
+### Technical report packaging
+
+- PDF-ready outline:
+  - `docs/TECHNICAL_REPORT_OUTLINE.md`
+- Architecture source:
+  - `ARCHITECTURE.md`
+- Evidence source:
+  - `docs/PS_EVIDENCE_INDEX.md`
+
 ## Section 8 deployment requirements
 
 - Dockerfile: root `Dockerfile`
@@ -81,6 +90,7 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
   - `docker build -t cascade:local .`
   - `docker run --rm -p 8000:8000 cascade:local`
   - `curl -s http://localhost:8000/api/status`
+  - `./scripts/docker_api_smoke.sh`
 
 ## Section 9 deliverables checklist
 

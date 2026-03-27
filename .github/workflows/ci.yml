@@ -130,3 +130,6 @@ jobs:
 
       - name: Run CTest safety suite
         run: ctest --test-dir build --output-on-failure
+
+      - name: Run Docker API smoke gate
+        run: ./scripts/docker_api_smoke.sh

@@ -15,6 +15,8 @@ interface Props {
 }
 
 const MAX_TRAIL_GAP_S = 120;
+const TRAIL_WINDOW_MIN = 90;
+const FORECAST_WINDOW_MIN = 90;
 
 // World map colors
 const BG_OCEAN  = '#0a1628';
@@ -268,6 +270,70 @@ function drawGroundStations(ctx: CanvasRenderingContext2D, w: number, h: number)
   ctx.restore();
 }
 
+function formatLegendUtc(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '--';
+  return `${date.toISOString().slice(11, 19)} UTC`;
+}
+
+function drawMapLegend(ctx: CanvasRenderingContext2D, w: number, timestamp: string) {
+  const boxW = Math.min(226, w - 24);
+  const boxH = 86;
+  const x = 12;
+  const y = 12;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(5, 10, 20, 0.78)';
+  ctx.strokeStyle = 'rgba(88, 184, 255, 0.26)';
+  ctx.lineWidth = 1;
+  ctx.fillRect(x, y, boxW, boxH);
+  ctx.strokeRect(x, y, boxW, boxH);
+
+  ctx.font = `10px ${theme.font.mono}`;
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.92)';
+  ctx.fillText('TRACK PROOF', x + 10, y + 16);
+
+  ctx.font = `8px ${theme.font.mono}`;
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.88)';
+  ctx.fillText(`EPOCH ${formatLegendUtc(timestamp)}`, x + 10, y + 29);
+
+  const row1Y = y + 46;
+  ctx.strokeStyle = 'rgba(58, 159, 232, 0.95)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + 10, row1Y);
+  ctx.lineTo(x + 34, row1Y);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.82)';
+  ctx.fillText(`Trail ${TRAIL_WINDOW_MIN}m`, x + 40, row1Y + 3);
+
+  ctx.strokeStyle = 'rgba(234, 179, 8, 0.95)';
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(x + 116, row1Y);
+  ctx.lineTo(x + 140, row1Y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillText(`Forecast ${FORECAST_WINDOW_MIN}m`, x + 146, row1Y + 3);
+
+  const row2Y = y + 68;
+  ctx.strokeStyle = 'rgba(251,191,36,0.7)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + 10, row2Y);
+  ctx.lineTo(x + 34, row2Y);
+  ctx.stroke();
+  ctx.fillText('Solar terminator', x + 40, row2Y + 3);
+
+  ctx.fillStyle = COLOR_GS;
+  ctx.beginPath();
+  ctx.arc(x + 128, row2Y, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.82)';
+  ctx.fillText('Ground stations', x + 138, row2Y + 3);
+  ctx.restore();
+}
+
 function drawEmptyMapState(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.save();
 
@@ -480,6 +546,8 @@ export const GroundTrackMap = React.memo(function GroundTrackMap({ snapshot, sel
         ctx.fillText(sat.id, x + 5, y - 4);
       }
     }
+
+    drawMapLegend(ctx, w, snapshot.timestamp);
 
     ctx.restore();
   }, [snapshot, selectedSatId, trackHistory, trackVersion, trajectory, mapLoaded]);
