@@ -98,6 +98,9 @@ inline bool parse_iso8601(std::string_view sv, double& out_unix_s) {
 // fmt_double — snprintf wrapper for fixed-precision double formatting
 // ---------------------------------------------------------------------------
 inline std::string fmt_double(double v, int decimals = 6) {
+    if (!std::isfinite(v)) {
+        v = 0.0;
+    }
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.*f", decimals, v);
     return std::string(buf);
