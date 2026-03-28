@@ -1,0 +1,92 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2}System Architecture}{1}{section.2}\protected@file@percent }
+\newlabel{sec:arch}{{2}{1}{System Architecture}{section.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces End-to-end simulation tick pipeline. Each stage is executed sequentially within a single tick; the engine guarantees that all propagation completes before screening begins, and all screening completes before maneuver decisions are made.}}{2}{figure.caption.1}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:pipeline}{{1}{2}{End-to-end simulation tick pipeline. Each stage is executed sequentially within a single tick; the engine guarantees that all propagation completes before screening begins, and all screening completes before maneuver decisions are made}{figure.caption.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Concurrency Model}{2}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}State Representation}{2}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Telemetry Ingestion}{2}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}API Surface}{2}{subsection.2.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Primary REST API endpoints.}}{2}{table.caption.2}\protected@file@percent }
+\newlabel{tab:api}{{1}{2}{Primary REST API endpoints}{table.caption.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Engineering Rationale}{2}{section.3}\protected@file@percent }
+\newlabel{sec:decisions}{{3}{2}{Engineering Rationale}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Prototyping with Julia, Deploying in Pure C++}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Staged Filter Activation via Shadow Deployment}{3}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Clohessy--Wiltshire Recovery with Heuristic Safeguard}{3}{subsection.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Operational Dashboard over Visual Spectacle}{3}{subsection.3.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Robust MOID Screening via Multi-Mode Solver}{4}{subsection.3.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}Provably Safe Fail-Open Escalation}{4}{subsection.3.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Numerical Methods}{4}{section.4}\protected@file@percent }
+\newlabel{sec:methods}{{4}{4}{Numerical Methods}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Orbital Propagation}{4}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Mode 1 --- J2 Secular Fast Path.}{4}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Mode 2 --- Probe-Then-Escalate.}{4}{equation.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Mode 3 --- Full RK4+J2.}{5}{equation.3}\protected@file@percent }
+\newlabel{eq:j2}{{4}{5}{Mode 3 --- Full RK4+J2}{equation.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Accuracy.}{5}{equation.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Why RK4 over higher-order adaptive integrators.}{5}{equation.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Coordinate Transforms}{5}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Broad-Phase Candidate Generation}{5}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Narrow-Phase Collision Screening}{5}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}24-Hour Predictive CDM Generation}{6}{subsection.4.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Autonomous Maneuver Planning}{6}{subsection.4.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.6.1}COLA Planner}{6}{subsubsection.4.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.6.2}Fuel Accounting}{6}{subsubsection.4.6.2}\protected@file@percent }
+\newlabel{eq:tsiolkovsky}{{8}{6}{Fuel Accounting}{equation.8}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.6.3}Constraint Enforcement}{6}{subsubsection.4.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.7}Ground Network and Line-of-Sight}{6}{subsection.4.7}\protected@file@percent }
+\newlabel{sec:los}{{4.7}{6}{Ground Network and Line-of-Sight}{subsection.4.7}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Ground station network. Elevation constraints are per-station to model real-world terrain and infrastructure masks.}}{6}{table.caption.3}\protected@file@percent }
+\newlabel{tab:gs}{{2}{6}{Ground station network. Elevation constraints are per-station to model real-world terrain and infrastructure masks}{table.caption.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8}Recovery Planning}{7}{subsection.4.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Mission Console Frontend}{7}{section.5}\protected@file@percent }
+\newlabel{sec:frontend}{{5}{7}{Mission Console Frontend}{section.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Validation and Evidence}{7}{section.6}\protected@file@percent }
+\newlabel{sec:validation}{{6}{7}{Validation and Evidence}{section.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Test Infrastructure}{7}{subsection.6.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces CTest safety gates. Each gate is a binary verdict---pass or fail---with no subjective interpretation.}}{7}{table.caption.4}\protected@file@percent }
+\newlabel{tab:gates}{{3}{7}{CTest safety gates. Each gate is a binary verdict---pass or fail---with no subjective interpretation}{table.caption.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Real-Data Validation at Scale}{8}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Safety Score Evidence}{8}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4}Fuel Efficiency Evidence}{8}{subsection.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.5}Algorithmic Speed Evidence}{8}{subsection.6.5}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Tick latency benchmarks (\texttt  {phase3\_tick\_benchmark}).}}{8}{table.caption.5}\protected@file@percent }
+\newlabel{tab:perf}{{4}{8}{Tick latency benchmarks (\texttt {phase3\_tick\_benchmark})}{table.caption.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Hot-path optimizations.}{8}{table.caption.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6}Deployment Verification}{8}{subsection.6.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Deployment}{8}{section.7}\protected@file@percent }
+\newlabel{sec:deploy}{{7}{8}{Deployment}{section.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Docker Build Architecture}{8}{subsection.7.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Docker build stages.}}{9}{table.caption.6}\protected@file@percent }
+\newlabel{tab:docker}{{5}{9}{Docker build stages}{table.caption.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Quick Start}{9}{subsection.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}CI Pipeline}{9}{subsection.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}Engineering Scope and Future Extensions}{9}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {A}Key Physical Constants}{10}{appendix.A}\protected@file@percent }
+\newlabel{app:constants}{{A}{10}{Key Physical Constants}{appendix.A}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces System constants (from \texttt  {src/types.hpp}).}}{10}{table.caption.7}\protected@file@percent }
+\newlabel{tab:constants}{{6}{10}{System constants (from \texttt {src/types.hpp})}{table.caption.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {B}CDM Severity Tiers}{10}{appendix.B}\protected@file@percent }
+\newlabel{app:cdm}{{B}{10}{CDM Severity Tiers}{appendix.B}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Conjunction severity classification.}}{10}{table.caption.8}\protected@file@percent }
+\newlabel{tab:cdm}{{7}{10}{Conjunction severity classification}{table.caption.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {C}Verification Commands}{10}{appendix.C}\protected@file@percent }
+\newlabel{app:cmds}{{C}{10}{Verification Commands}{appendix.C}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {D}NSGA-II Offline Tuner}{10}{appendix.D}\protected@file@percent }
+\newlabel{app:tuner}{{D}{10}{NSGA-II Offline Tuner}{appendix.D}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {E}Problem Statement Alignment}{10}{appendix.E}\protected@file@percent }
+\newlabel{app:ps}{{E}{10}{Problem Statement Alignment}{appendix.E}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces PS evaluation criteria alignment.}}{10}{table.caption.9}\protected@file@percent }
+\newlabel{tab:ps}{{8}{10}{PS evaluation criteria alignment}{table.caption.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {F}Development Timeline}{11}{appendix.F}\protected@file@percent }
+\newlabel{app:timeline}{{F}{11}{Development Timeline}{appendix.F}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Development timeline. Each week built upon the validated outputs of the prior phase.}}{11}{table.caption.10}\protected@file@percent }
+\newlabel{tab:timeline}{{9}{11}{Development timeline. Each week built upon the validated outputs of the prior phase}{table.caption.10}{}}
+\gdef \@abspage@last{11}

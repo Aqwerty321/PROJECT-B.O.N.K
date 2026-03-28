@@ -1,6 +1,6 @@
 <div align="center">
 
-# CASCADE
+# C . A . S . C . A . D . E
 
 ### **C**ollision **A**voidance **S**ystem for **C**onstellation **A**utomation, **D**etection & **E**vasion
 
