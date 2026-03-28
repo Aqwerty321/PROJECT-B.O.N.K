@@ -190,19 +190,24 @@ export function HeroMetric({
   value,
   detail,
   tone = 'neutral',
+  action,
 }: {
   label: string;
   value: string;
   detail: string;
   tone?: Tone;
+  action?: ReactNode;
 }) {
   const color = toneColor(tone);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-      <span style={{ color: theme.colors.textMuted, fontSize: '9px', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
-        {label}
-      </span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start' }}>
+        <span style={{ color: theme.colors.textMuted, fontSize: '9px', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+          {label}
+        </span>
+        {action}
+      </div>
       <span style={{ color, fontSize: '16px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </span>

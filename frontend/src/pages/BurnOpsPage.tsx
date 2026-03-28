@@ -1,6 +1,7 @@
 import type { ExecutedBurn, PendingBurn } from '../types/api';
 import { GlassPanel } from '../components/GlassPanel';
 import ManeuverGantt from '../components/ManeuverGantt';
+import { SatelliteFocusDropdown, SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { DetailList, EmptyStatePanel, InfoChip, SectionHeader, SummaryCard, type Tone } from '../components/dashboard/UiPrimitives';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
@@ -71,7 +72,7 @@ function outcomeTone(burn: TimelineBurn | null): Tone {
 }
 
 export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boolean; isCompact: boolean }) {
-  const { model, selectedSatId } = useDashboard();
+  const { model, selectedSatId, selectSat } = useDashboard();
 
   const droppedCount = model.burnSummary?.burns_dropped ?? model.droppedBurns.length;
   const focusedPending = selectedSatId ? model.pendingBurns.filter(burn => burn.satellite_id === selectedSatId) : model.pendingBurns;
@@ -187,7 +188,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
         description="Command timeline and upload friction centered on the live burn queue; horizontal scroll keeps dense schedules readable."
         aside={
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
-            <InfoChip label="View" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'accent' : 'primary'} />
+            <SatelliteFocusDropdown label="View" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} fleetLabel="Fleet" tone="primary" variant="chip" />
             <InfoChip label="Pending" value={model.watchedPendingBurns.length.toString()} tone={model.watchedPendingBurns.length > 0 ? 'warning' : 'accent'} />
             <InfoChip label="Executed" value={model.watchedExecutedBurns.length.toString()} tone="primary" />
             <InfoChip label="Dropped" value={droppedCount.toString()} tone={droppedCount > 0 ? 'critical' : 'neutral'} />
@@ -214,9 +215,17 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
                 Executed burns, queued maneuvers, dropped uploads, and blackout/conflict markers aligned on a single command clock with selected-vehicle focus.
               </p>
             </div>
-            <div style={{ width: '100%', flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: '1px solid rgba(255, 194, 71, 0.28)', background: 'linear-gradient(180deg, rgba(11, 13, 17, 0.92), rgba(7, 8, 10, 0.98))', boxShadow: 'inset 0 0 32px rgba(0, 0, 0, 0.62), 0 0 22px rgba(255, 194, 71, 0.05)' }}>
-              <ManeuverGantt burns={model.burns} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} />
-            </div>
+            {selectedSatId ? (
+              <div style={{ width: '100%', flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: '1px solid rgba(255, 194, 71, 0.28)', background: 'linear-gradient(180deg, rgba(11, 13, 17, 0.92), rgba(7, 8, 10, 0.98))', boxShadow: 'inset 0 0 32px rgba(0, 0, 0, 0.62), 0 0 22px rgba(255, 194, 71, 0.05)' }}>
+                <ManeuverGantt burns={model.burns} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} />
+              </div>
+            ) : (
+              <SatelliteSelectionPlaceholder
+                title="Satellite Focus Required"
+                detail="Select a satellite to inspect its predictive maneuver timeline, upload windows, and burn-lane command friction."
+                tone="warning"
+              />
+            )}
           </div>
         </GlassPanel>
 
@@ -235,7 +244,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
               </p>
             </div>
 
-            {decisionFocus ? (
+            {selectedSatId ? decisionFocus ? (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
                   {explainCards}
@@ -246,6 +255,12 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
               <EmptyStatePanel
                 title="Awaiting Burn Evidence"
                 detail="No burn has been queued or executed in the current focus lane yet. Run the ready-demo path or select a satellite with activity to populate the explanation rail."
+              />
+            ) : (
+              <SatelliteSelectionPlaceholder
+                title="Satellite Focus Required"
+                detail="Select a satellite to inspect the burn decision explainer, including trigger debris, delta-v choice, upload path, and mitigation outcome."
+                tone="accent"
               />
             )}
           </div>

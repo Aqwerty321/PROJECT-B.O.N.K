@@ -1,5 +1,6 @@
 import { GlassPanel } from '../components/GlassPanel';
 import { GroundTrackMap } from '../components/GroundTrackMap';
+import { SatelliteFocusDropdown, SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
 import { DetailList, InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
@@ -81,7 +82,7 @@ export function TrackPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompac
         description="Full tactical ground track on the left, focused spacecraft details and path state on the right."
         aside={
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
-            <InfoChip label="Mode" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'accent' : 'primary'} />
+            <SatelliteFocusDropdown label="Mode" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} fleetLabel="Fleet" tone="primary" variant="chip" />
             <InfoChip label="Objects" value={model.satellites.length.toLocaleString()} tone="accent" />
             <InfoChip label="Debris" value={model.debris.length.toLocaleString()} tone="warning" />
           </div>
@@ -106,7 +107,7 @@ export function TrackPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompac
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: isCompact ? 'flex-start' : 'flex-end' }}>
                 <InfoChip label="Freshness" value={minutesSince(model.snapshotUpdatedAtMs)} tone={model.snapshot ? 'accent' : 'warning'} />
-                <InfoChip label="Watch" value={model.watchTargetValue} tone={selectedSatId ? 'accent' : 'neutral'} />
+                <SatelliteFocusDropdown label="Watch" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} tone="accent" variant="chip" />
               </div>
             </div>
 
@@ -131,36 +132,15 @@ export function TrackPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompac
           style={{ minHeight: 0 }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, minHeight: 0, padding: '10px 14px 14px', overflow: 'auto' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <span style={{ color: theme.colors.textMuted, fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Selection State</span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: theme.colors.text, fontSize: '20px', fontWeight: 700, lineHeight: 1.05 }}>{selectedSatId ?? 'Fleet Overview'}</span>
-                {selectedSatId && (
-                  <button
-                    type="button"
-                    onClick={() => selectSat(null)}
-                    style={{
-                      fontSize: '9px',
-                      fontFamily: theme.font.mono,
-                      padding: '4px 8px',
-                      border: `1px solid ${theme.colors.border}`,
-                      background: 'rgba(10, 11, 14, 0.88)',
-                      color: theme.colors.text,
-                      cursor: 'pointer',
-                      letterSpacing: '0.12em',
-                      clipPath: theme.chamfer.buttonClipPath,
-                    }}
-                  >
-                    CLEAR
-                  </button>
-                )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ color: theme.colors.textMuted, fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Selection State</span>
+                <SatelliteFocusDropdown label="Selection State" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} tone="primary" variant="panel" />
+                <span style={{ color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.5 }}>
+                  {model.activeSatellite
+                    ? `${model.activeSatellite.status} / ${model.activeSatellite.fuel_kg.toFixed(1)} kg fuel`
+                    : 'Fleet-wide track mode. Select a vehicle on the map to inspect.'}
+                </span>
               </div>
-              <span style={{ color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.5 }}>
-                {model.activeSatellite
-                  ? `${model.activeSatellite.status} / ${model.activeSatellite.fuel_kg.toFixed(1)} kg fuel`
-                  : 'Fleet-wide track mode. Select a vehicle on the map to inspect.'}
-              </span>
-            </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
               <InfoChip label="Mission Time" value={model.missionValue} tone="primary" style={{ minWidth: '100%' }} />
@@ -172,19 +152,27 @@ export function TrackPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompac
               {proofCards}
             </div>
 
-            <DetailList
-              entries={[
-                { label: 'Snapshot', value: model.snapshot?.timestamp?.replace('T', ' ').replace('Z', ' UTC') ?? 'Link pending', tone: 'primary' },
-                { label: 'Update Age', value: minutesSince(model.snapshotUpdatedAtMs), tone: model.snapshot ? 'accent' : 'warning' },
-                { label: 'Track Mode', value: selectedSatId ? 'Focused vehicle' : 'Fleet overview', tone: selectedSatId ? 'accent' : 'neutral' },
-                { label: 'Path Focus', value: model.trajectory?.satellite_id ?? 'Standby', tone: model.trajectory?.satellite_id ? 'primary' : 'neutral' },
-                { label: 'Trail Proof', value: `${formatMinutesValue(trailCoverageMinutes)} / cache ${formatMinutesValue(historyCoverageMinutes)}`, tone: trailCoverageMinutes >= 80 ? 'accent' : 'warning' },
-                { label: 'Forecast Proof', value: formatMinutesValue(forecastCoverageMinutes), tone: forecastCoverageMinutes >= 80 ? 'warning' : 'neutral' },
-                { label: 'Terminator Epoch', value: formatUtcClock(model.snapshot?.timestamp), tone: model.snapshot ? 'primary' : 'neutral' },
-                { label: 'Objects', value: model.satellites.length.toLocaleString(), tone: 'accent' },
-                { label: 'Debris', value: model.debris.length.toLocaleString(), tone: 'warning' },
-              ]}
-            />
+            {selectedSatId ? (
+              <DetailList
+                entries={[
+                  { label: 'Snapshot', value: model.snapshot?.timestamp?.replace('T', ' ').replace('Z', ' UTC') ?? 'Link pending', tone: 'primary' },
+                  { label: 'Update Age', value: minutesSince(model.snapshotUpdatedAtMs), tone: model.snapshot ? 'accent' : 'warning' },
+                  { label: 'Track Mode', value: selectedSatId ? 'Focused vehicle' : 'Fleet overview', tone: selectedSatId ? 'accent' : 'neutral' },
+                  { label: 'Path Focus', value: model.trajectory?.satellite_id ?? 'Standby', tone: model.trajectory?.satellite_id ? 'primary' : 'neutral' },
+                  { label: 'Trail Proof', value: `${formatMinutesValue(trailCoverageMinutes)} / cache ${formatMinutesValue(historyCoverageMinutes)}`, tone: trailCoverageMinutes >= 80 ? 'accent' : 'warning' },
+                  { label: 'Forecast Proof', value: formatMinutesValue(forecastCoverageMinutes), tone: forecastCoverageMinutes >= 80 ? 'warning' : 'neutral' },
+                  { label: 'Terminator Epoch', value: formatUtcClock(model.snapshot?.timestamp), tone: model.snapshot ? 'primary' : 'neutral' },
+                  { label: 'Objects', value: model.satellites.length.toLocaleString(), tone: 'accent' },
+                  { label: 'Debris', value: model.debris.length.toLocaleString(), tone: 'warning' },
+                ]}
+              />
+            ) : (
+              <SatelliteSelectionPlaceholder
+                title="Satellite Focus Required"
+                detail="Select a satellite to inspect its trail coverage, predicted path proof, and track detail rail metrics."
+                tone="accent"
+              />
+            )}
           </div>
         </GlassPanel>
       </div>

@@ -1,11 +1,12 @@
 import { BurnEfficiencyChart } from '../components/BurnEfficiencyChart';
 import { GlassPanel } from '../components/GlassPanel';
+import { SatelliteFocusDropdown, SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
 
 export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boolean; isCompact: boolean }) {
-  const { model, selectedSatId } = useDashboard();
+  const { model, selectedSatId, selectSat } = useDashboard();
 
   const selectedStats = selectedSatId ? model.burns?.per_satellite?.[selectedSatId] : null;
   const summary = model.burnSummary;
@@ -72,7 +73,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
         description="Dedicated efficiency view for avoided collisions versus fuel draw, with dropped-command context retained."
         aside={
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
-            <InfoChip label="View" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'accent' : 'primary'} />
+            <SatelliteFocusDropdown label="View" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} fleetLabel="Fleet" tone="primary" variant="chip" />
             <InfoChip label="Avoided" value={avoidedCount.toString()} tone={avoidedCount > 0 ? 'accent' : 'neutral'} />
             <InfoChip label="Fuel" value={`${fuelConsumedKg.toFixed(2)} kg`} tone={fuelConsumedKg > 0 ? 'warning' : 'neutral'} />
             <InfoChip label="Ratio" value={`${efficiencyRatio.toFixed(2)} /kg`} tone="primary" />
@@ -98,9 +99,17 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
               Fuel draw versus backend-tracked avoided collisions, with dropped-command visibility so the chart reflects operational friction rather than idealized outcomes.
             </p>
           </div>
-          <div style={{ flex: '1 1 auto', minHeight: '280px', overflow: 'visible', border: '1px solid rgba(88, 184, 255, 0.24)', background: 'linear-gradient(180deg, rgba(9, 12, 17, 0.96), rgba(5, 7, 10, 0.98))' }}>
-            <BurnEfficiencyChart burns={model.burns} selectedSatId={selectedSatId} />
-          </div>
+          {selectedSatId ? (
+            <div style={{ flex: '1 1 auto', minHeight: '280px', overflow: 'visible', border: '1px solid rgba(88, 184, 255, 0.24)', background: 'linear-gradient(180deg, rgba(9, 12, 17, 0.96), rgba(5, 7, 10, 0.98))' }}>
+              <BurnEfficiencyChart burns={model.burns} selectedSatId={selectedSatId} />
+            </div>
+          ) : (
+            <SatelliteSelectionPlaceholder
+              title="Satellite Focus Required"
+              detail="Select a satellite to inspect its burn-efficiency chart, vehicle-specific avoidance outcomes, and fuel-to-mitigation ratio."
+              tone="primary"
+            />
+          )}
         </div>
       </GlassPanel>
     </section>

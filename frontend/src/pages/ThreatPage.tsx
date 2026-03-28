@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ConjunctionBullseye } from '../components/ConjunctionBullseye';
 import { ThreatSeverityFilters, filterConjunctionsBySeverity } from '../components/dashboard/ThreatSeverityFilters';
+import { SatelliteFocusDropdown, SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { GlassPanel } from '../components/GlassPanel';
 import { EmptyStatePanel, InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
 import { ConjunctionDetailCard } from '../components/threat/ConjunctionDetailCard';
@@ -190,38 +191,21 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
           : 'Awaiting predictive or historical events.'}
       tone={focusSatelliteId ? 'primary' : 'neutral'}
       testId="threat-focus-card"
-      action={selectedSatId ? (
-        <button
-          type="button"
-          aria-label="Return threat page to auto focus"
-          onClick={() => {
+      action={(
+        <SatelliteFocusDropdown
+          label="Focus"
+          satellites={model.satellites}
+          selectedSatId={selectedSatId}
+          onSelectSat={id => {
             setActiveEventKey(null);
-            selectSat(null);
+            selectSat(id);
           }}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '5px',
-            minHeight: '22px',
-            padding: '0 8px',
-            border: `1px solid ${theme.colors.primary}44`,
-            background: 'rgba(88, 184, 255, 0.08)',
-            color: theme.colors.primary,
-            fontFamily: theme.font.mono,
-            fontSize: '8px',
-            fontWeight: 700,
-            letterSpacing: '0.12em',
-            textTransform: 'uppercase',
-            cursor: 'pointer',
-            clipPath: theme.chamfer.buttonClipPath,
-            boxShadow: '0 0 10px rgba(88, 184, 255, 0.08)',
-          }}
-        >
-          <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: theme.colors.accent, boxShadow: `0 0 5px ${theme.colors.accent}` }} aria-hidden="true" />
-          Auto
-        </button>
-      ) : null}
-      actionWidth={selectedSatId ? 72 : 0}
+          fleetLabel="Auto"
+          tone="primary"
+          variant="chip"
+        />
+      )}
+      actionWidth={160}
     />,
     <SummaryCard
       key="closest"
@@ -265,7 +249,10 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
         description="Use the queue on the right to choose an encounter, the bullseye on the left to understand when and from where it approaches, and the detail card below to confirm why it matters."
         aside={
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
-            <InfoChip label="Focus" value={focusSatelliteId ?? 'Auto'} tone={focusSatelliteId ? 'primary' : 'neutral'} />
+            <SatelliteFocusDropdown label="Focus" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={id => {
+              setActiveEventKey(null);
+              selectSat(id);
+            }} fleetLabel="Auto" tone="primary" variant="chip" />
             <InfoChip label="Stream" value={streamLabel} tone={streamLabel === 'Predictive 24h' ? 'warning' : 'accent'} />
             <InfoChip label="Filters" value={filterSummary} tone={hasActiveThreatSeverityFilter(threatSeverityFilter) ? 'accent' : 'warning'} />
           </div>
@@ -301,11 +288,19 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
 
             <ThreatSeverityFilters counts={streamThreatCounts} />
 
-            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: '1px solid rgba(88, 184, 255, 0.34)', background: 'linear-gradient(180deg, rgba(10, 11, 14, 0.92), rgba(7, 8, 10, 0.98))' }}>
-              <ConjunctionBullseye conjunctions={sortedEvents} selectedSatId={focusSatelliteId} nowEpochS={model.nowEpochS} maxTcaSeconds={bullseyeMaxTcaSeconds} severityFilter={threatSeverityFilter} />
+              {selectedSatId ? (
+                <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: '1px solid rgba(88, 184, 255, 0.34)', background: 'linear-gradient(180deg, rgba(10, 11, 14, 0.92), rgba(7, 8, 10, 0.98))' }}>
+                  <ConjunctionBullseye conjunctions={sortedEvents} selectedSatId={focusSatelliteId} nowEpochS={model.nowEpochS} maxTcaSeconds={bullseyeMaxTcaSeconds} severityFilter={threatSeverityFilter} />
+                </div>
+              ) : (
+                <SatelliteSelectionPlaceholder
+                  title="Satellite Focus Required"
+                  detail="Select a satellite to inspect its encounter bullseye, approach direction, and time-to-TCA geometry."
+                  tone="primary"
+                />
+              )}
             </div>
-          </div>
-        </GlassPanel>
+          </GlassPanel>
 
         <div style={{ display: 'grid', gridTemplateRows: 'minmax(0, 0.56fr) minmax(0, 0.44fr)', gap: '14px', minHeight: 0 }}>
           <GlassPanel
@@ -321,7 +316,10 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
                   Encounters are grouped by spacecraft and repeated history samples are collapsed into a single row. Choose one to pin this page to a vehicle, or clear the pin from the Focus Vehicle card to return to auto-follow.
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  <InfoChip label="Focused" value={focusSatelliteId ?? 'Auto'} tone={focusSatelliteId ? 'primary' : 'neutral'} />
+                  <SatelliteFocusDropdown label="Focused" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={id => {
+                    setActiveEventKey(null);
+                    selectSat(id);
+                  }} fleetLabel="Auto" tone="primary" variant="chip" />
                   <InfoChip label="Fail-open" value={focusFailOpenCount.toString()} tone={focusFailOpenCount > 0 ? 'warning' : 'neutral'} />
                   <InfoChip label="Vehicle Lanes" value={queueGroups.length.toString()} tone={queueGroups.length > 0 ? 'accent' : 'neutral'} />
                 </div>
@@ -354,10 +352,18 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
             accentColor={theme.colors.accent}
             style={{ minHeight: 0 }}
           >
-            <div style={{ padding: '10px 12px 12px', overflow: 'auto', flex: 1, minHeight: 0 }}>
-              <ConjunctionDetailCard event={activeEvent} nowEpochS={model.nowEpochS} />
-            </div>
-          </GlassPanel>
+              <div style={{ padding: '10px 12px 12px', overflow: 'auto', flex: 1, minHeight: 0 }}>
+                {selectedSatId ? (
+                  <ConjunctionDetailCard event={activeEvent} nowEpochS={model.nowEpochS} />
+                ) : (
+                  <SatelliteSelectionPlaceholder
+                    title="Satellite Focus Required"
+                    detail="Select a satellite to inspect its selected encounter, TCA timing, miss distance, and collision-state details."
+                    tone="accent"
+                  />
+                )}
+              </div>
+            </GlassPanel>
         </div>
       </div>
     </section>

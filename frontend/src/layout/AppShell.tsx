@@ -2,6 +2,7 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 import { NAV_ITEMS, labelForNav, type PageId } from '../app/navigation';
 import { GlobalStepStatus } from '../components/dashboard/GlobalStepStatus';
 import { SummaryCard } from '../components/dashboard/UiPrimitives';
+import { SatelliteFocusDropdown } from '../components/dashboard/SatelliteFocusControls';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
 
@@ -236,19 +237,18 @@ export function AppShell({
             detail={model.watchTargetDetail}
             tone={model.activeSatellite ? 'accent' : 'neutral'}
             testId="watch-target-card"
-            action={selectedSatId ? (
-              <button
-                type="button"
-                onClick={() => selectSat(null)}
-                aria-label="Return to fleet view"
-                style={styles.watchResetButton}
-              >
-                <span style={styles.watchResetDot} aria-hidden="true" />
-                <span style={styles.watchResetLabel}>Fleet</span>
-                <span style={styles.watchResetDismiss} aria-hidden="true">&times;</span>
-              </button>
-            ) : null}
-            actionWidth={selectedSatId ? 118 : 0}
+            action={(
+              <SatelliteFocusDropdown
+                label="Watch"
+                satellites={model.satellites}
+                selectedSatId={selectedSatId}
+                onSelectSat={selectSat}
+                fleetLabel="Fleet Overview"
+                tone="accent"
+                variant="chip"
+              />
+            )}
+            actionWidth={164}
           />
           <SummaryCard label="Threat Index" value={model.threatValue} detail={model.threatDetail} tone={model.threatCounts.red > 0 ? 'critical' : model.threatCounts.yellow > 0 ? 'warning' : 'accent'} />
           <SummaryCard label="Burn Queue" value={model.burnValue} detail={model.burnDetail} tone={model.watchedPendingBurns.length > 0 ? 'warning' : 'accent'} />
@@ -523,44 +523,6 @@ const styles: Record<string, CSSProperties> = {
     background: 'linear-gradient(180deg, rgba(6, 6, 7, 0.88), rgba(6, 6, 7, 0.72))',
     backdropFilter: 'blur(8px)',
     borderBottom: `1px solid ${theme.colors.border}`,
-  },
-
-  /* Watch target reset action */
-  watchResetButton: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '5px',
-    padding: '2px 8px 2px 7px',
-    border: `1px solid ${theme.colors.primary}44`,
-    background: 'rgba(88, 184, 255, 0.08)',
-    cursor: 'pointer',
-    fontFamily: theme.font.mono,
-    transition: 'background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
-    clipPath: theme.chamfer.buttonClipPath,
-    boxShadow: '0 0 10px rgba(88, 184, 255, 0.08)',
-  },
-  watchResetDot: {
-    display: 'inline-block',
-    width: '5px',
-    height: '5px',
-    borderRadius: '50%',
-    background: theme.colors.accent,
-    boxShadow: `0 0 6px ${theme.colors.accent}`,
-    flexShrink: 0,
-  },
-  watchResetLabel: {
-    fontSize: '8px',
-    fontWeight: 700,
-    letterSpacing: '0.12em',
-    textTransform: 'uppercase' as const,
-    color: theme.colors.primary,
-  },
-  watchResetDismiss: {
-    fontSize: '12px',
-    lineHeight: 1,
-    color: theme.colors.textMuted,
-    marginLeft: '1px',
-    fontWeight: 400,
   },
 
   visuallyHidden: {
