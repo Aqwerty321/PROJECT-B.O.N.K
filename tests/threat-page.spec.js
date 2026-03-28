@@ -17,8 +17,8 @@ test('threat page redesign stays understandable and actionable', async ({ page }
   await expect(page.getByRole('heading', { name: 'Conjunction Watch' })).toBeVisible();
   await expect(page.getByText('How to read the radar')).toBeVisible();
   await expect(page.getByText('Center is the watched spacecraft. Radius tells you how soon the encounter happens.')).toBeVisible();
-  await expect(page.getByText('ENCOUNTER QUEUE')).toBeVisible();
-  await expect(page.getByText('SELECTED ENCOUNTER')).toBeVisible();
+  await expect(page.getByText('ENCOUNTER QUEUE', { exact: true })).toBeVisible();
+  await expect(page.getByText('SELECTED ENCOUNTER', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('group', { name: 'Threat severity filters' })).toBeVisible();
 
   const queueButtons = page.locator('button').filter({ hasText: 'vs DEB-' });
@@ -26,9 +26,10 @@ test('threat page redesign stays understandable and actionable', async ({ page }
 
   if (queueCount > 0) {
     await queueButtons.first().click();
-    await expect(page.getByText('Selected Encounter')).toBeVisible();
-    await expect(page.getByText('Severity')).toBeVisible();
-    await expect(page.getByText('Miss')).toBeVisible();
+    await expect(page.getByText('Selected Encounter', { exact: true }).first()).toBeVisible();
+    const selectedEncounterPanel = page.getByText('SELECTED ENCOUNTER', { exact: true }).first().locator('..');
+    await expect(selectedEncounterPanel.getByText('Severity', { exact: true })).toBeVisible();
+    await expect(selectedEncounterPanel.getByText('Miss', { exact: true })).toBeVisible();
   } else {
     await expect(page.getByText(/NO ENCOUNTERS IN STREAM|FILTERS HIDE ALL ENCOUNTERS/)).toBeVisible();
   }

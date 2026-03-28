@@ -7,7 +7,7 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
 
 ### Safety Score (25%)
 
-- Live frontend view: `#/scorecard`, `#/threat`, `#/burn-ops`, `#/evasion`
+- Live frontend view: `#/threat`, `#/burn-ops`, `#/evasion`
 - Runtime evidence:
   - `GET /api/debug/burns`
   - `GET /api/debug/conjunctions?source=predicted`
@@ -24,7 +24,7 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
 
 ### Fuel Efficiency (20%)
 
-- Live frontend view: `#/evasion`, `#/scorecard`, `#/fleet-status`
+- Live frontend view: `#/evasion`, `#/fleet-status`
 - Runtime evidence:
   - burn summary `fuel_consumed_kg`
   - burn summary `avoidance_fuel_consumed_kg`
@@ -34,7 +34,7 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
 
 ### Constellation Uptime (15%)
 
-- Live frontend view: `#/fleet-status`, `#/command`, `#/scorecard`
+- Live frontend view: `#/fleet-status`, `#/command`
 - Runtime evidence:
   - `status.internal_metrics.propagation_last_tick.stationkeeping_outside_box`
   - `status.internal_metrics.propagation_last_tick.stationkeeping_slot_radius_error_max_km`
@@ -42,7 +42,7 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
 
 ### Algorithmic Speed (15%)
 
-- Live frontend view: `#/scorecard`, `#/fleet-status`
+- Live frontend view: `#/evasion`, `#/fleet-status`
 - Runtime evidence:
   - `status.internal_metrics.command_latency_us`
   - object count from `GET /api/status?details=1`
@@ -58,7 +58,6 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
   - `#/threat`
   - `#/burn-ops`
   - `#/fleet-status`
-  - `#/scorecard`
 - PS module mapping:
   - Ground track: `#/track`
   - Bullseye: `#/threat`

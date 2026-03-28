@@ -9,7 +9,6 @@ import { ThreatPage } from './pages/ThreatPage';
 import { BurnOpsPage } from './pages/BurnOpsPage';
 import { EvasionPage } from './pages/EvasionPage';
 import { FleetStatusPage } from './pages/FleetStatusPage';
-import { ScorecardPage } from './pages/ScorecardPage';
 
 function DashboardApp() {
   const { booted, setBooted } = useDashboard();
@@ -44,7 +43,6 @@ function DashboardApp() {
       {pageId === 'burn-ops' && <BurnOpsPage isNarrow={isNarrow} isCompact={isCompact} />}
       {pageId === 'evasion' && <EvasionPage isNarrow={isNarrow} isCompact={isCompact} />}
       {pageId === 'fleet-status' && <FleetStatusPage isNarrow={isNarrow} isCompact={isCompact} />}
-      {pageId === 'scorecard' && <ScorecardPage isNarrow={isNarrow} isCompact={isCompact} />}
     </AppShell>
   );
 }

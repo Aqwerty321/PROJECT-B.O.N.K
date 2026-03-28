@@ -97,14 +97,15 @@ Describe the judge-facing cockpit.
 - Ground Track page with real-time markers, 90-minute trail, 90-minute forecast, and live solar terminator
 - Threat page with bullseye and severity filtering
 - Burn timeline with blackout and friction markers
-- Fleet/evasion/scorecard views for PS Section 7 criteria
+- Evasion and fleet-status views for PS Section 7 criteria
 
 Recommended figure set:
 
 - Ground Track screenshot
 - Threat/Bullseye screenshot
 - Burn timeline screenshot
-- Scorecard screenshot
+- Evasion efficiency screenshot
+- Fleet status screenshot
 
 ## 5. Validation and evidence
 
@@ -171,7 +172,8 @@ cd frontend && npm run build
 - Ground Track with trail, forecast, terminator
 - bullseye threat view
 - maneuver timeline
-- scorecard view
+- evasion efficiency view
+- fleet status view
 - ready-demo confirmation output
 
 ## Appendix C. Writing notes

@@ -26,7 +26,7 @@ function formatOffsetLabel(deltaSeconds: number): string {
 export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boolean; isCompact: boolean }) {
   const { model, selectedSatId, selectSat, threatSeverityFilter } = useDashboard();
   const [activeEventKey, setActiveEventKey] = useState<string | null>(null);
-  const { conjunctions: predictiveConjunctions } = useConjunctions(2000, selectedSatId ?? undefined, 'predicted');
+  const { conjunctions: predictiveConjunctions } = useConjunctions(2000, undefined, 'predicted');
 
   const streamEvents = predictiveConjunctions && predictiveConjunctions.count > 0
     ? predictiveConjunctions.conjunctions
@@ -164,11 +164,44 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
       label="Focus Vehicle"
       value={focusSatelliteId ?? 'AUTO'}
       detail={selectedSatId
-        ? 'Pinned from the shared dashboard focus.'
+        ? 'Pinned from the encounter queue. Select another encounter to retarget, or clear to return to auto-follow.'
         : focusSatelliteId
-          ? 'Auto-focused on the next active spacecraft until you pin another target.'
+          ? 'Auto-focused on the next active spacecraft. Select an encounter from the queue to pin it.'
           : 'Awaiting predictive or historical events.'}
       tone={focusSatelliteId ? 'primary' : 'neutral'}
+      testId="threat-focus-card"
+      action={selectedSatId ? (
+        <button
+          type="button"
+          aria-label="Return threat page to auto focus"
+          onClick={() => {
+            setActiveEventKey(null);
+            selectSat(null);
+          }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            minHeight: '22px',
+            padding: '0 8px',
+            border: `1px solid ${theme.colors.primary}44`,
+            background: 'rgba(88, 184, 255, 0.08)',
+            color: theme.colors.primary,
+            fontFamily: theme.font.mono,
+            fontSize: '8px',
+            fontWeight: 700,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            cursor: 'pointer',
+            clipPath: theme.chamfer.buttonClipPath,
+            boxShadow: '0 0 10px rgba(88, 184, 255, 0.08)',
+          }}
+        >
+          <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: theme.colors.accent, boxShadow: `0 0 5px ${theme.colors.accent}` }} aria-hidden="true" />
+          Auto
+        </button>
+      ) : null}
+      actionWidth={selectedSatId ? 72 : 0}
     />,
     <SummaryCard
       key="closest"
@@ -204,7 +237,6 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
       tone={filteredFocusedEvents.length > 0 ? 'accent' : 'neutral'}
     />,
   ];
-
   return (
     <section aria-labelledby="threat-heading" style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%' }}>
       <SectionHeader
@@ -265,7 +297,7 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minHeight: 0, padding: '10px 12px 12px', overflow: 'auto' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexShrink: 0 }}>
                 <p style={{ color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.5, maxWidth: '42ch' }}>
-                  Choose an encounter to lock the spacecraft globally and inspect exactly when it happens and how severe it is.
+                  Choose an encounter to pin this page to a spacecraft. Click another encounter to switch objects, or clear the pin from the Focus Vehicle card to return to auto-follow.
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   <InfoChip label="Focused" value={focusSatelliteId ?? 'Auto'} tone={focusSatelliteId ? 'primary' : 'neutral'} />

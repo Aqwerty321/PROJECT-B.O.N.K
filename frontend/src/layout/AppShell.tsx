@@ -230,28 +230,30 @@ export function AppShell({
           }}
         >
           <SummaryCard label="Mission Time" value={model.missionValue} detail={model.missionDetail} tone="primary" />
-          <SummaryCard label="Watch Target" value={model.watchTargetValue} detail={model.watchTargetDetail} tone={model.activeSatellite ? 'accent' : 'neutral'} />
+          <SummaryCard
+            label="Watch Target"
+            value={model.watchTargetValue}
+            detail={model.watchTargetDetail}
+            tone={model.activeSatellite ? 'accent' : 'neutral'}
+            testId="watch-target-card"
+            action={selectedSatId ? (
+              <button
+                type="button"
+                onClick={() => selectSat(null)}
+                aria-label="Return to fleet view"
+                style={styles.watchResetButton}
+              >
+                <span style={styles.watchResetDot} aria-hidden="true" />
+                <span style={styles.watchResetLabel}>Fleet</span>
+                <span style={styles.watchResetDismiss} aria-hidden="true">&times;</span>
+              </button>
+            ) : null}
+            actionWidth={selectedSatId ? 118 : 0}
+          />
           <SummaryCard label="Threat Index" value={model.threatValue} detail={model.threatDetail} tone={model.threatCounts.red > 0 ? 'critical' : model.threatCounts.yellow > 0 ? 'warning' : 'accent'} />
           <SummaryCard label="Burn Queue" value={model.burnValue} detail={model.burnDetail} tone={model.watchedPendingBurns.length > 0 ? 'warning' : 'accent'} />
           <SummaryCard label="Resource Posture" value={model.resourceValue} detail={model.resourceDetail} tone={model.lowestFuelSatellite && model.lowestFuelSatellite.fuel_kg < 10 ? 'critical' : 'warning'} />
         </div>
-
-        {/* Fleet-mode dismiss chip — visible when a satellite is focused */}
-        {selectedSatId && (
-          <div style={styles.fleetChipRow}>
-            <button
-              type="button"
-              onClick={() => selectSat(null)}
-              style={styles.fleetChip}
-            >
-              <span style={styles.fleetChipIcon} aria-hidden="true" />
-              <span style={styles.fleetChipLabel}>TRACKING</span>
-              <span style={styles.fleetChipValue}>{selectedSatId}</span>
-              <span style={styles.fleetChipDismiss} aria-label="Return to fleet view">&times;</span>
-            </button>
-            <span style={styles.fleetChipHint}>Click to return to fleet view</span>
-          </div>
-        )}
 
         {/* Page content */}
         <main
@@ -523,61 +525,42 @@ const styles: Record<string, CSSProperties> = {
     borderBottom: `1px solid ${theme.colors.border}`,
   },
 
-  /* Fleet-mode dismiss chip */
-  fleetChipRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '4px 14px 2px',
-    flexShrink: 0,
-  },
-  fleetChip: {
+  /* Watch target reset action */
+  watchResetButton: {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '6px',
-    padding: '3px 10px 3px 8px',
-    border: `1px solid ${theme.colors.primary}55`,
-    borderRadius: '999px',
+    gap: '5px',
+    padding: '2px 8px 2px 7px',
+    border: `1px solid ${theme.colors.primary}44`,
     background: 'rgba(88, 184, 255, 0.08)',
     cursor: 'pointer',
     fontFamily: theme.font.mono,
     transition: 'background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
     clipPath: theme.chamfer.buttonClipPath,
+    boxShadow: '0 0 10px rgba(88, 184, 255, 0.08)',
   },
-  fleetChipIcon: {
+  watchResetDot: {
     display: 'inline-block',
-    width: '6px',
-    height: '6px',
+    width: '5px',
+    height: '5px',
     borderRadius: '50%',
     background: theme.colors.accent,
     boxShadow: `0 0 6px ${theme.colors.accent}`,
     flexShrink: 0,
   },
-  fleetChipLabel: {
-    fontSize: '9px',
+  watchResetLabel: {
+    fontSize: '8px',
     fontWeight: 700,
-    letterSpacing: '0.1em',
+    letterSpacing: '0.12em',
     textTransform: 'uppercase' as const,
-    color: theme.colors.textDim,
-  },
-  fleetChipValue: {
-    fontSize: '11px',
-    fontWeight: 600,
     color: theme.colors.primary,
-    letterSpacing: '0.04em',
   },
-  fleetChipDismiss: {
-    fontSize: '14px',
+  watchResetDismiss: {
+    fontSize: '12px',
     lineHeight: 1,
     color: theme.colors.textMuted,
-    marginLeft: '2px',
+    marginLeft: '1px',
     fontWeight: 400,
-  },
-  fleetChipHint: {
-    fontSize: '9px',
-    color: theme.colors.textMuted,
-    letterSpacing: '0.04em',
-    whiteSpace: 'nowrap' as const,
   },
 
   visuallyHidden: {

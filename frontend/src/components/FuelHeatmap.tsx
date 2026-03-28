@@ -94,8 +94,19 @@ export const FuelHeatmap = React.memo(function FuelHeatmap({ satellites, selecte
         return (
           <div
             key={sat.id}
+            role="button"
+            tabIndex={0}
+            aria-pressed={isSelected}
+            data-testid={`fuel-row-${sat.id}`}
             onClick={() => { play('click'); onSelectSat(isSelected ? null : sat.id); }}
             onMouseEnter={() => play('hover')}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                play('click');
+                onSelectSat(isSelected ? null : sat.id);
+              }
+            }}
             style={{
               display: 'flex',
               alignItems: 'center',

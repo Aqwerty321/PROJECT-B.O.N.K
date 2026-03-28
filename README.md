@@ -197,8 +197,8 @@ Look for `"collision_avoided": true` entries with `trigger_debris_id` of `DEB-SY
 | **Ground Track** | `http://localhost:8000/#/track` | Real orbital trajectories, debris cloud, satellite trails |
 | **Threat Assessment** | `http://localhost:8000/#/threat` | CRITICAL conjunctions on polar bullseye (radial = time-to-TCA) |
 | **Burn Operations** | `http://localhost:8000/#/burn-ops` | Evasion + recovery burn Gantt, fuel gauges, cooldown markers |
+| **Evasion** | `http://localhost:8000/#/evasion` | Fuel-to-mitigation efficiency, avoided collisions, dropped-command context |
 | **Fleet Status** | `http://localhost:8000/#/fleet-status` | Fuel heatmaps, ΔV usage, station-keeping drift |
-| **Scorecard** | `http://localhost:8000/#/scorecard` | PS §7 criteria mapped to live engine metrics |
 
 ### What the Demo Proves
 
@@ -391,7 +391,7 @@ Loaded from CSV at runtime (`PROJECTBONK_GROUND_STATIONS_CSV`) with compiled-in 
 
 ## Mission Console Frontend
 
-React 18 / TypeScript SPA built with Vite, rendered via Canvas 2D and Three.js WebGL. Polls the engine at 1–2 Hz. Seven purpose-built operational views:
+React 18 / TypeScript SPA built with Vite, rendered via Canvas 2D and Three.js WebGL. Polls the engine at 1–2 Hz. Six purpose-built operational views:
 
 | View | Route | Purpose |
 |---|---|---|
@@ -399,9 +399,8 @@ React 18 / TypeScript SPA built with Vite, rendered via Canvas 2D and Three.js W
 | **Ground Track** | `#/track` | Mercator canvas with 90-min historical trails + forecast arcs, solar terminator, station footprints |
 | **Threat Assessment** | `#/threat` | Polar bullseye plot — radial = time-to-TCA, angular = approach vector, color = CDM severity |
 | **Burn Operations** | `#/burn-ops` | Gantt maneuver timeline with blackout overlays, cooldown markers, per-satellite fuel gauges |
-| **Evasion** | `#/evasion` | Evasion-specific operational view |
+| **Evasion** | `#/evasion` | Fuel-to-mitigation efficiency, avoided collisions, dropped-command context |
 | **Fleet Status** | `#/fleet-status` | Fuel heatmaps, ΔV vs collisions-avoided, station-keeping drift, satellite availability |
-| **Scorecard** | `#/scorecard` | PS §7 evaluation criteria mapped to live engine metrics with weighted readiness percentages |
 
 The snapshot endpoint delivers debris as flattened `[id, lat, lon, alt_km]` tuples to minimize payload size. Canvas 2D renders ground-track and Gantt views at 60 FPS with 10,000+ debris markers. The frontend is statically built, bundled into the Docker image, and served by `cpp-httplib` — no separate web server required.
 

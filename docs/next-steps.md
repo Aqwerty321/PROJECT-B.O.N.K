@@ -84,7 +84,7 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 | Station-keeping 10 km box and penalty | PARTIAL | box radius and exponential penalty metrics present | penalty is observed metric, not yet used in optimization objective | define policy for objective coupling |
 | Communication latency + LOS | PARTIAL | 10s latency + LOS window planning | planner remains simplified for blackout/upload optimization | continue scheduler fidelity upgrades |
 | Deployment requirement (`Dockerfile`, Ubuntu, port 8000) | DONE | root Dockerfile, `ubuntu:22.04`, `EXPOSE 8000` | previously broken image due missing source copy, now fixed | keep image build in CI |
-| Frontend visualization modules | PARTIAL | React/Vite mission console now ships `#/command`, `#/track`, `#/threat`, `#/burn-ops`, `#/evasion`, `#/fleet-status`, `#/scorecard` | judge-facing FPS proof, counterfactual packaging, and some visualization polish still need explicit artifact capture | use `tests/fps-evidence.spec.js`, `scripts/capture_fps_evidence.sh`, and the frozen demo storyboard |
+| Frontend visualization modules | PARTIAL | React/Vite mission console now ships `#/command`, `#/track`, `#/threat`, `#/burn-ops`, `#/evasion`, `#/fleet-status` | judge-facing FPS proof, counterfactual packaging, and some visualization polish still need explicit artifact capture | use `tests/fps-evidence.spec.js`, `scripts/capture_fps_evidence.sh`, and the frozen demo storyboard |
 
 ## 4) Architecture uptake matrix (`ARCHITECTURE.md` vs implementation)
 
@@ -101,7 +101,7 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 | Maneuver brain CW/ZEM solver | PARTIAL | runtime supports `PROJECTBONK_RECOVERY_SOLVER_MODE=heuristic|cw_zem`; strict side-by-side comparison currently keeps heuristic as default |
 | Scheduler with blackout/upload semantics | PARTIAL | LOS + latency upload planning exists; static stations and simplified planner |
 | Offline tuner path | DONE | deterministic offline tuner scaffold and sweep tooling |
-| Frontend mission console | DONE | implemented as a multi-route React mission console with scorecard, ground-track, threat, and burn-ops surfaces |
+| Frontend mission console | DONE | implemented as a multi-route React mission console with command, ground-track, threat, burn-ops, evasion, and fleet-status surfaces |
 | CI deterministic safety gate stack | DONE | aggregate phase4 gate and law-assertions gate are wired in CI with artifacts |
 
 ## 5) Critical gaps and risk register

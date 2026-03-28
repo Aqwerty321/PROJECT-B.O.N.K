@@ -26,8 +26,8 @@ This document maps the current repository state to the judge-facing requirements
 | Sections 3-5 backend physics and maneuver logic | Strong | J2 propagation, predictive CDM scan, auto-COLA, recovery, fuel and cooldown gates | keep extending real-data validation evidence |
 | Section 4 required APIs | Strong | telemetry, schedule, step, snapshot, status all implemented | keep contract gate green in isolated and CI environments |
 | Section 6.1 performance constraints | Partial | current frontend uses Three.js and compact snapshot payloads; `tests/fps-evidence.spec.js` and `scripts/capture_fps_evidence.sh` now capture frame-rate evidence | still needs a fresh recorded artifact from the final dense run |
-| Section 6.2 required visualization modules | Partial | ground track, bullseye, fuel/resource surfaces, maneuver timeline, scorecard, and burn explainability are now present | remaining work is judge-facing polish and final screenshot/video capture, not missing modules |
-| Section 7 evaluation criteria reporting | Strong | `#/scorecard` rolls up safety, fuel, uptime, speed, visualization, and logging evidence from live runtime signals | still package screenshots/video around the scorecard for the final deliverable |
+| Section 6.2 required visualization modules | Partial | ground track, bullseye, fuel/resource surfaces, maneuver timeline, and burn explainability are now present | remaining work is judge-facing polish and final screenshot/video capture, not missing modules |
+| Section 7 evaluation criteria reporting | Strong | `#/evasion`, `#/fleet-status`, and runtime metrics cover safety, fuel, uptime, speed, visualization, and logging evidence | still package screenshots/video around the operational views for the final deliverable |
 | Section 8 deployment | Strong | Dockerfile and compose setup present | add one-command smoke proof into CI or release checklist |
 | Section 9 deliverables | Partial | repo, runtime, storyboard, evidence index, and counterfactual demo guide are now formalized | technical report packaging and recorded final video still need to be frozen |
 
@@ -67,7 +67,7 @@ These items close the remaining Section 6 gaps.
    - Show burn blocks, cooldown windows, blackout overlaps, dropped uploads, and execution state with unambiguous colors.
    - Acceptance: command conflicts and missed upload windows are visible from the timeline alone.
 
-4. Fleet heatmap and scorecard unification.
+4. Fleet heatmap and efficiency unification.
    - Merge fuel posture, slot integrity, collisions avoided, and delta-v cost into a single operations panel.
    - Acceptance: the frontend visibly answers the Section 7 metrics without requiring debug endpoints.
 

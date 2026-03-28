@@ -39,7 +39,7 @@ async function measureFps(page, durationMs) {
   }, { durationMs });
 }
 
-test('captures dense-payload FPS evidence for the judge-facing dashboard', async ({ page }) => {
+test('captures dense-payload FPS evidence for the operational dashboard', async ({ page }) => {
   test.setTimeout(90000);
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
@@ -73,22 +73,22 @@ test('captures dense-payload FPS evidence for the judge-facing dashboard', async
     fullPage: true,
   });
 
-  await page.goto(`${BASE_URL}/#/scorecard`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${BASE_URL}/#/evasion`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#operations-main');
   await page.waitForTimeout(800);
-  const scorecardFps = await measureFps(page, 2200);
+  const evasionFps = await measureFps(page, 2200);
 
   await page.screenshot({
-    path: path.join(OUTPUT_DIR, 'scorecard-fps-evidence.png'),
+    path: path.join(OUTPUT_DIR, 'evasion-fps-evidence.png'),
     fullPage: true,
   });
 
   const report = {
     baseUrl: BASE_URL,
     commandView: commandFps,
-    scorecardView: scorecardFps,
+    evasionView: evasionFps,
     commandViewClass: classifyFps(commandFps.fps),
-    scorecardViewClass: classifyFps(scorecardFps.fps),
+    evasionViewClass: classifyFps(evasionFps.fps),
     runtimeEvidence,
     generatedAt: new Date().toISOString(),
   };
@@ -102,5 +102,5 @@ test('captures dense-payload FPS evidence for the judge-facing dashboard', async
   expect(runtimeEvidence.satellites).toBeGreaterThan(0);
   expect(runtimeEvidence.debris).toBeGreaterThan(1000);
   expect(commandFps.fps).toBeGreaterThan(5);
-  expect(scorecardFps.fps).toBeGreaterThan(5);
+  expect(evasionFps.fps).toBeGreaterThan(5);
 });

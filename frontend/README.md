@@ -1,6 +1,6 @@
 # CASCADE Mission Console Frontend
 
-React 19 / TypeScript / Vite SPA serving as the operational dashboard for the CASCADE engine. Renders 7 views via Canvas 2D and Three.js WebGL.
+React 19 / TypeScript / Vite SPA serving as the operational dashboard for the CASCADE engine. Renders 6 views via Canvas 2D and Three.js WebGL.
 
 ## Quick Start (Development)
 
@@ -38,8 +38,8 @@ Then navigate the dashboard views:
 - `http://localhost:5173/#/track` — Ground track with orbital trails
 - `http://localhost:5173/#/threat` — Polar bullseye threat view
 - `http://localhost:5173/#/burn-ops` — Maneuver Gantt timeline
+- `http://localhost:5173/#/evasion` — Fuel-to-mitigation efficiency view
 - `http://localhost:5173/#/fleet-status` — Fuel heatmaps, drift metrics
-- `http://localhost:5173/#/scorecard` — PS §7 evaluation scorecard
 
 ## Full End-to-End Demo
 

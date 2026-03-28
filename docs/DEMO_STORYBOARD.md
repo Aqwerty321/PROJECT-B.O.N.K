@@ -114,19 +114,19 @@ Call out:
 - `collision_avoided: true`
 - improved mitigation miss distance
 
-### 3:45-4:30 — Scorecard close
+### 3:45-4:30 — Efficiency and readiness close
 
 Say:
 
-"The dashboard closes the loop against the hackathon rubric: safety, fuel, uptime, speed, visualization, and code quality are all tied back to live runtime metrics."
+"The dashboard closes the loop against the hackathon rubric through operational views: threat pressure, burn execution, fuel efficiency, and fleet health are all tied back to live runtime metrics."
 
 Show:
 
-- `#/scorecard`
-- weighted readiness
-- live payload
-- safety proof
-- latency signal
+- `#/evasion`
+- `#/fleet-status`
+- avoided collisions vs fuel draw
+- fleet fuel / drift posture
+- live payload and latency signals
 
 ### 4:30-5:00 — Final differentiator
 
@@ -148,4 +148,4 @@ Point to:
 - What is the main differentiator?
   - "We do not just detect conjunctions; we autonomously mitigate them, recover afterward, and can demonstrate the counterfactual where the same encounter goes unmanaged."
 - How do you prove the UI is not cosmetic?
-  - "The scorecard, burn explainer, and FPS evidence all pull from live runtime state and recorded proof commands in the repo."
+  - "The operational views, burn explainer, and FPS evidence all pull from live runtime state and recorded proof commands in the repo."

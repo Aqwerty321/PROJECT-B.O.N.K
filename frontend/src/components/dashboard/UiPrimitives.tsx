@@ -23,30 +23,54 @@ export function SummaryCard({
   value,
   detail,
   tone = 'neutral',
+  action,
+  actionWidth = 0,
+  testId,
 }: {
   label: string;
   value: string;
   detail: string;
   tone?: Tone;
+  action?: ReactNode;
+  actionWidth?: number;
+  testId?: string;
 }) {
   const color = toneColor(tone);
 
   return (
     <div
+      data-testid={testId}
       style={{
         background: 'linear-gradient(180deg, rgba(17, 19, 23, 0.94), rgba(8, 9, 12, 0.96))',
         border: `1px solid ${tone === 'neutral' ? theme.colors.border : `${color}55`}`,
         boxShadow: `0 0 14px ${tone === 'neutral' ? 'rgba(88, 184, 255, 0.06)' : `${color}12`}`,
         clipPath: theme.chamfer.clipPath,
         padding: '8px 12px',
+        paddingRight: actionWidth > 0 ? `${12 + actionWidth}px` : '12px',
         minHeight: '62px',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
         gap: '4px',
         minWidth: 0,
+        position: 'relative',
       }}
     >
+      {action && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '8px',
+            right: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            maxWidth: `${actionWidth || 96}px`,
+          }}
+        >
+          {action}
+        </div>
+      )}
       <span
         style={{
           color: theme.colors.textMuted,

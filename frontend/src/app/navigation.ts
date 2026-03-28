@@ -1,4 +1,4 @@
-export type PageId = 'command' | 'track' | 'threat' | 'burn-ops' | 'evasion' | 'fleet-status' | 'scorecard';
+export type PageId = 'command' | 'track' | 'threat' | 'burn-ops' | 'evasion' | 'fleet-status';
 
 export type NavLabelMode = 'tactical' | 'simple';
 
@@ -54,13 +54,6 @@ export const NAV_ITEMS: NavItem[] = [
     tacticalLabel: 'Fleet',
     simpleLabel: 'Status',
     blurb: 'System health, fuel watchlist, and resource posture.',
-  },
-  {
-    id: 'scorecard',
-    path: '/scorecard',
-    tacticalLabel: 'Scorecard',
-    simpleLabel: 'PS Score',
-    blurb: 'Judge-facing evidence rollup across safety, speed, uptime, and delivery.',
   },
 ];
 
