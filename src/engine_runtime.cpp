@@ -223,6 +223,226 @@ double burn_fuel_consumed_kg(const ExecutedBurn& burn) noexcept
     return std::max(0.0, burn.fuel_before_kg - burn.fuel_after_kg);
 }
 
+TrackPoint make_track_point(double epoch_s, const Vec3& eci, const Vec3& vel)
+{
+    const Vec3 ecef = eci_to_ecef(eci, epoch_s);
+    double lat = 0.0;
+    double lon = 0.0;
+    double alt = 0.0;
+    ecef_to_geodetic(ecef, lat, lon, alt);
+
+    TrackPoint tp;
+    tp.epoch_s = epoch_s;
+    tp.lat_deg = lat;
+    tp.lon_deg = lon;
+    tp.alt_km = alt;
+    tp.eci_km = eci;
+    tp.vel_km_s = vel;
+    return tp;
+}
+
+void append_track_point_json(std::string& out, bool& first, const TrackPoint& tp)
+{
+    if (!first) out += ',';
+    first = false;
+    out += "{\"epoch_s\":";
+    out += fmt_double(tp.epoch_s, 3);
+    out += ",\"lat\":";
+    out += fmt_double(tp.lat_deg, 6);
+    out += ",\"lon\":";
+    out += fmt_double(tp.lon_deg, 6);
+    out += ",\"alt_km\":";
+    out += fmt_double(tp.alt_km, 3);
+    out += ",\"eci\":[";
+    out += fmt_double(tp.eci_km.x, 6);
+    out += ',';
+    out += fmt_double(tp.eci_km.y, 6);
+    out += ',';
+    out += fmt_double(tp.eci_km.z, 6);
+    out += "]}";
+}
+
+std::vector<double> executed_burn_epochs_in_segment(const std::deque<ExecutedBurn>& burn_history,
+                                                    std::string_view satellite_id,
+                                                    double start_epoch_s,
+                                                    double end_epoch_s)
+{
+    std::vector<double> epochs;
+    for (const auto& burn : burn_history) {
+        if (burn.satellite_id != satellite_id) {
+            continue;
+        }
+        if (burn.burn_epoch_s <= start_epoch_s + EPS_NUM) {
+            continue;
+        }
+        if (burn.burn_epoch_s <= end_epoch_s + EPS_NUM) {
+            epochs.push_back(burn.burn_epoch_s);
+        }
+    }
+    std::sort(epochs.begin(), epochs.end());
+    epochs.erase(std::unique(epochs.begin(), epochs.end(), [](double lhs, double rhs) {
+        return std::abs(lhs - rhs) <= 1.0e-6;
+    }), epochs.end());
+    return epochs;
+}
+
+Vec3 hermite_interpolate_eci(const TrackPoint& lhs,
+                             const TrackPoint& rhs,
+                             double epoch_s) noexcept
+{
+    const double dt = rhs.epoch_s - lhs.epoch_s;
+    if (!(dt > EPS_NUM)) {
+        return lhs.eci_km;
+    }
+
+    const double u = std::clamp((epoch_s - lhs.epoch_s) / dt, 0.0, 1.0);
+    const double u2 = u * u;
+    const double u3 = u2 * u;
+
+    const double h00 = 2.0 * u3 - 3.0 * u2 + 1.0;
+    const double h10 = u3 - 2.0 * u2 + u;
+    const double h01 = -2.0 * u3 + 3.0 * u2;
+    const double h11 = u3 - u2;
+
+    const Vec3 p0 = vector_scale(lhs.eci_km, h00);
+    const Vec3 m0 = vector_scale(lhs.vel_km_s, dt * h10);
+    const Vec3 p1 = vector_scale(rhs.eci_km, h01);
+    const Vec3 m1 = vector_scale(rhs.vel_km_s, dt * h11);
+    return vector_add(vector_add(p0, m0), vector_add(p1, m1));
+}
+
+Vec3 hermite_interpolate_velocity(const TrackPoint& lhs,
+                                  const TrackPoint& rhs,
+                                  double epoch_s) noexcept
+{
+    const double dt = rhs.epoch_s - lhs.epoch_s;
+    if (!(dt > EPS_NUM)) {
+        return lhs.vel_km_s;
+    }
+
+    const double u = std::clamp((epoch_s - lhs.epoch_s) / dt, 0.0, 1.0);
+    const double u2 = u * u;
+
+    const double dh00 = (6.0 * u2 - 6.0 * u) / dt;
+    const double dh10 = 3.0 * u2 - 4.0 * u + 1.0;
+    const double dh01 = (-6.0 * u2 + 6.0 * u) / dt;
+    const double dh11 = 3.0 * u2 - 2.0 * u;
+
+    const Vec3 p0 = vector_scale(lhs.eci_km, dh00);
+    const Vec3 m0 = vector_scale(lhs.vel_km_s, dh10);
+    const Vec3 p1 = vector_scale(rhs.eci_km, dh01);
+    const Vec3 m1 = vector_scale(rhs.vel_km_s, dh11);
+    return vector_add(vector_add(p0, m0), vector_add(p1, m1));
+}
+
+void append_resampled_track_points(std::string& out,
+                                   bool& first,
+                                   std::string_view satellite_id,
+                                   const std::vector<TrackPoint>& anchors,
+                                   const std::deque<ExecutedBurn>& burn_history,
+                                   double min_epoch_s,
+                                   double target_interval_s,
+                                   double prop_max_step_s)
+{
+    if (anchors.empty()) {
+        return;
+    }
+
+    if (anchors.front().epoch_s + EPS_NUM >= min_epoch_s) {
+        append_track_point_json(out, first, anchors.front());
+    }
+
+    for (std::size_t i = 1; i < anchors.size(); ++i) {
+        const auto& lhs = anchors[i - 1];
+        const auto& rhs = anchors[i];
+        const double dt = rhs.epoch_s - lhs.epoch_s;
+        if (!(dt > EPS_NUM)) {
+            continue;
+        }
+
+        const std::vector<double> burn_epochs =
+            executed_burn_epochs_in_segment(burn_history, satellite_id, lhs.epoch_s, rhs.epoch_s);
+        const bool can_interpolate =
+            (dt > target_interval_s + EPS_NUM)
+            && burn_epochs.empty();
+
+        if (can_interpolate) {
+            const int sample_count = static_cast<int>(std::floor(dt / target_interval_s + 1.0e-9));
+            for (int sample_idx = 1; sample_idx < sample_count; ++sample_idx) {
+                const double sample_epoch = lhs.epoch_s + target_interval_s * static_cast<double>(sample_idx);
+                if (sample_epoch + EPS_NUM >= rhs.epoch_s) {
+                    break;
+                }
+                if (sample_epoch + EPS_NUM < min_epoch_s) {
+                    continue;
+                }
+                const Vec3 sample_eci = hermite_interpolate_eci(lhs, rhs, sample_epoch);
+                const Vec3 sample_vel = hermite_interpolate_velocity(lhs, rhs, sample_epoch);
+                append_track_point_json(
+                    out,
+                    first,
+                    make_track_point(sample_epoch, sample_eci, sample_vel)
+                );
+            }
+        } else if (!burn_epochs.empty()) {
+            const double first_burn_epoch = burn_epochs.front();
+            Vec3 forward_r = lhs.eci_km;
+            Vec3 forward_v = lhs.vel_km_s;
+            double forward_epoch = lhs.epoch_s;
+            while (forward_epoch + target_interval_s < first_burn_epoch - EPS_NUM
+                   && forward_epoch + target_interval_s < rhs.epoch_s - EPS_NUM) {
+                const bool ok = propagate_rk4_j2_substep(
+                    forward_r,
+                    forward_v,
+                    target_interval_s,
+                    prop_max_step_s
+                );
+                if (!ok) {
+                    break;
+                }
+                forward_epoch += target_interval_s;
+                if (forward_epoch + EPS_NUM >= min_epoch_s) {
+                    append_track_point_json(
+                        out,
+                        first,
+                        make_track_point(forward_epoch, forward_r, forward_v)
+                    );
+                }
+            }
+
+            const double last_burn_epoch = burn_epochs.back();
+            Vec3 backward_r = rhs.eci_km;
+            Vec3 backward_v = rhs.vel_km_s;
+            double backward_epoch = rhs.epoch_s;
+            std::vector<TrackPoint> trailing_samples;
+            while (backward_epoch - target_interval_s > last_burn_epoch + EPS_NUM
+                   && backward_epoch - target_interval_s > lhs.epoch_s + EPS_NUM) {
+                const bool ok = propagate_rk4_j2_substep(
+                    backward_r,
+                    backward_v,
+                    -target_interval_s,
+                    prop_max_step_s
+                );
+                if (!ok) {
+                    break;
+                }
+                backward_epoch -= target_interval_s;
+                if (backward_epoch + EPS_NUM >= min_epoch_s) {
+                    trailing_samples.push_back(make_track_point(backward_epoch, backward_r, backward_v));
+                }
+            }
+            std::reverse(trailing_samples.begin(), trailing_samples.end());
+            for (const auto& tp : trailing_samples) {
+                append_track_point_json(out, first, tp);
+            }
+        }
+
+        if (rhs.epoch_s + EPS_NUM >= min_epoch_s) {
+            append_track_point_json(out, first, rhs);
+        }
+    }
+}
+
 struct PairMinSeparationScan {
     bool fail_open = false;
     double min_d2 = 0.0;
@@ -1760,6 +1980,7 @@ std::string build_conjunctions_json(const std::deque<ConjunctionRecord>& history
 std::string build_trajectory_json(const StateStore& store,
                                   std::string_view satellite_id,
                                   const std::deque<TrackPoint>& trail,
+                                  const std::deque<ExecutedBurn>& executed_burn_history,
                                   double current_epoch_s)
 {
     constexpr double kTrailWindowSeconds = 90.0 * 60.0;
@@ -1767,34 +1988,43 @@ std::string build_trajectory_json(const StateStore& store,
     constexpr double kTrajectoryPropMaxStepSeconds = 10.0;
 
     std::string out;
-    out.reserve(8192);
+    out.reserve(16384);
     out += "{\"satellite_id\":";
     append_json_string(out, satellite_id);
     out += ",\"trail\":[";
     bool first = true;
-    const auto append_track_point = [&](const TrackPoint& tp) {
-        if (!first) out += ',';
-        first = false;
-        out += "{\"epoch_s\":";
-        out += fmt_double(tp.epoch_s, 3);
-        out += ",\"lat\":";
-        out += fmt_double(tp.lat_deg, 6);
-        out += ",\"lon\":";
-        out += fmt_double(tp.lon_deg, 6);
-        out += ",\"alt_km\":";
-        out += fmt_double(tp.alt_km, 3);
-        out += ",\"eci\":[";
-        out += fmt_double(tp.eci_km.x, 6);
-        out += ',';
-        out += fmt_double(tp.eci_km.y, 6);
-        out += ',';
-        out += fmt_double(tp.eci_km.z, 6);
-        out += "]}";
-    };
+    const double trail_start_epoch = current_epoch_s - kTrailWindowSeconds;
+
+    std::vector<TrackPoint> recorded_trail;
+    recorded_trail.reserve(trail.size());
+    const TrackPoint* last_before_window = nullptr;
+    for (const auto& tp : trail) {
+        if (tp.epoch_s + 1e-9 < trail_start_epoch) {
+            last_before_window = &tp;
+            continue;
+        }
+        if (recorded_trail.empty() && last_before_window != nullptr) {
+            recorded_trail.push_back(*last_before_window);
+            last_before_window = nullptr;
+        }
+        recorded_trail.push_back(tp);
+    }
 
     const std::size_t sat_idx = store.find(satellite_id);
-    bool built_exact_trail = false;
-    if (sat_idx < store.size()) {
+    const bool recorded_reaches_now =
+        !recorded_trail.empty() && std::abs(recorded_trail.back().epoch_s - current_epoch_s) <= 1.0e-6;
+    if (recorded_reaches_now && recorded_trail.size() >= 2U) {
+        append_resampled_track_points(
+            out,
+            first,
+            satellite_id,
+            recorded_trail,
+            executed_burn_history,
+            trail_start_epoch,
+            kTrailSampleIntervalSeconds,
+            kTrajectoryPropMaxStepSeconds
+        );
+    } else if (sat_idx < store.size()) {
         std::vector<TrackPoint> exact_trail;
         exact_trail.reserve(static_cast<std::size_t>(kTrailWindowSeconds / kTrailSampleIntervalSeconds) + 1U);
 
@@ -1802,25 +2032,12 @@ std::string build_trajectory_json(const StateStore& store,
         Vec3 v{store.vx(sat_idx), store.vy(sat_idx), store.vz(sat_idx)};
 
         auto push_track_point = [&](double epoch_s_value, const Vec3& eci) {
-            const Vec3 ecef = eci_to_ecef(eci, epoch_s_value);
-            double lat = 0.0;
-            double lon = 0.0;
-            double alt = 0.0;
-            ecef_to_geodetic(ecef, lat, lon, alt);
-
-            TrackPoint tp;
-            tp.epoch_s = epoch_s_value;
-            tp.lat_deg = lat;
-            tp.lon_deg = lon;
-            tp.alt_km = alt;
-            tp.eci_km = eci;
-            tp.vel_km_s = v;
-            exact_trail.push_back(std::move(tp));
+            exact_trail.push_back(make_track_point(epoch_s_value, eci, v));
         };
 
         push_track_point(current_epoch_s, r);
 
-        built_exact_trail = true;
+        bool built_exact_trail = true;
         const int kTrailPoints = static_cast<int>(kTrailWindowSeconds / kTrailSampleIntervalSeconds);
         for (int p = 0; p < kTrailPoints; ++p) {
             Vec3 rp = r;
@@ -1843,18 +2060,22 @@ std::string build_trajectory_json(const StateStore& store,
         if (built_exact_trail) {
             std::reverse(exact_trail.begin(), exact_trail.end());
             for (const auto& tp : exact_trail) {
-                append_track_point(tp);
+                append_track_point_json(out, first, tp);
+            }
+        } else {
+            for (const auto& tp : recorded_trail) {
+                if (tp.epoch_s + 1e-9 < trail_start_epoch) {
+                    continue;
+                }
+                append_track_point_json(out, first, tp);
             }
         }
-    }
-
-    if (!built_exact_trail) {
-        const double trail_start_epoch = current_epoch_s - kTrailWindowSeconds;
+    } else {
         for (const auto& tp : trail) {
             if (tp.epoch_s + 1e-9 < trail_start_epoch) {
                 continue;
             }
-            append_track_point(tp);
+            append_track_point_json(out, first, tp);
         }
     }
     out += "],\"predicted\":[";
@@ -1868,6 +2089,14 @@ std::string build_trajectory_json(const StateStore& store,
             static_cast<int>(kTrailWindowSeconds / kTrailSampleIntervalSeconds);
         constexpr double kPredictInterval_s = kTrailSampleIntervalSeconds;
 
+        const auto append_predicted_point = [&](double epoch_s_value, const Vec3& eci, const Vec3& vel) {
+            append_track_point_json(out, first, make_track_point(epoch_s_value, eci, vel));
+        };
+
+        // Start the forecast at the live state so the UI joins the trail and
+        // forecast exactly at the current satellite position.
+        append_predicted_point(current_epoch_s, r, v);
+
         for (int p = 0; p < kPredictPoints; ++p) {
             Vec3 rp = r;
             Vec3 vp = v;
@@ -1876,29 +2105,8 @@ std::string build_trajectory_json(const StateStore& store,
             r = rp;
             v = vp;
 
-            if (!first) out += ',';
-            first = false;
-
             const double pred_epoch = current_epoch_s + kPredictInterval_s * (p + 1);
-            const Vec3 ecef = eci_to_ecef(r, pred_epoch);
-            double lat = 0.0, lon = 0.0, alt = 0.0;
-            ecef_to_geodetic(ecef, lat, lon, alt);
-
-            out += "{\"epoch_s\":";
-            out += fmt_double(pred_epoch, 3);
-            out += ",\"lat\":";
-            out += fmt_double(lat, 6);
-            out += ",\"lon\":";
-            out += fmt_double(lon, 6);
-            out += ",\"alt_km\":";
-            out += fmt_double(alt, 3);
-            out += ",\"eci\":[";
-            out += fmt_double(r.x, 6);
-            out += ',';
-            out += fmt_double(r.y, 6);
-            out += ',';
-            out += fmt_double(r.z, 6);
-            out += "]}";
+            append_predicted_point(pred_epoch, r, v);
         }
     }
     out += "]}";
@@ -3760,7 +3968,7 @@ std::string EngineRuntime::trajectory_json(std::string_view satellite_id) const
     const auto it = trajectory_by_sat_.find(std::string(satellite_id));
     static const std::deque<TrackPoint> empty_trail;
     const auto& trail = (it != trajectory_by_sat_.end()) ? it->second : empty_trail;
-    return build_trajectory_json(store_, satellite_id, trail, clock_.epoch_s());
+    return build_trajectory_json(store_, satellite_id, trail, executed_burn_history_, clock_.epoch_s());
 }
 
 } // namespace cascade
