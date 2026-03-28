@@ -15,6 +15,9 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
 - Reproducible local demo:
   - `scripts/run_ready_demo.sh`
   - `scripts/check_demo_readiness.py`
+- Counterfactual proof:
+  - `scripts/run_counterfactual_demo.sh`
+  - `docs/COUNTERFACTUAL_DEMO.md`
 - Backend gates:
   - `narrow_phase_false_negative_gate`
   - `api_contract_gate`
@@ -61,6 +64,10 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
   - Bullseye: `#/threat`
   - Resource heatmaps and fleet posture: `#/fleet-status`, `#/evasion`
   - Maneuver timeline: `#/burn-ops`
+- Capture workflow:
+  - `scripts/capture_fps_evidence.sh`
+  - `npm run evidence:fps`
+  - `tests/fps-evidence.spec.js`
 
 ### Code Quality & Logging (10%)
 
@@ -80,6 +87,10 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
   - `ARCHITECTURE.md`
 - Evidence source:
   - `docs/PS_EVIDENCE_INDEX.md`
+- Demo storyboard:
+  - `docs/DEMO_STORYBOARD.md`
+- Counterfactual narrative:
+  - `docs/COUNTERFACTUAL_DEMO.md`
 
 ## Section 8 deployment requirements
 
@@ -97,4 +108,6 @@ Purpose: one place to find the repo-native proof paths for each PS.md evaluation
 - Public GitHub repo: repository root
 - Docker environment: root `Dockerfile`
 - Technical report: still needs packaging into a PDF-ready artifact
-- Video demonstration: still needs final storyboard and recorded run
+- Video demonstration: use `docs/DEMO_STORYBOARD.md` as the frozen speaking plan, then record the final run
+- Counterfactual proof path: `scripts/run_counterfactual_demo.sh`
+- FPS/UI evidence path: `scripts/capture_fps_evidence.sh`

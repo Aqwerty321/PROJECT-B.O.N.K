@@ -100,7 +100,7 @@ This section walks through a **complete, reproducible demo** that proves CASCADE
 | Data file: `3le_data.txt` (4.7 MB, Git LFS) | `git lfs pull` if file shows as pointer |
 | Port 8000 available | `lsof -i :8000` should be empty |
 
-> **Dataset note:** The data files (`3le_data.txt`, `data.txt`, `tle2025.txt`, `train_data.csv`, `test_data.csv`) are stored in **Git LFS**. After cloning, run `git lfs pull` to download them. If you see small pointer files instead of real data, LFS objects haven't been fetched yet.
+> **Dataset note:** `3le_data.txt`, `data.txt`, `train_data.csv`, and `test_data.csv` are stored in **Git LFS**. After cloning, run `git lfs pull` to download them. `tle2025.txt` is a 2.8 GB local-only catalog because it exceeds GitHub's per-file LFS limit.
 
 ### Option A — One-Command Automated Demo
 
@@ -220,6 +220,20 @@ Look for `"collision_avoided": true` entries with `trigger_debris_id` of `DEB-SY
 | `check_demo_readiness.py` says `weak` | Re-run from Step 1 — timing-sensitive encounter requires clean state |
 | Docker build fails at CTest | Safety gate regression — run `ctest --test-dir build --output-on-failure` locally |
 | Frontend not loading | Engine serves static assets — check `curl http://localhost:8000/` returns HTML |
+
+---
+
+## Judge Toolkit
+
+These are the fastest judge-facing proof paths beyond the base ready-demo run:
+
+| Asset | Command / File | What it proves |
+|---|---|---|
+| Counterfactual A/B proof | `./scripts/run_counterfactual_demo.sh` | Same encounter set with intervention suppressed versus enabled |
+| 5-minute presentation flow | `docs/DEMO_STORYBOARD.md` | Frozen narration, screen flow, and fallback path |
+| FPS + dense-payload evidence | `./scripts/capture_fps_evidence.sh` | Live UI screenshot + JSON artifact with frame-rate sample and payload counts |
+| Judge evidence index | `docs/PS_EVIDENCE_INDEX.md` | One-stop map from criteria to commands, views, and artifacts |
+| Counterfactual readout guide | `docs/COUNTERFACTUAL_DEMO.md` | How to narrate the no-CASCADE versus CASCADE delta |
 
 ---
 

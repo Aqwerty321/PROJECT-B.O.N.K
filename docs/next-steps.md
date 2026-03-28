@@ -3,10 +3,11 @@
 Date: 2026-03-19
 Branch: `phase4-safety-calibration`
 
-This document is the canonical backend audit and execution plan before frontend
-work. It maps current implementation to `PS.md` and `ARCHITECTURE.md`, calls
-out safety/performance risks, and defines a measurable plan with acceptance
-criteria.
+This document began as the canonical backend audit and execution plan before
+frontend work. It still captures the backend hardening evidence, but the repo
+now includes a live frontend mission console and judge-facing demo workflow.
+For the current submission-status view, read `docs/PS_ALIGNMENT_PLAN.md`
+alongside this audit.
 
 ## 1) Verified baseline (as of this audit)
 
@@ -83,7 +84,7 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 | Station-keeping 10 km box and penalty | PARTIAL | box radius and exponential penalty metrics present | penalty is observed metric, not yet used in optimization objective | define policy for objective coupling |
 | Communication latency + LOS | PARTIAL | 10s latency + LOS window planning | planner remains simplified for blackout/upload optimization | continue scheduler fidelity upgrades |
 | Deployment requirement (`Dockerfile`, Ubuntu, port 8000) | DONE | root Dockerfile, `ubuntu:22.04`, `EXPOSE 8000` | previously broken image due missing source copy, now fixed | keep image build in CI |
-| Frontend visualization modules | MISSING (deferred intentionally) | no frontend directory currently | not started by design per backend-first instruction | start only after backend exit criteria |
+| Frontend visualization modules | PARTIAL | React/Vite mission console now ships `#/command`, `#/track`, `#/threat`, `#/burn-ops`, `#/evasion`, `#/fleet-status`, `#/scorecard` | judge-facing FPS proof, counterfactual packaging, and some visualization polish still need explicit artifact capture | use `tests/fps-evidence.spec.js`, `scripts/capture_fps_evidence.sh`, and the frozen demo storyboard |
 
 ## 4) Architecture uptake matrix (`ARCHITECTURE.md` vs implementation)
 
@@ -100,12 +101,12 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 | Maneuver brain CW/ZEM solver | PARTIAL | runtime supports `PROJECTBONK_RECOVERY_SOLVER_MODE=heuristic|cw_zem`; strict side-by-side comparison currently keeps heuristic as default |
 | Scheduler with blackout/upload semantics | PARTIAL | LOS + latency upload planning exists; static stations and simplified planner |
 | Offline tuner path | DONE | deterministic offline tuner scaffold and sweep tooling |
-| Frontend mission console | MISSING (deferred) | intentionally deferred |
+| Frontend mission console | DONE | implemented as a multi-route React mission console with scorecard, ground-track, threat, and burn-ops surfaces |
 | CI deterministic safety gate stack | DONE | aggregate phase4 gate and law-assertions gate are wired in CI with artifacts |
 
 ## 5) Critical gaps and risk register
 
-### P0 risk (blockers before frontend)
+### P0 risk (submission-facing blockers)
 
 1. False-negative evidence is strong with expanded coverage.
    - Hard-filter canary gate verifies zero FN across 48 scenarios (4 profiles
@@ -142,7 +143,7 @@ Legend: `DONE`, `PARTIAL`, `MISSING`, `RISK`
 
 ## 6) Execution plan (detailed, prioritized)
 
-## P0 - Backend hardening completion (frontend blocked)
+## P0 - Submission hardening and evidence continuity
 
 ### P0.1 [COMPLETE] Wire aggregate phase4 gate into CI
 
@@ -409,7 +410,7 @@ Status update (current branch):
   - objective tradeoff: cw_zem selected candidate uses less fuel, but has
     worse selected mean slot-error recovery than heuristic
 
-## P2 - Operational polish and pre-frontend staging
+## P2 - Operational polish and frontend evidence staging
 
 ### P2.1 Multi-tier gate strategy (fast PR + deep nightly)
 
@@ -431,7 +432,7 @@ Status update (current branch):
 - Acceptance:
   - deterministic selection and no FN regressions across repeated runs
 
-### P2.3 Frontend start gate (must satisfy all)
+### P2.3 Frontend evidence gate (must satisfy all)
 
 - Entry criteria:
   - P0 tasks complete and merged
@@ -510,7 +511,7 @@ docker run --rm -p 8000:8000 cascade:local
 
 ## 10) Definition of done for backend phase
 
-Backend is considered ready for frontend integration when:
+Submission is considered ready for final judge rehearsal when:
 
 - all P0 items are complete,
 - CI executes and enforces aggregate phase4 gate,

@@ -11,6 +11,9 @@ This document maps the current repository state to the judge-facing requirements
 - Frontend production build passes.
 - Auto-COLA now has a reproducible local ready-path with two confirmed credited avoids using the strict catalog-backed demo flow.
 - The dashboard now surfaces slot-integrity and propagation-health signals that were previously only visible in backend metrics.
+- A counterfactual A/B demo path now exists to compare the same encounter set with auto-intervention suppressed versus enabled.
+- A frozen 5-minute storyboard now exists for the live judging flow.
+- Frontend FPS evidence capture is scripted so dense-payload proof can be regenerated on demand.
 - Root deployment requirements from PS Section 8 are already present:
   - root Dockerfile exists
   - runtime image is ubuntu:22.04
@@ -22,11 +25,11 @@ This document maps the current repository state to the judge-facing requirements
 |---|---|---|---|
 | Sections 3-5 backend physics and maneuver logic | Strong | J2 propagation, predictive CDM scan, auto-COLA, recovery, fuel and cooldown gates | keep extending real-data validation evidence |
 | Section 4 required APIs | Strong | telemetry, schedule, step, snapshot, status all implemented | keep contract gate green in isolated and CI environments |
-| Section 6.1 performance constraints | Partial | current frontend uses Three.js and compact snapshot payloads | need explicit 50+ sat and 10k+ debris FPS evidence |
-| Section 6.2 required visualization modules | Partial | ground track, bullseye, fuel/resource surfaces, maneuver timeline are present in various states | terminator overlay, predicted/history fidelity, cooldown and blackout emphasis need judge-facing polish |
-| Section 7 evaluation criteria reporting | Partial | backend exposes raw metrics and demo-readiness helper | missing a single scorecard view that rolls up safety, fuel, uptime, speed, and logging evidence |
+| Section 6.1 performance constraints | Partial | current frontend uses Three.js and compact snapshot payloads; `tests/fps-evidence.spec.js` and `scripts/capture_fps_evidence.sh` now capture frame-rate evidence | still needs a fresh recorded artifact from the final dense run |
+| Section 6.2 required visualization modules | Partial | ground track, bullseye, fuel/resource surfaces, maneuver timeline, scorecard, and burn explainability are now present | remaining work is judge-facing polish and final screenshot/video capture, not missing modules |
+| Section 7 evaluation criteria reporting | Strong | `#/scorecard` rolls up safety, fuel, uptime, speed, visualization, and logging evidence from live runtime signals | still package screenshots/video around the scorecard for the final deliverable |
 | Section 8 deployment | Strong | Dockerfile and compose setup present | add one-command smoke proof into CI or release checklist |
-| Section 9 deliverables | Partial | repo and runtime are close | technical report package and 5-minute demo checklist are not yet formalized |
+| Section 9 deliverables | Partial | repo, runtime, storyboard, evidence index, and counterfactual demo guide are now formalized | technical report packaging and recorded final video still need to be frozen |
 
 ## Priority order
 
@@ -83,8 +86,8 @@ These items improve judging efficiency and submission completeness.
 3. Release checklist.
    - Verify repo visibility, Docker build, frontend bundle presence, ground-station dataset inclusion, and docs links.
 
-## Suggested immediate next commits
+## Suggested immediate next rehearsals
 
-- Finish a judge-facing scorecard page or docs artifact for Section 7.
-- Tighten the Ground Track module around terminator, history, and forecast proof.
-- Add a Docker smoke target to CI or a scripted pre-release check.
+- Run `./scripts/run_counterfactual_demo.sh` and archive the comparison output.
+- Run `./scripts/capture_fps_evidence.sh` after the ready-demo path and keep the screenshot + JSON artifact.
+- Rehearse `docs/DEMO_STORYBOARD.md` until the live flow is comfortably under 5 minutes.

@@ -223,12 +223,17 @@ export function ScorecardPage({ isNarrow, isCompact: _isCompact }: { isNarrow: b
     },
     {
       label: 'Demo Video',
-      value: 'Freeze the under-5-minute storyboard around the ready-demo run and cockpit walk-through.',
+      value: 'Use docs/DEMO_STORYBOARD.md as the frozen under-5-minute speaking plan, then record the final run.',
       tone: 'warning' as const,
     },
     {
       label: 'FPS Proof',
-      value: 'Capture a dense frontend run that explicitly shows the Section 6 payload scale.',
+      value: 'Run scripts/capture_fps_evidence.sh to regenerate a screenshot and JSON artifact for the dense UI path.',
+      tone: 'warning' as const,
+    },
+    {
+      label: 'Counterfactual',
+      value: 'Run scripts/run_counterfactual_demo.sh to preserve the with-versus-without-intervention comparison.',
       tone: 'warning' as const,
     },
     {

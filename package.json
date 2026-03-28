@@ -6,7 +6,10 @@
   "directories": {
     "doc": "docs"
   },
-  "scripts": {},
+  "scripts": {
+    "evidence:fps": "playwright test tests/fps-evidence.spec.js",
+    "evidence:layout": "playwright test tests/ui-layout.spec.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

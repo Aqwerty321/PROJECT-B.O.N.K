@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import EarthGlobe, { trajectoryToVectors } from '../components/EarthGlobe';
 import { ConjunctionBullseye } from '../components/ConjunctionBullseye';
 import { GlassPanel } from '../components/GlassPanel';
@@ -8,8 +8,47 @@ import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
 import { HeroMetric, InfoChip, SectionHeader } from '../components/dashboard/UiPrimitives';
 
+function useFrameRateProbe(sampleWindowMs = 1250): number | null {
+  const [fps, setFps] = useState<number | null>(null);
+
+  useEffect(() => {
+    let frameCount = 0;
+    let rafId = 0;
+    let windowStart = performance.now();
+
+    const tick = (now: number) => {
+      frameCount += 1;
+      const elapsed = now - windowStart;
+      if (elapsed >= sampleWindowMs) {
+        setFps((frameCount * 1000) / elapsed);
+        frameCount = 0;
+        windowStart = now;
+      }
+      rafId = window.requestAnimationFrame(tick);
+    };
+
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [sampleWindowMs]);
+
+  return fps;
+}
+
+function formatFps(value: number | null): string {
+  if (value === null || !Number.isFinite(value) || value <= 0) return '--';
+  return `${Math.round(value)} fps`;
+}
+
+function fpsTone(value: number | null): 'accent' | 'warning' | 'critical' | 'neutral' {
+  if (value === null || !Number.isFinite(value)) return 'neutral';
+  if (value >= 50) return 'accent';
+  if (value >= 30) return 'warning';
+  return 'critical';
+}
+
 export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompact: boolean }) {
   const { model, selectedSatId, selectSat, threatSeverityFilter } = useDashboard();
+  const renderFps = useFrameRateProbe();
 
   const bullseyeMaxTcaSeconds = useMemo(() => {
     const events = selectedSatId
@@ -41,6 +80,8 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
         description="Global orbital picture on the left, operator actions and live mission context on the right."
         aside={
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
+            <InfoChip label="Render" value={formatFps(renderFps)} tone={fpsTone(renderFps)} />
+            <InfoChip label="Payload" value={`${model.satellites.length}/${model.debris.length.toLocaleString()}`} tone={model.debris.length >= 1000 ? 'accent' : 'warning'} />
             <InfoChip label="Watch" value={model.watchTargetValue} tone={selectedSatId ? 'accent' : 'neutral'} />
             <InfoChip label="Threat" value={model.threatValue} tone={model.threatCounts.red > 0 ? 'critical' : model.threatCounts.yellow > 0 ? 'warning' : 'accent'} />
             <InfoChip label="Burn Queue" value={model.burnValue} tone={model.watchedPendingBurns.length > 0 ? 'warning' : 'accent'} />
