@@ -5,6 +5,11 @@ import { GlassPanel } from '../components/GlassPanel';
 import { EmptyStatePanel, InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
 import { ConjunctionDetailCard } from '../components/threat/ConjunctionDetailCard';
 import { ConjunctionEventList } from '../components/threat/ConjunctionEventList';
+import {
+  buildEncounterQueueGroups,
+  countCollapsedEncounterSamples,
+  flattenEncounterQueueGroups,
+} from '../components/threat/queueModel';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { useConjunctions } from '../hooks/useApi';
 import { theme } from '../styles/theme';
@@ -45,10 +50,7 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
     [model.nowEpochS, sortedEvents],
   );
 
-  const activeEvent = sortedEvents.find(event => `${event.satellite_id}-${event.debris_id}-${event.tca_epoch_s}` === activeEventKey) ?? null;
-
   const focusSatelliteId = selectedSatId
-    ?? activeEvent?.satellite_id
     ?? nextThreat?.satellite_id
     ?? sortedEvents[0]?.satellite_id
     ?? null;
@@ -64,6 +66,24 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
   const filteredFocusedEvents = useMemo(
     () => filterConjunctionsBySeverity(focusedEvents, threatSeverityFilter),
     [focusedEvents, threatSeverityFilter],
+  );
+  const queueGroups = useMemo(
+    () => buildEncounterQueueGroups(filteredEvents, focusSatelliteId),
+    [filteredEvents, focusSatelliteId],
+  );
+  const flatQueueEntries = useMemo(
+    () => flattenEncounterQueueGroups(queueGroups),
+    [queueGroups],
+  );
+  const activeQueueEntry = flatQueueEntries.find(entry => entry.key === activeEventKey) ?? null;
+  const activeEvent = activeQueueEntry?.event ?? null;
+  const focusedQueueEntries = useMemo(
+    () => focusSatelliteId ? flatQueueEntries.filter(entry => entry.event.satellite_id === focusSatelliteId) : flatQueueEntries,
+    [flatQueueEntries, focusSatelliteId],
+  );
+  const collapsedQueueSamples = useMemo(
+    () => countCollapsedEncounterSamples(queueGroups),
+    [queueGroups],
   );
   const filteredStreamThreatCounts = useMemo(
     () => filteredEvents.reduce(
@@ -141,14 +161,14 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
       return;
     }
 
-    const hasActive = activeEventKey && filteredEvents.some(event => `${event.satellite_id}-${event.debris_id}-${event.tca_epoch_s}` === activeEventKey);
+    const hasActive = activeEventKey && flatQueueEntries.some(entry => entry.key === activeEventKey);
     if (!hasActive) {
-      const preferred = focusSatelliteId
-        ? filteredEvents.find(event => event.satellite_id === focusSatelliteId)
-        : filteredEvents[0];
-      setActiveEventKey(preferred ? `${preferred.satellite_id}-${preferred.debris_id}-${preferred.tca_epoch_s}` : null);
+      const preferred = queueGroups.find(group => group.satelliteId === focusSatelliteId)?.entries[0]
+        ?? queueGroups[0]?.entries[0]
+        ?? null;
+      setActiveEventKey(preferred?.key ?? null);
     }
-  }, [activeEventKey, filteredEvents, focusSatelliteId]);
+  }, [activeEventKey, flatQueueEntries, focusSatelliteId, queueGroups, filteredEvents.length]);
 
   const displayThreatCounts = focusSatelliteId ? filteredFocusedThreatCounts : filteredStreamThreatCounts;
   const filterSummary = hasActiveThreatSeverityFilter(threatSeverityFilter)
@@ -228,7 +248,7 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
     <SummaryCard
       key="events"
       label="Events In Scope"
-      value={filteredFocusedEvents.length.toString()}
+      value={focusedQueueEntries.length.toString()}
       detail={focusedEvents.length > 0
         ? `${displayThreatCounts.red} critical / ${displayThreatCounts.yellow} warning / ${displayThreatCounts.green} watch after filtering`
         : streamEvents.length > 0
@@ -273,7 +293,8 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
                 </p>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                <InfoChip label="Queue" value={`${filteredEvents.length} shown`} tone={filteredEvents.length > 0 ? 'accent' : 'warning'} />
+                <InfoChip label="Queue" value={`${flatQueueEntries.length} shown`} tone={flatQueueEntries.length > 0 ? 'accent' : 'warning'} />
+                <InfoChip label="Collapsed" value={collapsedQueueSamples.toString()} tone={collapsedQueueSamples > 0 ? 'accent' : 'neutral'} />
                 <InfoChip label="Horizon" value={bullseyeMaxTcaSeconds >= 86400 ? '24h' : bullseyeMaxTcaSeconds >= 21600 ? '6h' : '90m'} tone="accent" />
               </div>
             </div>
@@ -297,22 +318,22 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minHeight: 0, padding: '10px 12px 12px', overflow: 'auto' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexShrink: 0 }}>
                 <p style={{ color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.5, maxWidth: '42ch' }}>
-                  Choose an encounter to pin this page to a spacecraft. Click another encounter to switch objects, or clear the pin from the Focus Vehicle card to return to auto-follow.
+                  Encounters are grouped by spacecraft and repeated history samples are collapsed into a single row. Choose one to pin this page to a vehicle, or clear the pin from the Focus Vehicle card to return to auto-follow.
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   <InfoChip label="Focused" value={focusSatelliteId ?? 'Auto'} tone={focusSatelliteId ? 'primary' : 'neutral'} />
                   <InfoChip label="Fail-open" value={focusFailOpenCount.toString()} tone={focusFailOpenCount > 0 ? 'warning' : 'neutral'} />
+                  <InfoChip label="Vehicle Lanes" value={queueGroups.length.toString()} tone={queueGroups.length > 0 ? 'accent' : 'neutral'} />
                 </div>
               </div>
-              {filteredEvents.length > 0 ? (
+              {flatQueueEntries.length > 0 ? (
                 <ConjunctionEventList
-                  events={filteredEvents}
-                  activeEvent={activeEvent}
-                  highlightSatelliteId={focusSatelliteId}
+                  groups={queueGroups}
+                  activeEventKey={activeEventKey}
                   nowEpochS={model.nowEpochS}
-                  onSelectEvent={event => {
-                    setActiveEventKey(`${event.satellite_id}-${event.debris_id}-${event.tca_epoch_s}`);
-                    selectSat(event.satellite_id);
+                  onSelectEvent={entry => {
+                    setActiveEventKey(entry.key);
+                    selectSat(entry.event.satellite_id);
                   }}
                 />
               ) : (

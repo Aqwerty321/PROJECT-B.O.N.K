@@ -4,6 +4,11 @@ import { ConjunctionBullseye } from '../components/ConjunctionBullseye';
 import { GlassPanel } from '../components/GlassPanel';
 import SimControls from '../components/SimControls';
 import { ThreatSeverityFilters } from '../components/dashboard/ThreatSeverityFilters';
+import {
+  buildEncounterQueueGroups,
+  countCollapsedEncounterSamples,
+  flattenEncounterQueueGroups,
+} from '../components/threat/queueModel';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
 import { HeroMetric, InfoChip, SectionHeader } from '../components/dashboard/UiPrimitives';
@@ -49,11 +54,25 @@ function fpsTone(value: number | null): 'accent' | 'warning' | 'critical' | 'neu
 export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompact: boolean }) {
   const { model, selectedSatId, selectSat, threatSeverityFilter } = useDashboard();
   const renderFps = useFrameRateProbe();
+  const queueGroups = useMemo(
+    () => buildEncounterQueueGroups(model.conjList, selectedSatId),
+    [model.conjList, selectedSatId],
+  );
+  const flatQueueEntries = useMemo(
+    () => flattenEncounterQueueGroups(queueGroups),
+    [queueGroups],
+  );
+  const collapsedQueueSamples = useMemo(
+    () => countCollapsedEncounterSamples(queueGroups),
+    [queueGroups],
+  );
+  const focusQueueEntries = useMemo(
+    () => selectedSatId ? flatQueueEntries.filter(entry => entry.event.satellite_id === selectedSatId) : flatQueueEntries,
+    [flatQueueEntries, selectedSatId],
+  );
 
   const bullseyeMaxTcaSeconds = useMemo(() => {
-    const events = selectedSatId
-      ? model.conjList.filter(c => c.satellite_id === selectedSatId)
-      : model.conjList;
+    const events = focusQueueEntries.map(entry => entry.event);
     const maxFutureDt = events.reduce((acc, evt) => {
       const dt = Math.max(0, evt.tca_epoch_s - model.nowEpochS);
       return Math.max(acc, dt);
@@ -61,7 +80,7 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
     if (maxFutureDt <= 5400) return 5400;
     if (maxFutureDt <= 21600) return 21600;
     return 86400;
-  }, [model.conjList, model.nowEpochS, selectedSatId]);
+  }, [focusQueueEntries, model.nowEpochS]);
 
   const trailVectors = useMemo(
     () => model.selectedTrajectory?.trail ? trajectoryToVectors(model.selectedTrajectory.trail) : undefined,
@@ -184,8 +203,13 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minHeight: 0, padding: '10px 12px 12px' }}>
               <ThreatSeverityFilters counts={model.threatCounts} />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                <InfoChip label="Vehicle Lanes" value={queueGroups.length.toString()} tone={queueGroups.length > 0 ? 'accent' : 'neutral'} />
+                <InfoChip label="Queue" value={focusQueueEntries.length.toString()} tone={focusQueueEntries.length > 0 ? 'accent' : 'warning'} />
+                <InfoChip label="Collapsed" value={collapsedQueueSamples.toString()} tone={collapsedQueueSamples > 0 ? 'accent' : 'neutral'} />
+              </div>
               <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: `1px solid ${theme.colors.border}`, background: 'linear-gradient(180deg, rgba(10, 11, 14, 0.92), rgba(7, 8, 10, 0.98))' }}>
-                <ConjunctionBullseye conjunctions={model.conjList} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} maxTcaSeconds={bullseyeMaxTcaSeconds} severityFilter={threatSeverityFilter} />
+                <ConjunctionBullseye conjunctions={focusQueueEntries.map(entry => entry.event)} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} maxTcaSeconds={bullseyeMaxTcaSeconds} severityFilter={threatSeverityFilter} />
               </div>
             </div>
           </GlassPanel>
