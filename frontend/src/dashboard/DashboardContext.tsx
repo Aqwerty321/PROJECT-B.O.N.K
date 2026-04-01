@@ -357,6 +357,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const nextCriticalConjunction = [...conjList]
     .filter(event => riskLevelForEvent(event) === 'red')
     .sort((lhs, rhs) => lhs.tca_epoch_s - rhs.tca_epoch_s)[0] ?? null;
+  const droppedAttentionTarget = [...droppedBurns]
+    .sort((lhs, rhs) => new Date(rhs.burn_epoch).getTime() - new Date(lhs.burn_epoch).getTime())[0] ?? null;
+  const uploadSlipAttentionTarget = uploadMissed > 0
+    ? [...pendingBurns, ...executedBurns, ...droppedBurns]
+        .filter(burn => burn.upload_station)
+        .sort((lhs, rhs) => new Date(rhs.burn_epoch).getTime() - new Date(lhs.burn_epoch).getTime())[0] ?? null
+    : null;
   const operatorChecklist: DashboardViewModel['operatorChecklist'] = [];
   if (snapshotSeverity === 'critical') {
     operatorChecklist.push({
@@ -408,6 +415,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       tone: 'critical',
       actionLabel: 'Open Burn Ops',
       actionPage: 'burn-ops',
+      actionTarget: droppedAttentionTarget ? { kind: 'burn', key: droppedAttentionTarget.id, satelliteId: droppedAttentionTarget.satellite_id } : undefined,
     });
   }
   if (uploadMissed > 0) {
@@ -418,6 +426,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       tone: 'warning',
       actionLabel: 'Open Burn Ops',
       actionPage: 'burn-ops',
+      actionTarget: uploadSlipAttentionTarget ? { kind: 'burn', key: uploadSlipAttentionTarget.id, satelliteId: uploadSlipAttentionTarget.satellite_id } : undefined,
     });
   }
   if (counterfactualCandidate) {

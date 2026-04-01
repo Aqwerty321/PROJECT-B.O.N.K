@@ -207,48 +207,107 @@ function drawEmptyGrid(ctx: CanvasRenderingContext2D, width: number, height: num
   }
 }
 
+function drawWrappedText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number,
+): number {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (current && ctx.measureText(next).width > maxWidth) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+
+  if (current) {
+    lines.push(current);
+  }
+
+  lines.forEach((line, index) => {
+    ctx.fillText(line, x, y + index * lineHeight);
+  });
+
+  return lines.length;
+}
+
 function drawEmptyState(
   ctx: CanvasRenderingContext2D,
   chartWidth: number,
   selectedSatId: string | null,
 ) {
-  const top = HEADER_HEIGHT + 26;
-  const rowY = top + 28;
-  const baseX = LABEL_WIDTH + Math.max(24, chartWidth * 0.22);
-  const burnWidth = Math.max(32, chartWidth * 0.12);
-  const cooldownWidth = Math.max(52, (COOLDOWN_DURATION_S / 3600) * chartWidth * 0.4);
+  const top = HEADER_HEIGHT + 22;
+  const contentX = LABEL_WIDTH + 18;
+  const descriptionWidth = Math.min(chartWidth - 42, 420);
+  const laneWidth = Math.min(Math.max(360, chartWidth * 0.54), chartWidth - 48);
+  const laneX = LABEL_WIDTH + Math.max(24, Math.floor((chartWidth - laneWidth) / 2));
+  const burnWidth = Math.max(84, Math.min(164, chartWidth * 0.12));
+  const cooldownWidth = Math.max(72, Math.min(136, (COOLDOWN_DURATION_S / 3600) * chartWidth * 0.45));
+  const gap = 28;
+  const rowY = top + 46;
+  const sampleY = rowY + 8;
+  const burnX = laneX + 24;
+  const cooldownX = burnX + burnWidth + gap;
+  const markerX = cooldownX + cooldownWidth + gap + 8;
+  const labelY = sampleY + 36;
 
   ctx.save();
   ctx.fillStyle = 'rgba(226, 232, 240, 0.22)';
   ctx.font = `12px ${theme.font.mono}`;
   ctx.textAlign = 'left';
-  ctx.fillText(selectedSatId ? `${selectedSatId} NO BURNS QUEUED` : 'FLEET BURN CLOCK IDLE', LABEL_WIDTH + 18, top);
+  ctx.fillText(selectedSatId ? `${selectedSatId} NO BURNS QUEUED` : 'FLEET BURN CLOCK IDLE', contentX, top);
 
   ctx.fillStyle = 'rgba(148, 163, 184, 0.62)';
   ctx.font = `10px ${theme.font.mono}`;
-  ctx.fillText('This lane populates when evasion, recovery, or graveyard burns enter the command queue.', LABEL_WIDTH + 18, top + 18);
+  const descriptionLines = drawWrappedText(
+    ctx,
+    'This lane populates when evasion, recovery, or graveyard burns enter the command queue.',
+    contentX,
+    top + 18,
+    descriptionWidth,
+    13,
+  );
+
+  const laneGuideY = top + 18 + descriptionLines * 13 + 18;
+  ctx.strokeStyle = 'rgba(88, 184, 255, 0.14)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(laneX, laneGuideY);
+  ctx.lineTo(laneX + laneWidth, laneGuideY);
+  ctx.stroke();
 
   ctx.fillStyle = 'rgba(57, 217, 138, 0.28)';
-  ctx.fillRect(baseX, rowY, burnWidth, 20);
+  ctx.fillRect(burnX, sampleY, burnWidth, 20);
   ctx.strokeStyle = 'rgba(57, 217, 138, 0.78)';
-  ctx.strokeRect(baseX, rowY, burnWidth, 20);
-  ctx.fillStyle = 'rgba(226, 232, 240, 0.45)';
-  ctx.fillText('Burn Window', baseX, rowY - 8);
+  ctx.strokeRect(burnX, sampleY, burnWidth, 20);
 
   ctx.setLineDash([4, 3]);
   ctx.strokeStyle = 'rgba(88, 184, 255, 0.78)';
-  ctx.strokeRect(baseX + burnWidth + 18, rowY, cooldownWidth, 20);
+  ctx.strokeRect(cooldownX, sampleY, cooldownWidth, 20);
   ctx.setLineDash([]);
-  ctx.fillText('Cooldown Hold', baseX + burnWidth + 18, rowY - 8);
 
   ctx.strokeStyle = 'rgba(255, 98, 98, 0.75)';
   ctx.setLineDash([2, 3]);
   ctx.beginPath();
-  ctx.moveTo(baseX + burnWidth + cooldownWidth + 50, rowY - 6);
-  ctx.lineTo(baseX + burnWidth + cooldownWidth + 50, rowY + 28);
+  ctx.moveTo(markerX, sampleY - 6);
+  ctx.lineTo(markerX, sampleY + 28);
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillText('Conflict / blackout marker', baseX + burnWidth + cooldownWidth + 58, rowY + 8);
+
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.45)';
+  ctx.textAlign = 'center';
+  ctx.fillText('Burn Window', burnX + burnWidth / 2, labelY);
+  ctx.fillText('Cooldown Hold', cooldownX + cooldownWidth / 2, labelY);
+  ctx.fillText('Conflict / blackout marker', markerX + 56, labelY);
   ctx.restore();
 }
 

@@ -178,13 +178,18 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
   useEffect(() => {
     if (!attentionTarget || attentionTarget.kind !== 'burn') return;
     const matchedBurn = [...model.executedBurns, ...model.pendingBurns].find(burn => burn.id === attentionTarget.key);
-    if (!matchedBurn) return;
-    setForcedDecisionBurnId(matchedBurn.id);
-    focusSatFrom(matchedBurn.satellite_id, {
+    const targetSatId = matchedBurn?.satellite_id ?? attentionTarget.satelliteId;
+    if (!targetSatId) return;
+    if (matchedBurn) {
+      setForcedDecisionBurnId(matchedBurn.id);
+    }
+    focusSatFrom(targetSatId, {
       source: 'Operator Checklist',
-      detail: `Pinned ${matchedBurn.id} from the checklist action rail.`,
+      detail: matchedBurn
+        ? `Pinned ${matchedBurn.id} from the checklist action rail.`
+        : `Pinned ${targetSatId} from the checklist action rail.`,
     });
-    if ('fuel_before_kg' in matchedBurn && matchedBurn.scheduled_from_predictive_cdm && matchedBurn.trigger_debris_id) {
+    if (matchedBurn && 'fuel_before_kg' in matchedBurn && matchedBurn.scheduled_from_predictive_cdm && matchedBurn.trigger_debris_id) {
       setCompareOpen(true);
     }
     setAttentionTarget(null);

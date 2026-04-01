@@ -16,15 +16,22 @@ function DashboardApp() {
   const [viewportWidth, setViewportWidth] = useState(() => (
     typeof window === 'undefined' ? 1440 : window.innerWidth
   ));
+  const [viewportHeight, setViewportHeight] = useState(() => (
+    typeof window === 'undefined' ? 900 : window.innerHeight
+  ));
 
   useEffect(() => {
-    const onResize = () => setViewportWidth(window.innerWidth);
+    const onResize = () => {
+      setViewportWidth(window.innerWidth);
+      setViewportHeight(window.innerHeight);
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
   const isNarrow = viewportWidth < 1080;
   const isCompact = viewportWidth < 760;
+  const isShort = viewportHeight < 820;
 
   if (!booted) {
     return <BootSequence onComplete={() => setBooted(true)} />;
@@ -36,6 +43,7 @@ function DashboardApp() {
       navigate={navigate}
       isNarrow={isNarrow}
       isCompact={isCompact}
+      isShort={isShort}
     >
       {pageId === 'command' && <CommandPage isNarrow={isNarrow} isCompact={isCompact} />}
       {pageId === 'track' && <TrackPage isNarrow={isNarrow} isCompact={isCompact} />}

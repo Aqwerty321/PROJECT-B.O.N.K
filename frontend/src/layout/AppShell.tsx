@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { NAV_ITEMS, labelForNav, type PageId } from '../app/navigation';
 import { GlobalStepStatus } from '../components/dashboard/GlobalStepStatus';
 import { AnomalyBadge, SummaryCard } from '../components/dashboard/UiPrimitives';
@@ -87,23 +87,47 @@ export function AppShell({
   navigate,
   isNarrow,
   isCompact,
+  isShort,
   children,
 }: {
   pageId: PageId;
   navigate: (page: PageId) => void;
   isNarrow: boolean;
   isCompact: boolean;
+  isShort: boolean;
   children: ReactNode;
 }) {
   const { model, focusOrigin, focusSatFrom, reasoningLevel, selectedSatId, setAttentionTarget, setReasoningLevel, setSoundMode, soundMode, spotlightMode, setSpotlightMode } = useDashboard();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [focusConsoleCollapsed, setFocusConsoleCollapsed] = useState(false);
-  const compactFocusRail = isCompact || isNarrow;
+  const [feedRecoveredVisible, setFeedRecoveredVisible] = useState(false);
+  const compactFocusRail = isCompact || isNarrow || isShort;
   const snapshotTone = model.truthBanner.snapshotSeverity === 'critical'
     ? theme.colors.critical
     : model.truthBanner.snapshotSeverity === 'warning'
       ? theme.colors.warning
       : theme.colors.accent;
+  const previousSnapshotSeverityRef = useRef(model.truthBanner.snapshotSeverity);
+
+  useEffect(() => {
+    if (isShort) {
+      setFocusConsoleCollapsed(true);
+    }
+  }, [isShort]);
+
+  useEffect(() => {
+    const previous = previousSnapshotSeverityRef.current;
+    previousSnapshotSeverityRef.current = model.truthBanner.snapshotSeverity;
+    if (model.truthBanner.snapshotSeverity === 'fresh' && previous !== 'fresh') {
+      setFeedRecoveredVisible(true);
+      const timeout = window.setTimeout(() => setFeedRecoveredVisible(false), 6000);
+      return () => window.clearTimeout(timeout);
+    }
+    if (model.truthBanner.snapshotSeverity !== 'fresh') {
+      setFeedRecoveredVisible(false);
+    }
+    return undefined;
+  }, [model.truthBanner.snapshotSeverity]);
 
   return (
     <div style={styles.root}>
@@ -264,9 +288,9 @@ export function AppShell({
             gridTemplateColumns: isNarrow ? '1fr' : 'minmax(0, 1fr) auto',
             gap: '8px',
             alignItems: 'stretch',
-            marginBottom: '8px',
+            marginBottom: isShort ? '6px' : '8px',
           }}>
-            <div style={{
+            {!isShort ? <div style={{
               ...styles.truthBanner,
               borderColor: model.truthBanner.snapshotSeverity === 'fresh' ? theme.colors.border : `${snapshotTone}55`,
               boxShadow: model.truthBanner.snapshotSeverity === 'fresh' ? 'none' : `0 0 18px ${snapshotTone}14`,
@@ -299,7 +323,7 @@ export function AppShell({
                   </strong>
                 </div>
               ) : null}
-            </div>
+            </div> : null}
 
             <div style={styles.topControlRail}>
               <div style={styles.controlCluster}>
@@ -375,14 +399,22 @@ export function AppShell({
               </div>
             </div>
           </div>
-          <div style={{ color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.45, marginBottom: '8px' }}>
+          {!isShort ? <div style={{ color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.45, marginBottom: '8px' }}>
             {model.truthBanner.snapshotSeverity !== 'fresh'
               ? model.truthBanner.snapshotDetail
               : reasoningLevel === 'minimal'
                 ? 'Minimal keeps the core operator picture visible and trims secondary explanation rails until you ask for more.'
                 : 'Detailed expands explanatory rails and comparison context while preserving the same backend-truthful state.'}
-          </div>
-          {model.truthBanner.failOpenCount > 0 || model.truthBanner.droppedCount > 0 || model.truthBanner.uploadMissedCount > 0 ? (
+          </div> : null}
+          {feedRecoveredVisible ? (
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 9px', border: `1px solid ${theme.colors.accent}44`, background: 'rgba(57, 217, 138, 0.12)', color: theme.colors.accent, clipPath: theme.chamfer.buttonClipPath }}>
+                <span style={{ fontSize: '8px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Feed Recovered</span>
+                <span style={{ color: theme.colors.textDim, fontSize: '10px' }}>Snapshot cadence is back within the fresh window.</span>
+              </div>
+            </div>
+          ) : null}
+          {!isShort && (model.truthBanner.failOpenCount > 0 || model.truthBanner.droppedCount > 0 || model.truthBanner.uploadMissedCount > 0) ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
               {model.truthBanner.failOpenCount > 0 ? <AnomalyBadge label="Fail-open" value={`${model.truthBanner.failOpenCount}`} tone="warning" /> : null}
               {model.truthBanner.droppedCount > 0 ? <AnomalyBadge label="Dropped" value={`${model.truthBanner.droppedCount}`} tone="critical" /> : null}
@@ -422,7 +454,7 @@ export function AppShell({
               </div>
             </div>
           ) : null}
-          {focusOrigin && selectedSatId ? (
+          {!isShort && focusOrigin && selectedSatId ? (
             <div style={{ marginBottom: '8px' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 9px', border: `1px solid ${theme.colors.border}`, background: 'rgba(8, 10, 14, 0.72)', clipPath: theme.chamfer.buttonClipPath }}>
                 <span style={{ color: theme.colors.textMuted, fontSize: '8px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Focus Origin</span>

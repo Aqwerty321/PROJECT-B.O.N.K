@@ -54,6 +54,7 @@ export type SoundMode = 'muted' | 'alerts' | 'full';
 export interface AttentionTarget {
   kind: 'conjunction' | 'burn';
   key: string;
+  satelliteId?: string;
 }
 
 export interface ThreatSeverityFilter {
