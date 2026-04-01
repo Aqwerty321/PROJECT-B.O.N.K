@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { NAV_ITEMS, labelForNav, type PageId } from '../app/navigation';
 import { GlobalStepStatus } from '../components/dashboard/GlobalStepStatus';
 import { AnomalyBadge, SummaryCard, toneColor } from '../components/dashboard/UiPrimitives';
+import SimControls from '../components/SimControls';
 import { SatelliteFocusDropdown } from '../components/dashboard/SatelliteFocusControls';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
@@ -594,6 +595,7 @@ export function AppShell({
               {model.truthBanner.uploadMissedCount > 0 ? <AnomalyBadge label="Upload Slips" value={`${model.truthBanner.uploadMissedCount}`} tone="warning" /> : null}
             </div>
           ) : null}
+          <SimControls compact={isNarrow || isCompact} layout="rail" />
         </div>
 
         {/* Page content */}

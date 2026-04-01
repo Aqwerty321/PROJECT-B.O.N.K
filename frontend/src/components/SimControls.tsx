@@ -5,6 +5,8 @@ import { useDashboard } from '../dashboard/DashboardContext';
 
 interface SimControlsProps {
   disabled?: boolean;
+  compact?: boolean;
+  layout?: 'panel' | 'rail';
 }
 
 type StepResponse = {
@@ -64,7 +66,7 @@ async function postStep(hours: number): Promise<StepResponse> {
   return res.json();
 }
 
-export default memo(function SimControls({ disabled = false }: SimControlsProps) {
+export default memo(function SimControls({ disabled = false, compact = false, layout = 'panel' }: SimControlsProps) {
   const { play } = useSound();
   const { stepStatus, setStepStatus, model } = useDashboard();
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
@@ -240,91 +242,212 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
   const staleActionFreeze = model.truthBanner.snapshotSeverity === 'critical';
 
   const manualDisabled = disabled || staleActionFreeze || isStepping || autoPlay;
+  const headingEyebrow = layout === 'rail' ? 'Global Simulation' : 'Simulation Controls';
+  const headingTitle = layout === 'rail' ? 'Simulate Mission Time' : 'Advance Mission Time';
+  const headingDetail = staleActionFreeze
+    ? 'Snapshot freshness is critical. Restore the feed before issuing another simulation step.'
+    : layout === 'rail'
+      ? `Current clock ${model.missionValue}. Step the simulation from any route and refresh the shared track, threat, and burn picture.`
+      : 'Click a step size to move mission time forward and refresh the shared track, threat, and burn picture.';
+  const statusTitle = staleActionFreeze ? 'STEP FREEZE ACTIVE' : liveStatus.title;
+  const statusDetail = staleActionFreeze
+    ? 'Simulation stepping is paused because the snapshot feed is critically stale. Restore freshness before issuing a risky command.'
+    : liveStatus.detail;
+  const statusEyebrow = autoPlay ? 'Auto-Play Active' : isStepping ? 'Command Uplink' : 'Simulation Status';
+  const controlsGridTemplate = compact
+    ? '1fr'
+    : layout === 'rail'
+      ? 'minmax(220px, 0.92fr) auto minmax(260px, 1.12fr)'
+      : 'minmax(200px, 1.05fr) auto minmax(260px, 1.15fr)';
 
-  return (
-    <div style={styles.container}>
-      <span style={styles.label}>SIM STEP</span>
-      <div style={styles.buttons}>
-        {STEP_OPTIONS.map(opt => {
-          const isHovered = hoveredBtn === opt.label;
-          const isFlash = flashBtn === opt.label;
-          const isActive = isStepping && activeStepLabel === opt.label;
-          return (
-            <button
-              key={opt.label}
-              disabled={manualDisabled}
-              onClick={() => handleStep(opt.hours, opt.label)}
-              onMouseEnter={() => {
-                if (manualDisabled) return;
-                setHoveredBtn(opt.label);
-                play('hover');
-              }}
-              onMouseLeave={() => setHoveredBtn(null)}
-              style={{
-                ...styles.button,
-                background: isFlash
-                  ? 'rgba(58, 159, 232, 0.3)'
-                  : isActive
-                    ? 'rgba(58, 159, 232, 0.18)'
+  const actionButtons = (
+    <>
+      {STEP_OPTIONS.map(opt => {
+        const isHovered = hoveredBtn === opt.label;
+        const isFlash = flashBtn === opt.label;
+        const isActive = isStepping && activeStepLabel === opt.label;
+        return (
+          <button
+            key={opt.label}
+            disabled={manualDisabled}
+            onClick={() => handleStep(opt.hours, opt.label)}
+            onMouseEnter={() => {
+              if (manualDisabled) return;
+              setHoveredBtn(opt.label);
+              play('hover');
+            }}
+            onMouseLeave={() => setHoveredBtn(null)}
+            style={{
+              ...styles.button,
+              background: isFlash
+                ? 'rgba(58, 159, 232, 0.3)'
+                : isActive
+                  ? 'rgba(58, 159, 232, 0.18)'
                   : isHovered
                     ? 'rgba(58, 159, 232, 0.12)'
                     : 'rgba(58, 159, 232, 0.06)',
-                borderColor: isActive
-                  ? 'rgba(88, 184, 255, 0.72)'
-                  : isHovered
+              borderColor: isActive
+                ? 'rgba(88, 184, 255, 0.72)'
+                : isHovered
                   ? 'rgba(58, 159, 232, 0.5)'
                   : 'rgba(58, 159, 232, 0.3)',
-                boxShadow: isActive
-                  ? '0 0 16px rgba(58, 159, 232, 0.22)'
-                  : isHovered
+              boxShadow: isActive
+                ? '0 0 16px rgba(58, 159, 232, 0.22)'
+                : isHovered
                   ? '0 0 12px rgba(58, 159, 232, 0.25)'
                   : 'none',
-                cursor: manualDisabled ? 'not-allowed' : styles.button.cursor,
-                opacity: manualDisabled ? 0.58 : 1,
-              }}
-            >
-              {isActive ? `${opt.label}...` : opt.label}
-            </button>
-          );
-        })}
+              cursor: manualDisabled ? 'not-allowed' : styles.button.cursor,
+              opacity: manualDisabled ? 0.58 : 1,
+            }}
+          >
+            {isActive ? `${opt.label}...` : opt.label}
+          </button>
+        );
+      })}
 
-        {/* Auto-play toggle */}
-        <button
-          disabled={disabled || staleActionFreeze || (isStepping && !autoPlay)}
-          onClick={toggleAutoPlay}
-          onMouseEnter={() => {
-            if (!disabled && !staleActionFreeze && !isStepping) {
-              setHoveredBtn('AUTO');
-              play('hover');
-            }
-          }}
-          onMouseLeave={() => setHoveredBtn(null)}
+      <button
+        disabled={disabled || staleActionFreeze || (isStepping && !autoPlay)}
+        onClick={toggleAutoPlay}
+        onMouseEnter={() => {
+          if (!disabled && !staleActionFreeze && !isStepping) {
+            setHoveredBtn('AUTO');
+            play('hover');
+          }
+        }}
+        onMouseLeave={() => setHoveredBtn(null)}
+        style={{
+          ...styles.button,
+          background: autoPlay
+            ? 'rgba(57, 217, 138, 0.18)'
+            : hoveredBtn === 'AUTO'
+              ? 'rgba(57, 217, 138, 0.10)'
+              : 'rgba(57, 217, 138, 0.04)',
+          borderColor: autoPlay
+            ? 'rgba(57, 217, 138, 0.72)'
+            : hoveredBtn === 'AUTO'
+              ? 'rgba(57, 217, 138, 0.45)'
+              : 'rgba(57, 217, 138, 0.28)',
+          color: autoPlay ? theme.colors.accent : theme.colors.textDim,
+          boxShadow: autoPlay
+            ? '0 0 16px rgba(57, 217, 138, 0.22), inset 0 0 12px rgba(57, 217, 138, 0.08)'
+            : hoveredBtn === 'AUTO'
+              ? '0 0 12px rgba(57, 217, 138, 0.18)'
+              : 'none',
+          cursor: disabled || staleActionFreeze || (isStepping && !autoPlay) ? 'not-allowed' : 'pointer',
+          opacity: disabled || staleActionFreeze ? 0.58 : 1,
+        }}
+      >
+        {autoPlay ? 'AUTO STOP' : 'AUTO PLAY'}
+      </button>
+    </>
+  );
+
+  const statusContent = (
+    <>
+      <div style={styles.statusHeader}>
+        <span style={{ ...styles.statusEyebrow, color: liveStatusColor }}>
+          {statusEyebrow}
+        </span>
+        <div style={styles.statusMeter} aria-hidden="true">
+          {SPINNER_FRAMES.map((_, index) => {
+            const isLit = isStepping
+              ? index === spinnerFrame
+              : autoPlay
+                ? true
+                : liveStatus.tone === 'idle'
+                  ? index < 2
+                  : liveStatus.tone === 'error'
+                    ? index === 0
+                    : true;
+            return (
+              <span
+                key={index}
+                style={{
+                  ...styles.statusMeterBar,
+                  background: isLit
+                    ? (autoPlay && !isStepping ? theme.colors.accent : liveStatusColor)
+                    : 'rgba(255, 255, 255, 0.08)',
+                  opacity: isLit ? 1 : 0.45,
+                }}
+              />
+            );
+          })}
+        </div>
+      </div>
+      <span style={{ ...styles.statusTitle, color: staleActionFreeze ? theme.colors.warning : liveStatus.tone === 'idle' ? theme.colors.text : liveStatusColor }}>
+        {statusTitle}
+      </span>
+      <span style={layout === 'rail' ? styles.statusDetailClamp : styles.statusDetail}>
+        {statusDetail}
+      </span>
+    </>
+  );
+
+  if (layout === 'rail') {
+    return (
+      <div
+        data-testid="global-sim-controls"
+        style={{
+          ...styles.railContainer,
+          gridTemplateColumns: controlsGridTemplate,
+          alignItems: compact ? 'stretch' : 'center',
+        }}
+      >
+        <div style={styles.commandCopy}>
+          <span style={styles.commandEyebrow}>{headingEyebrow}</span>
+          <strong style={styles.commandTitle}>{headingTitle}</strong>
+          <span style={styles.commandDetail}>{headingDetail}</span>
+        </div>
+
+        <div style={styles.actionPanel}>
+          <span style={styles.actionLabel}>Click To Simulate</span>
+          <div style={styles.buttons}>{actionButtons}</div>
+        </div>
+
+        <div
+          data-testid="sim-step-status"
+          role="status"
+          aria-live="polite"
+          aria-busy={isStepping}
           style={{
-            ...styles.button,
-            background: autoPlay
-              ? 'rgba(57, 217, 138, 0.18)'
-              : hoveredBtn === 'AUTO'
-                ? 'rgba(57, 217, 138, 0.10)'
-                : 'rgba(57, 217, 138, 0.04)',
-            borderColor: autoPlay
-              ? 'rgba(57, 217, 138, 0.72)'
-              : hoveredBtn === 'AUTO'
-                ? 'rgba(57, 217, 138, 0.45)'
-                : 'rgba(57, 217, 138, 0.28)',
-            color: autoPlay ? theme.colors.accent : theme.colors.textDim,
-            boxShadow: autoPlay
-              ? `0 0 16px rgba(57, 217, 138, 0.22), inset 0 0 12px rgba(57, 217, 138, 0.08)`
-              : hoveredBtn === 'AUTO'
-                ? '0 0 12px rgba(57, 217, 138, 0.18)'
-                : 'none',
-            cursor: disabled || staleActionFreeze || (isStepping && !autoPlay) ? 'not-allowed' : 'pointer',
-            opacity: disabled || staleActionFreeze ? 0.58 : 1,
+            ...styles.railStatusChip,
+            borderColor: `${liveStatusColor}55`,
+            boxShadow: `0 0 18px ${liveStatusColor}18`,
+            background: liveStatus.tone === 'busy'
+              ? 'linear-gradient(180deg, rgba(11, 17, 24, 0.96), rgba(8, 12, 18, 0.92))'
+              : liveStatus.tone === 'error'
+                ? 'linear-gradient(180deg, rgba(24, 11, 14, 0.96), rgba(16, 8, 10, 0.92))'
+                : 'rgba(10, 11, 14, 0.92)',
           }}
         >
-          {autoPlay ? 'AUTO \u25A0' : 'AUTO \u25B6'}
-        </button>
+          {statusContent}
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid="global-sim-controls"
+      style={{
+        ...styles.container,
+        gridTemplateColumns: controlsGridTemplate,
+        alignItems: compact ? 'stretch' : 'center',
+      }}
+    >
+      <div style={styles.commandCopy}>
+        <span style={styles.commandEyebrow}>{headingEyebrow}</span>
+        <strong style={styles.commandTitle}>{headingTitle}</strong>
+        <span style={styles.commandDetail}>{headingDetail}</span>
+      </div>
+
+      <div style={styles.actionPanel}>
+        <span style={styles.actionLabel}>Click To Simulate</span>
+        <div style={styles.buttons}>{actionButtons}</div>
+      </div>
+
       <div
+        data-testid="sim-step-status"
         role="status"
         aria-live="polite"
         aria-busy={isStepping}
@@ -332,51 +455,14 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
           ...styles.statusChip,
           borderColor: `${liveStatusColor}55`,
           boxShadow: `0 0 18px ${liveStatusColor}18`,
-          background: liveStatus.tone === 'busy'
-            ? 'linear-gradient(180deg, rgba(11, 17, 24, 0.96), rgba(8, 12, 18, 0.92))'
-            : liveStatus.tone === 'error'
-              ? 'linear-gradient(180deg, rgba(24, 11, 14, 0.96), rgba(16, 8, 10, 0.92))'
-              : 'rgba(10, 11, 14, 0.9)',
+            background: liveStatus.tone === 'busy'
+              ? 'linear-gradient(180deg, rgba(11, 17, 24, 0.96), rgba(8, 12, 18, 0.92))'
+              : liveStatus.tone === 'error'
+                ? 'linear-gradient(180deg, rgba(24, 11, 14, 0.96), rgba(16, 8, 10, 0.92))'
+                : 'rgba(10, 11, 14, 0.9)',
         }}
       >
-        <div style={styles.statusHeader}>
-          <span style={{ ...styles.statusEyebrow, color: liveStatusColor }}>
-            {autoPlay ? 'Auto-Play Active' : isStepping ? 'Command Uplink' : 'Step Status'}
-          </span>
-          <div style={styles.statusMeter} aria-hidden="true">
-            {SPINNER_FRAMES.map((_, index) => {
-              const isLit = isStepping
-                ? index === spinnerFrame
-                : autoPlay
-                  ? true
-                  : liveStatus.tone === 'idle'
-                    ? index < 2
-                    : liveStatus.tone === 'error'
-                      ? index === 0
-                      : true;
-              return (
-                <span
-                  key={index}
-                  style={{
-                    ...styles.statusMeterBar,
-                    background: isLit
-                      ? (autoPlay && !isStepping ? theme.colors.accent : liveStatusColor)
-                      : 'rgba(255, 255, 255, 0.08)',
-                    opacity: isLit ? 1 : 0.45,
-                  }}
-                />
-              );
-            })}
-          </div>
-        </div>
-        <span style={{ ...styles.statusTitle, color: staleActionFreeze ? theme.colors.warning : liveStatus.tone === 'idle' ? theme.colors.text : liveStatusColor }}>
-          {staleActionFreeze ? 'STEP FREEZE ACTIVE' : liveStatus.title}
-        </span>
-        <span style={styles.statusDetail}>
-          {staleActionFreeze
-            ? 'Simulation stepping is paused because the snapshot feed is critically stale. Restore freshness before issuing a risky command.'
-            : liveStatus.detail}
-        </span>
+        {statusContent}
       </div>
     </div>
   );
@@ -384,18 +470,60 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    padding: '8px 0',
-    flexWrap: 'wrap',
+    display: 'grid',
+    gap: '10px',
+    padding: '10px 12px',
+    border: `1px solid ${theme.colors.border}`,
+    background: 'linear-gradient(180deg, rgba(11, 15, 22, 0.92), rgba(7, 10, 15, 0.97))',
+    clipPath: theme.chamfer.buttonClipPath,
+    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.02), 0 0 18px rgba(88, 184, 255, 0.08)',
   },
-  label: {
-    fontSize: '11px',
+  railContainer: {
+    display: 'grid',
+    gap: '10px',
+    padding: '8px 12px',
+    border: `1px solid ${theme.colors.border}`,
+    background: 'linear-gradient(90deg, rgba(12, 16, 24, 0.96), rgba(8, 12, 19, 0.96) 42%, rgba(7, 10, 15, 0.98))',
+    clipPath: theme.chamfer.buttonClipPath,
+    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.02), 0 0 20px rgba(88, 184, 255, 0.08)',
+  },
+  commandCopy: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    minWidth: 0,
+  },
+  commandEyebrow: {
+    fontSize: '8px',
     letterSpacing: '0.16em',
     color: theme.colors.textDim,
+    textTransform: 'uppercase',
     fontFamily: theme.font.mono,
-    flexShrink: 0,
+  },
+  commandTitle: {
+    color: theme.colors.text,
+    fontSize: '14px',
+    lineHeight: 1.15,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+  },
+  commandDetail: {
+    color: theme.colors.textDim,
+    fontSize: '10px',
+    lineHeight: 1.5,
+  },
+  actionPanel: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    minWidth: 0,
+  },
+  actionLabel: {
+    color: theme.colors.textMuted,
+    fontSize: '8px',
+    letterSpacing: '0.16em',
+    textTransform: 'uppercase',
+    fontFamily: theme.font.mono,
   },
   buttons: {
     display: 'flex',
@@ -406,8 +534,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: '5px',
-    minWidth: '250px',
-    maxWidth: '420px',
+    minWidth: 0,
     padding: '8px 12px 9px',
     border: '1px solid rgba(88, 184, 255, 0.22)',
     clipPath: theme.chamfer.buttonClipPath,
@@ -446,12 +573,31 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '10px',
     lineHeight: 1.55,
   },
+  statusDetailClamp: {
+    color: theme.colors.textDim,
+    fontSize: '10px',
+    lineHeight: 1.45,
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: 2,
+    overflow: 'hidden',
+  },
+  railStatusChip: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    minWidth: 0,
+    padding: '8px 12px',
+    border: '1px solid rgba(88, 184, 255, 0.22)',
+    clipPath: theme.chamfer.buttonClipPath,
+    justifyContent: 'center',
+  },
   button: {
     fontFamily: theme.font.mono,
-    fontSize: '13px',
+    fontSize: '12px',
     fontWeight: 600,
-    letterSpacing: '0.05em',
-    padding: '8px 16px',
+    letterSpacing: '0.08em',
+    padding: '8px 12px',
     border: '1px solid rgba(88, 184, 255, 0.32)',
     background: 'rgba(88, 184, 255, 0.07)',
     color: theme.colors.primary,

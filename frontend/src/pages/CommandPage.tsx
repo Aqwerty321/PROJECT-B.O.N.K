@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import EarthGlobe, { trajectoryToVectors } from '../components/EarthGlobe';
 import { ConjunctionBullseye } from '../components/ConjunctionBullseye';
 import { GlassPanel } from '../components/GlassPanel';
-import SimControls from '../components/SimControls';
 import { SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { ThreatSeverityFilters } from '../components/dashboard/ThreatSeverityFilters';
 import {
@@ -169,10 +168,6 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
                 <HeroMetric label="Burn Window" value={selectedSatId ? model.burnValue : 'Select Satellite'} detail={selectedSatId ? model.burnDetail : 'Select a satellite to inspect its next burn window, pending queue, and timing context.'} tone={selectedSatId ? (model.watchedPendingBurns.length > 0 ? 'warning' : 'primary') : 'neutral'} />
                 <HeroMetric label="Slot Integrity" value={model.opsHealthValue} detail={model.opsHealthDetail} tone={model.opsHealthWarn ? 'critical' : 'accent'} />
                 <HeroMetric label="Fuel Posture" value={model.resourceValue} detail={model.resourceDetail} tone={model.lowestFuelSatellite && model.lowestFuelSatellite.fuel_kg < 10 ? 'critical' : 'warning'} />
-              </div>
-
-              <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: `1px solid ${theme.colors.border}` }}>
-                <SimControls />
               </div>
             </div>
           </GlassPanel>
