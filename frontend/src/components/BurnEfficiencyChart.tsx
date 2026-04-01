@@ -5,6 +5,7 @@ import { theme } from '../styles/theme';
 interface Props {
   burns: BurnsResponse | null;
   selectedSatId: string | null;
+  onSelectSat?: (satelliteId: string) => void;
 }
 
 interface BurnPoint {
@@ -72,30 +73,7 @@ function pointRadius(point: BurnPoint, selectedSatId: string | null): number {
   return Math.min(9, 4 + point.avoidanceBurns + emphasis);
 }
 
-function summaryCard(label: string, value: string, detail: string, tone: string) {
-  return (
-    <div
-      key={label}
-      style={{
-        minHeight: '88px',
-        padding: '10px 12px',
-        border: `1px solid ${tone}`,
-        background: 'linear-gradient(180deg, rgba(7, 10, 15, 0.92), rgba(5, 8, 12, 0.98))',
-        clipPath: theme.chamfer.buttonClipPath,
-        boxShadow: `inset 0 0 18px rgba(0, 0, 0, 0.28), 0 0 16px ${tone}18`,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px',
-      }}
-    >
-      <span style={{ color: tone, fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase' }}>{label}</span>
-      <strong style={{ color: theme.colors.text, fontSize: '20px', lineHeight: 1 }}>{value}</strong>
-      <span style={{ color: theme.colors.textDim, fontSize: '11px', lineHeight: 1.45 }}>{detail}</span>
-    </div>
-  );
-}
-
-export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ burns, selectedSatId }: Props) {
+export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ burns, selectedSatId, onSelectSat }: Props) {
   const points = useMemo(
     () => Object.entries(burns?.per_satellite ?? {})
       .map(([satelliteId, stats]) => asPoint(satelliteId, stats))
@@ -154,50 +132,17 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
     ? `${compactSatLabel(activePoint.satelliteId)} is the current reference point for avoided-collision efficiency.`
     : 'Fleet summary diamond shows aggregate avoided collisions versus fuel consumed.';
 
-  const cards = [
-    summaryCard(
-      selectedPoint ? 'Focus' : 'Fleet',
-      selectedPoint ? compactSatLabel(selectedPoint.satelliteId) : 'ALL SATS',
-      selectedPoint
-        ? `${selectedPoint.burnsExecuted} burns logged for selected vehicle`
-        : `${summary.burns_executed} executed / ${summary.burns_pending} pending / ${summary.burns_dropped} dropped`,
-      selectedPoint ? theme.colors.primary : theme.colors.accent,
-    ),
-    summaryCard(
-      'Avoided',
-      `${selectedPoint?.collisionsAvoided ?? summary.collisions_avoided}`,
-      selectedPoint
-        ? `${selectedPoint.avoidanceBurns} avoidance burns, ${selectedPoint.recoveryBurns} recovery burns`
-        : `${summary.avoidance_burns_executed} avoidance burns tracked fleet-wide`,
-      theme.colors.accent,
-    ),
-    summaryCard(
-      'Fuel',
-      `${(selectedPoint?.fuelConsumedKg ?? summary.fuel_consumed_kg).toFixed(2)} kg`,
-      selectedPoint
-        ? `${selectedPoint.avoidanceFuelConsumedKg.toFixed(2)} kg spent on avoidance maneuvers`
-        : `${summary.avoidance_fuel_consumed_kg.toFixed(2)} kg tied to avoidance burns`,
-      theme.colors.warning,
-    ),
-    summaryCard(
-      'Dropped',
-      `${summary.burns_dropped}`,
-      'Commands lost to upload-window invalidation remain visible instead of disappearing.',
-      summary.burns_dropped > 0 ? theme.colors.critical : 'rgba(153, 169, 188, 0.46)',
-    ),
-  ];
-
   return (
-    <div style={{ display: 'flex', gap: '14px', minHeight: 0, flex: 1, alignItems: 'start' }}>
-      <div
-        style={{
-          flex: '1 1 0',
-          minWidth: 0,
-          position: 'relative',
-          overflow: 'visible',
-        }}
-      >
-        <svg viewBox={`0 0 ${chart.width} ${chart.height}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+    <div
+      style={{
+        flex: 1,
+        minWidth: 0,
+        minHeight: 0,
+        position: 'relative',
+        overflow: 'visible',
+      }}
+    >
+      <svg viewBox={`0 0 ${chart.width} ${chart.height}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
           <defs>
             <linearGradient id="efficiency-fill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="rgba(57, 217, 138, 0.16)" />
@@ -250,7 +195,21 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
             const color = chartColor(point, selectedSatId);
             const radius = pointRadius(point, selectedSatId);
             return (
-              <g key={point.satelliteId}>
+              <g
+                key={point.satelliteId}
+                role={onSelectSat ? 'button' : undefined}
+                tabIndex={onSelectSat ? 0 : undefined}
+                aria-label={onSelectSat ? `Focus ${point.satelliteId}` : undefined}
+                onClick={onSelectSat ? () => onSelectSat(point.satelliteId) : undefined}
+                onKeyDown={onSelectSat ? event => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelectSat(point.satelliteId);
+                  }
+                } : undefined}
+                style={{ cursor: onSelectSat ? 'pointer' : 'default' }}
+              >
+                <circle cx={x} cy={y} r={Math.max(radius + 10, 14)} fill="transparent" />
                 <circle cx={x} cy={y} r={radius + 3} fill={color} opacity="0.12" />
                 <circle cx={x} cy={y} r={radius} fill={color} stroke="rgba(6, 7, 10, 0.95)" strokeWidth="1.4" />
                 {point.satelliteId === selectedSatId ? <circle cx={x} cy={y} r={radius + 4.5} fill="none" stroke={theme.colors.primary} strokeWidth="1.5" opacity="0.9" /> : null}
@@ -274,7 +233,7 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
           </text>
 
           {activePoint ? (
-            <g>
+            <g pointerEvents="none">
               <line
                 x1={chart.left}
                 y1={toY(activePoint.collisionsAvoided)}
@@ -295,44 +254,39 @@ export const BurnEfficiencyChart = React.memo(function BurnEfficiencyChart({ bur
               />
             </g>
           ) : null}
-        </svg>
+      </svg>
 
-        <div style={{ position: 'absolute', left: '14px', top: '4px', display: 'flex', flexDirection: 'column', gap: '4px', pointerEvents: 'none' }}>
-          <span style={{ color: theme.colors.textDim, fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
-            Efficiency reference
-          </span>
-          <strong style={{ color: theme.colors.text, fontSize: '13px' }}>
-            {efficiencyRatio.toFixed(2)} avoided/kg
-          </strong>
-          <span style={{ color: theme.colors.textMuted, fontSize: '10px', maxWidth: '30ch', lineHeight: 1.45 }}>
-            {chartCaption}
-          </span>
-        </div>
+      <div style={{ position: 'absolute', left: '14px', top: '4px', display: 'flex', flexDirection: 'column', gap: '4px', pointerEvents: 'none' }}>
+        <span style={{ color: theme.colors.textDim, fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+          Efficiency reference
+        </span>
+        <strong style={{ color: theme.colors.text, fontSize: '13px' }}>
+          {efficiencyRatio.toFixed(2)} avoided/kg
+        </strong>
+        <span style={{ color: theme.colors.textMuted, fontSize: '10px', maxWidth: '36ch', lineHeight: 1.45 }}>
+          {points.length > 0 ? `${chartCaption} Select any point to focus that spacecraft.` : chartCaption}
+        </span>
+      </div>
 
-        {points.length === 0 ? (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              pointerEvents: 'none',
-            }}
-          >
-            <div style={{ maxWidth: '32ch', textAlign: 'center', padding: '0 18px' }}>
-              <strong style={{ display: 'block', color: theme.colors.text, fontSize: '13px', marginBottom: '6px' }}>Awaiting first executed maneuver</strong>
-              <span style={{ color: theme.colors.textDim, fontSize: '11px', lineHeight: 1.5 }}>
-                The chart is live, but fuel-to-avoidance points appear only after the backend logs real burn outcomes.
-              </span>
-            </div>
+      {points.length === 0 ? (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+          }}
+        >
+          <div style={{ maxWidth: '32ch', textAlign: 'center', padding: '0 18px' }}>
+            <strong style={{ display: 'block', color: theme.colors.text, fontSize: '13px', marginBottom: '6px' }}>Awaiting first executed maneuver</strong>
+            <span style={{ color: theme.colors.textDim, fontSize: '11px', lineHeight: 1.5 }}>
+              The chart is live, but fuel-to-avoidance points appear only after the backend logs real burn outcomes.
+            </span>
           </div>
-        ) : null}
-      </div>
-
-      <div style={{ flex: '0 0 220px', display: 'grid', gridTemplateColumns: '1fr', gridTemplateRows: 'repeat(4, 1fr)', gap: '10px', minWidth: '180px', minHeight: 0, overflow: 'auto' }}>
-        {cards}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 });

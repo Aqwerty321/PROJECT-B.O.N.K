@@ -284,15 +284,9 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
       return;
     }
 
-    const allExecuted = selectedSatId
-      ? burns.executed.filter(burn => burn.satellite_id === selectedSatId)
-      : burns.executed;
-    const allPending = selectedSatId
-      ? burns.pending.filter(burn => burn.satellite_id === selectedSatId)
-      : burns.pending;
-    const allDropped = selectedSatId
-      ? (burns.dropped ?? []).filter(burn => burn.satellite_id === selectedSatId)
-      : (burns.dropped ?? []);
+    const allExecuted = burns.executed;
+    const allPending = burns.pending;
+    const allDropped = burns.dropped ?? [];
 
     const satIds = new Set<string>();
     allExecuted.forEach(burn => satIds.add(burn.satellite_id));
@@ -426,8 +420,13 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         ctx.fillRect(0, y, lw, rowHeight);
       }
       if (satId === selectedSatId) {
-        ctx.fillStyle = 'rgba(88, 184, 255, 0.08)';
+        ctx.fillStyle = 'rgba(88, 184, 255, 0.10)';
         ctx.fillRect(0, y, lw, rowHeight);
+        ctx.fillStyle = 'rgba(88, 184, 255, 0.85)';
+        ctx.fillRect(0, y, 3, rowHeight);
+        ctx.strokeStyle = 'rgba(88, 184, 255, 0.24)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0.5, y + 0.5, lw - 1, Math.max(1, rowHeight - 1));
       }
 
       ctx.strokeStyle = 'rgba(255,255,255,0.05)';

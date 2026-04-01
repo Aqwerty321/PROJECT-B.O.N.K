@@ -150,7 +150,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
       key="focus"
       label="Timeline Focus"
       value={selectedSatId ?? 'Fleet'}
-      detail={selectedSatId ? 'Burn lane narrowed to the selected spacecraft command rail.' : 'Fleet-wide command queue, mitigation, and drop visibility.'}
+      detail={selectedSatId ? 'Selected spacecraft stays highlighted while the full fleet command queue remains visible.' : 'Fleet-wide command queue, mitigation, and drop visibility.'}
       tone={selectedSatId ? 'primary' : 'accent'}
     />,
     <SummaryCard
@@ -212,20 +212,12 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '74ch', flexShrink: 0 }}>
               <span style={{ color: theme.colors.warning, fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.95 }}>Burn scheduler</span>
               <p id="burn-ops-heading" style={{ color: theme.colors.textDim, fontSize: '12px', lineHeight: 1.55 }}>
-                Executed burns, queued maneuvers, dropped uploads, and blackout/conflict markers aligned on a single command clock with selected-vehicle focus.
+                Executed burns, queued maneuvers, dropped uploads, and blackout/conflict markers aligned on a single command clock with optional selected-vehicle emphasis.
               </p>
             </div>
-            {selectedSatId ? (
-              <div style={{ width: '100%', flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: '1px solid rgba(255, 194, 71, 0.28)', background: 'linear-gradient(180deg, rgba(11, 13, 17, 0.92), rgba(7, 8, 10, 0.98))', boxShadow: 'inset 0 0 32px rgba(0, 0, 0, 0.62), 0 0 22px rgba(255, 194, 71, 0.05)' }}>
-                <ManeuverGantt burns={model.burns} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} />
-              </div>
-            ) : (
-              <SatelliteSelectionPlaceholder
-                title="Satellite Focus Required"
-                detail="Select a satellite to inspect its predictive maneuver timeline, upload windows, and burn-lane command friction."
-                tone="warning"
-              />
-            )}
+            <div style={{ width: '100%', flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: `1px solid ${selectedSatId ? 'rgba(88, 184, 255, 0.32)' : 'rgba(255, 194, 71, 0.28)'}`, background: 'linear-gradient(180deg, rgba(11, 13, 17, 0.92), rgba(7, 8, 10, 0.98))', boxShadow: selectedSatId ? 'inset 0 0 32px rgba(0, 0, 0, 0.62), 0 0 22px rgba(88, 184, 255, 0.08)' : 'inset 0 0 32px rgba(0, 0, 0, 0.62), 0 0 22px rgba(255, 194, 71, 0.05)' }}>
+              <ManeuverGantt burns={model.burns} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} />
+            </div>
           </div>
         </GlassPanel>
 
