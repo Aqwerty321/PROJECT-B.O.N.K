@@ -9,6 +9,8 @@ import { useDashboard } from '../dashboard/DashboardContext';
 import { useBurnCounterfactual } from '../hooks/useApi';
 import { theme } from '../styles/theme';
 
+const COLLISION_THRESHOLD_KM = 0.1;
+
 type TimelineBurn = ExecutedBurn | PendingBurn;
 
 function formatUtcTime(value?: string | null): string {
@@ -149,6 +151,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
     { label: 'Satellite', value: decisionFocus.satellite_id, tone: 'primary' as const },
     { label: 'Trigger Debris', value: decisionFocus.trigger_debris_id ?? '--', tone: decisionFocus.trigger_debris_id ? 'critical' as const : 'neutral' as const },
     { label: 'Predicted Miss', value: formatDistanceKm(decisionFocus.trigger_miss_distance_km), tone: 'critical' as const },
+    { label: 'Collision Threshold', value: `${COLLISION_THRESHOLD_KM.toFixed(3)} km`, tone: 'critical' as const },
     { label: 'Approach Speed', value: formatSpeedKmS(decisionFocus.trigger_approach_speed_km_s), tone: 'warning' as const },
     { label: 'Burn Epoch', value: formatUtcTime(decisionFocus.burn_epoch), tone: 'primary' as const },
     { label: 'Upload Station', value: decisionFocus.upload_station || '--', tone: decisionFocus.upload_station ? 'accent' as const : 'neutral' as const },
@@ -156,6 +159,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
     { label: 'Delta-V', value: formatDeltaVMs(decisionFocus.delta_v_norm_km_s), tone: 'primary' as const },
     { label: 'Constraint Flags', value: decisionConstraintCount > 0 ? `${decisionConstraintCount} active` : 'Clear', tone: decisionConstraintCount > 0 ? 'warning' as const : 'accent' as const },
     { label: 'Fail-Open', value: decisionFocus.trigger_fail_open ? 'Yes' : 'No', tone: decisionFocus.trigger_fail_open ? 'warning' as const : 'neutral' as const },
+    { label: 'Provenance', value: decisionFocus.scheduled_from_predictive_cdm ? 'Predictive burn record' : 'Manual/recovery record', tone: 'neutral' as const },
     { label: 'Mitigation Miss', value: executedDecision ? formatDistanceKm(executedDecision.mitigation_miss_distance_km) : 'Pending', tone: executedDecision?.collision_avoided ? 'accent' as const : executedDecision?.mitigation_evaluated ? 'warning' as const : 'neutral' as const },
     { label: 'Clearance Gain', value: mitigationGainKm != null ? formatDistanceKm(mitigationGainKm) : 'Pending', tone: mitigationGainKm != null && mitigationGainKm > 0 ? 'accent' as const : mitigationGainKm != null ? 'warning' as const : 'neutral' as const },
   ] satisfies Array<{ label: string; value: string; tone?: Tone }> : [];

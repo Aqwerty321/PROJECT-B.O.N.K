@@ -3,6 +3,8 @@ import { riskLevelForEvent, pcProxy } from '../../types/api';
 import { theme } from '../../styles/theme';
 import { DetailList, EmptyStatePanel, InfoChip, type Tone } from '../dashboard/UiPrimitives';
 
+const COLLISION_THRESHOLD_KM = 0.1;
+
 function toneForEvent(event: ConjunctionEvent): Tone {
   const level = riskLevelForEvent(event);
   if (level === 'red') return 'critical';
@@ -94,6 +96,8 @@ export function ConjunctionDetailCard({
         <InfoChip label="TCA" value={formatUtc(event.tca)} tone="primary" active />
         <InfoChip label="Miss" value={`${event.miss_distance_km.toFixed(3)} km`} tone={tone} active />
         <InfoChip label="Stream" value={streamLabel} tone={event.predictive ? 'warning' : 'neutral'} active />
+        <InfoChip label="Collision Threshold" value={`${COLLISION_THRESHOLD_KM.toFixed(3)} km`} tone="critical" active />
+        <InfoChip label="Provenance" value={event.predictive ? 'Predictive CDM' : 'Historical record'} tone="neutral" active />
         {event.fail_open && <InfoChip label="Fail-open" value="Active" tone="warning" active />}
       </div>
 

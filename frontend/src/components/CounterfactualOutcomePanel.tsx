@@ -458,6 +458,7 @@ export function CounterfactualOutcomePanel({
           <LegendChip label="Threshold" value={formatDistanceKm(COLLISION_THRESHOLD_KM)} tone="warning" />
           <LegendChip label="No Burn" value={formatDistanceKm(counterfactual.without_burn.min_miss_distance_km)} tone={withoutTone} />
           <LegendChip label="Actual" value={formatDistanceKm(counterfactual.actual.min_miss_distance_km)} tone={actualTone} />
+          <LegendChip label="Provenance" value="Executed snapshot" tone="neutral" />
         </div>
 
         <div style={{ position: 'relative', height: '92px' }}>
@@ -520,7 +521,7 @@ export function CounterfactualOutcomePanel({
 
       <div style={{ border: `1px solid ${theme.colors.border}`, background: 'rgba(7, 9, 12, 0.68)', padding: '10px 12px', clipPath: theme.chamfer.clipPath }}>
         <p style={{ color: theme.colors.textDim, fontSize: '11px', lineHeight: 1.55 }}>
-          Actual and no-burn branches are both propagated from the stored execution snapshot for this burn. This remains a per-burn causal compare, not a whole-scene alternate-history replay.
+          Actual and no-burn branches are both propagated from the stored execution snapshot for this burn, with the hard collision threshold fixed at {formatDistanceKm(COLLISION_THRESHOLD_KM)}. This remains a per-burn causal compare, not a whole-scene alternate-history replay.
         </p>
       </div>
     </div>

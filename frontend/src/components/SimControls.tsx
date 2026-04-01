@@ -66,7 +66,7 @@ async function postStep(hours: number): Promise<StepResponse> {
 
 export default memo(function SimControls({ disabled = false }: SimControlsProps) {
   const { play } = useSound();
-  const { stepStatus, setStepStatus } = useDashboard();
+  const { stepStatus, setStepStatus, model } = useDashboard();
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
   const [flashBtn, setFlashBtn] = useState<string | null>(null);
   const [spinnerFrame, setSpinnerFrame] = useState(0);
@@ -237,8 +237,9 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
       }
     : stepStatus;
   const liveStatusColor = statusToneColor(liveStatus.tone);
+  const staleActionFreeze = model.truthBanner.snapshotSeverity === 'critical';
 
-  const manualDisabled = disabled || isStepping || autoPlay;
+  const manualDisabled = disabled || staleActionFreeze || isStepping || autoPlay;
 
   return (
     <div style={styles.container}>
@@ -289,10 +290,10 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
 
         {/* Auto-play toggle */}
         <button
-          disabled={disabled || (isStepping && !autoPlay)}
+          disabled={disabled || staleActionFreeze || (isStepping && !autoPlay)}
           onClick={toggleAutoPlay}
           onMouseEnter={() => {
-            if (!disabled && !isStepping) {
+            if (!disabled && !staleActionFreeze && !isStepping) {
               setHoveredBtn('AUTO');
               play('hover');
             }
@@ -316,8 +317,8 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
               : hoveredBtn === 'AUTO'
                 ? '0 0 12px rgba(57, 217, 138, 0.18)'
                 : 'none',
-            cursor: disabled || (isStepping && !autoPlay) ? 'not-allowed' : 'pointer',
-            opacity: disabled ? 0.58 : 1,
+            cursor: disabled || staleActionFreeze || (isStepping && !autoPlay) ? 'not-allowed' : 'pointer',
+            opacity: disabled || staleActionFreeze ? 0.58 : 1,
           }}
         >
           {autoPlay ? 'AUTO \u25A0' : 'AUTO \u25B6'}
@@ -368,10 +369,14 @@ export default memo(function SimControls({ disabled = false }: SimControlsProps)
             })}
           </div>
         </div>
-        <span style={{ ...styles.statusTitle, color: liveStatus.tone === 'idle' ? theme.colors.text : liveStatusColor }}>
-          {liveStatus.title}
+        <span style={{ ...styles.statusTitle, color: staleActionFreeze ? theme.colors.warning : liveStatus.tone === 'idle' ? theme.colors.text : liveStatusColor }}>
+          {staleActionFreeze ? 'STEP FREEZE ACTIVE' : liveStatus.title}
         </span>
-        <span style={styles.statusDetail}>{liveStatus.detail}</span>
+        <span style={styles.statusDetail}>
+          {staleActionFreeze
+            ? 'Simulation stepping is paused because the snapshot feed is critically stale. Restore freshness before issuing a risky command.'
+            : liveStatus.detail}
+        </span>
       </div>
     </div>
   );
