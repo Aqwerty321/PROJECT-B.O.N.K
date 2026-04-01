@@ -247,6 +247,45 @@ export interface TrajectoryResponse {
   predicted: TrajectoryPoint[];
 }
 
+export interface BurnCounterfactualBranch {
+  evaluated: boolean;
+  fail_open: boolean;
+  min_miss_distance_km: number;
+  min_epoch: string;
+  collision: boolean;
+  sat_pos_km: [number, number, number];
+  deb_pos_km: [number, number, number];
+}
+
+export interface BurnCounterfactualResponse {
+  burn_id: string;
+  satellite_id: string;
+  trigger_debris_id: string;
+  compare_basis: string;
+  compare_epoch: string;
+  burn: {
+    burn_epoch: string;
+    upload_epoch: string;
+    upload_station: string;
+    delta_v_km_s: [number, number, number];
+    delta_v_norm_km_s: number;
+    fuel_spent_kg: number;
+  };
+  trigger: {
+    predicted_tca: string;
+    predicted_miss_distance_km: number;
+    approach_speed_km_s: number;
+    fail_open: boolean;
+  };
+  actual: BurnCounterfactualBranch;
+  without_burn: BurnCounterfactualBranch;
+  delta: {
+    clearance_gain_km: number;
+    crossed_collision_threshold: boolean;
+    fuel_spent_kg: number;
+  };
+}
+
 export function riskLevelFromDistance(km: number): RiskLevel {
   if (km < 1) return 'red';
   if (km < 5) return 'yellow';

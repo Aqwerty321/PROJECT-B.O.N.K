@@ -290,6 +290,20 @@ void register_routes(httplib::Server& server,
         with_cors(req, res);
     });
 
+    server.Get("/api/debug/burn-counterfactual", [&runtime, with_cors](const httplib::Request& req, httplib::Response& res) {
+        const std::string burn_id = req.has_param("burn_id") ? req.get_param_value("burn_id") : std::string{};
+        const BurnCounterfactualResult compare = runtime.burn_counterfactual_json(burn_id);
+        if (!compare.ok) {
+            set_error_json(res, compare.http_status, compare.error_code, compare.error_message);
+            with_cors(req, res);
+            return;
+        }
+
+        res.status = compare.http_status;
+        res.set_content(compare.json, "application/json");
+        with_cors(req, res);
+    });
+
     server.Get("/api/debug/conjunctions", [&runtime, with_cors](const httplib::Request& req, httplib::Response& res) {
         std::string_view filter;
         std::string filter_str;

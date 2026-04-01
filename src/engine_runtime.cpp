@@ -510,6 +510,17 @@ PairMinSeparationScan scan_pair_minimum_separation(Vec3 sat_pos,
     return out;
 }
 
+void append_vec3_json(std::string& out, const Vec3& value, int precision = 6)
+{
+    out.push_back('[');
+    out += fmt_double(value.x, precision);
+    out.push_back(',');
+    out += fmt_double(value.y, precision);
+    out.push_back(',');
+    out += fmt_double(value.z, precision);
+    out.push_back(']');
+}
+
 struct AutoColaRtnFrame {
     Vec3 r_hat{};
     Vec3 t_hat{};
@@ -2928,6 +2939,8 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
             }
         }
 
+        std::vector<ExecutedManeuverCapture> executed_captures;
+
         const ManeuverExecStats exec_stats = cascade::execute_due_maneuvers(
             store_,
             clock_.epoch_s(),
@@ -2936,7 +2949,8 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
             recovery_requests_by_sat_,
             graveyard_requested_by_sat_,
             graveyard_completed_by_sat_,
-            &dropped_burns_tick
+            &dropped_burns_tick,
+            &executed_captures
         );
         upload_missed_tick += exec_stats.upload_missed;
         stats.maneuvers_executed = exec_stats.executed;
@@ -2983,6 +2997,47 @@ StepCommandResult EngineRuntime::execute_simulate_step(std::int64_t step_seconds
                 eb.fuel_before_kg = (fit != fuel_snapshot_before.end()) ? fit->second : 0.0;
                 const std::size_t si = store_.find(b.satellite_id);
                 eb.fuel_after_kg = (si < store_.size()) ? store_.fuel_kg(si) : 0.0;
+
+                if (b.scheduled_from_predictive_cdm && !b.trigger_debris_id.empty()) {
+                    const auto capture_it = std::find_if(
+                        executed_captures.begin(),
+                        executed_captures.end(),
+                        [&b](const ExecutedManeuverCapture& capture) {
+                            return capture.burn.id == b.id;
+                        }
+                    );
+                    if (capture_it != executed_captures.end()) {
+                        BurnCounterfactualSnapshot snapshot;
+                        snapshot.burn_id = b.id;
+                        snapshot.satellite_id = b.satellite_id;
+                        snapshot.trigger_debris_id = b.trigger_debris_id;
+                        snapshot.upload_station_id = b.upload_station_id;
+                        snapshot.delta_v_km_s = b.delta_v_km_s;
+                        snapshot.delta_v_norm_km_s = b.delta_v_norm_km_s;
+                        snapshot.fuel_before_kg = eb.fuel_before_kg;
+                        snapshot.fuel_after_kg = eb.fuel_after_kg;
+                        snapshot.burn_epoch_s = b.burn_epoch_s;
+                        snapshot.upload_epoch_s = b.upload_epoch_s;
+                        snapshot.compare_epoch_s = capture_it->execution_epoch_s;
+                        snapshot.trigger_tca_epoch_s = b.trigger_tca_epoch_s;
+                        snapshot.trigger_miss_distance_km = b.trigger_miss_distance_km;
+                        snapshot.trigger_approach_speed_km_s = b.trigger_approach_speed_km_s;
+                        snapshot.trigger_fail_open = b.trigger_fail_open;
+                        snapshot.scheduled_from_predictive_cdm = b.scheduled_from_predictive_cdm;
+                        snapshot.recovery_burn = b.recovery_burn;
+                        snapshot.graveyard_burn = b.graveyard_burn;
+                        snapshot.sat_pos_pre_km = capture_it->sat_pos_pre_km;
+                        snapshot.sat_vel_pre_km_s = capture_it->sat_vel_pre_km_s;
+                        snapshot.sat_pos_post_km = capture_it->sat_pos_post_km;
+                        snapshot.sat_vel_post_km_s = capture_it->sat_vel_post_km_s;
+                        snapshot.debris_pos_km = capture_it->debris_pos_km;
+                        snapshot.debris_vel_km_s = capture_it->debris_vel_km_s;
+                        burn_counterfactual_history_.push_back(std::move(snapshot));
+                        while (burn_counterfactual_history_.size() > kMaxBurnCounterfactualSnapshots) {
+                            burn_counterfactual_history_.pop_front();
+                        }
+                    }
+                }
 
                 const MitigationEvaluationResult mitigation = evaluate_predictive_mitigation(
                     store_,
@@ -3969,6 +4024,172 @@ std::string EngineRuntime::trajectory_json(std::string_view satellite_id) const
     static const std::deque<TrackPoint> empty_trail;
     const auto& trail = (it != trajectory_by_sat_.end()) ? it->second : empty_trail;
     return build_trajectory_json(store_, satellite_id, trail, executed_burn_history_, clock_.epoch_s());
+}
+
+BurnCounterfactualResult EngineRuntime::burn_counterfactual_json(std::string_view burn_id) const
+{
+    BurnCounterfactualResult result;
+    if (burn_id.empty()) {
+        result.ok = false;
+        result.http_status = 400;
+        result.error_code = "missing_burn_id";
+        result.error_message = "burn_id query parameter is required";
+        return result;
+    }
+
+    std::shared_lock lock(mutex_);
+    const auto executed_it = std::find_if(
+        executed_burn_history_.begin(),
+        executed_burn_history_.end(),
+        [burn_id](const ExecutedBurn& burn) {
+            return burn.id == burn_id;
+        }
+    );
+    if (executed_it == executed_burn_history_.end()) {
+        result.ok = false;
+        result.http_status = 404;
+        result.error_code = "burn_not_found";
+        result.error_message = "no executed burn exists for the requested burn_id";
+        return result;
+    }
+    if (!executed_it->scheduled_from_predictive_cdm || executed_it->trigger_debris_id.empty()) {
+        result.ok = false;
+        result.http_status = 409;
+        result.error_code = "burn_not_eligible";
+        result.error_message = "counterfactual comparison currently supports only predictive burns with trigger debris";
+        return result;
+    }
+
+    const auto snapshot_it = std::find_if(
+        burn_counterfactual_history_.begin(),
+        burn_counterfactual_history_.end(),
+        [burn_id](const EngineRuntime::BurnCounterfactualSnapshot& snapshot) {
+            return snapshot.burn_id == burn_id;
+        }
+    );
+    if (snapshot_it == burn_counterfactual_history_.end()) {
+        result.ok = false;
+        result.http_status = 500;
+        result.error_code = "burn_snapshot_missing";
+        result.error_message = "counterfactual snapshot is missing for the requested predictive burn";
+        return result;
+    }
+
+    const EngineRuntime::BurnCounterfactualSnapshot& snapshot = *snapshot_it;
+    if (snapshot.trigger_tca_epoch_s <= snapshot.compare_epoch_s + EPS_NUM) {
+        result.ok = false;
+        result.http_status = 409;
+        result.error_code = "encounter_window_elapsed";
+        result.error_message = "the predictive encounter was already at or past TCA when this burn executed";
+        return result;
+    }
+
+    const double horizon_s = std::min(
+        cdm_params().horizon_s,
+        std::max(cdm_params().substep_s, snapshot.trigger_tca_epoch_s - snapshot.compare_epoch_s + 3600.0)
+    );
+    const PairMinSeparationScan actual = scan_pair_minimum_separation(
+        snapshot.sat_pos_post_km,
+        snapshot.sat_vel_post_km_s,
+        snapshot.debris_pos_km,
+        snapshot.debris_vel_km_s,
+        snapshot.compare_epoch_s,
+        horizon_s,
+        cdm_params().substep_s,
+        cdm_params().rk4_max_step_s
+    );
+    const PairMinSeparationScan without_burn = scan_pair_minimum_separation(
+        snapshot.sat_pos_pre_km,
+        snapshot.sat_vel_pre_km_s,
+        snapshot.debris_pos_km,
+        snapshot.debris_vel_km_s,
+        snapshot.compare_epoch_s,
+        horizon_s,
+        cdm_params().substep_s,
+        cdm_params().rk4_max_step_s
+    );
+
+    const double actual_miss_km = actual.fail_open ? 0.0 : std::sqrt(std::max(0.0, actual.min_d2));
+    const double without_burn_miss_km = without_burn.fail_open ? 0.0 : std::sqrt(std::max(0.0, without_burn.min_d2));
+    const bool actual_collision = !actual.fail_open && actual_miss_km <= COLLISION_THRESHOLD_KM + EPS_NUM;
+    const bool without_burn_collision = !without_burn.fail_open && without_burn_miss_km <= COLLISION_THRESHOLD_KM + EPS_NUM;
+    const double fuel_spent_kg = std::max(0.0, snapshot.fuel_before_kg - snapshot.fuel_after_kg);
+
+    std::string out;
+    out.reserve(2048);
+    out += "{\"burn_id\":";
+    append_json_string(out, snapshot.burn_id);
+    out += ",\"satellite_id\":";
+    append_json_string(out, snapshot.satellite_id);
+    out += ",\"trigger_debris_id\":";
+    append_json_string(out, snapshot.trigger_debris_id);
+    out += ",\"compare_basis\":\"executed-burn-snapshot\"";
+    out += ",\"compare_epoch\":";
+    append_json_string(out, iso8601(snapshot.compare_epoch_s));
+    out += ",\"burn\":{\"burn_epoch\":";
+    append_json_string(out, iso8601(snapshot.burn_epoch_s));
+    out += ",\"upload_epoch\":";
+    append_json_string(out, snapshot.upload_epoch_s > 0.0 ? iso8601(snapshot.upload_epoch_s) : std::string{});
+    out += ",\"upload_station\":";
+    append_json_string(out, snapshot.upload_station_id);
+    out += ",\"delta_v_km_s\":";
+    append_vec3_json(out, snapshot.delta_v_km_s, 9);
+    out += ",\"delta_v_norm_km_s\":";
+    out += fmt_double(snapshot.delta_v_norm_km_s, 9);
+    out += ",\"fuel_spent_kg\":";
+    out += fmt_double(fuel_spent_kg, 6);
+    out += "}";
+    out += ",\"trigger\":{\"predicted_tca\":";
+    append_json_string(out, snapshot.trigger_tca_epoch_s > 0.0 ? iso8601(snapshot.trigger_tca_epoch_s) : std::string{});
+    out += ",\"predicted_miss_distance_km\":";
+    out += fmt_double(snapshot.trigger_miss_distance_km, 6);
+    out += ",\"approach_speed_km_s\":";
+    out += fmt_double(snapshot.trigger_approach_speed_km_s, 6);
+    out += ",\"fail_open\":";
+    out += (snapshot.trigger_fail_open ? "true" : "false");
+    out += "}";
+    out += ",\"actual\":{\"evaluated\":";
+    out += (actual.fail_open ? "false" : "true");
+    out += ",\"fail_open\":";
+    out += (actual.fail_open ? "true" : "false");
+    out += ",\"min_miss_distance_km\":";
+    out += fmt_double(actual_miss_km, 6);
+    out += ",\"min_epoch\":";
+    append_json_string(out, iso8601(actual.min_epoch_s));
+    out += ",\"collision\":";
+    out += (actual_collision ? "true" : "false");
+    out += ",\"sat_pos_km\":";
+    append_vec3_json(out, actual.min_sat, 6);
+    out += ",\"deb_pos_km\":";
+    append_vec3_json(out, actual.min_deb, 6);
+    out += "}";
+    out += ",\"without_burn\":{\"evaluated\":";
+    out += (without_burn.fail_open ? "false" : "true");
+    out += ",\"fail_open\":";
+    out += (without_burn.fail_open ? "true" : "false");
+    out += ",\"min_miss_distance_km\":";
+    out += fmt_double(without_burn_miss_km, 6);
+    out += ",\"min_epoch\":";
+    append_json_string(out, iso8601(without_burn.min_epoch_s));
+    out += ",\"collision\":";
+    out += (without_burn_collision ? "true" : "false");
+    out += ",\"sat_pos_km\":";
+    append_vec3_json(out, without_burn.min_sat, 6);
+    out += ",\"deb_pos_km\":";
+    append_vec3_json(out, without_burn.min_deb, 6);
+    out += "}";
+    out += ",\"delta\":{\"clearance_gain_km\":";
+    out += fmt_double(actual_miss_km - without_burn_miss_km, 6);
+    out += ",\"crossed_collision_threshold\":";
+    out += ((!actual.fail_open && !without_burn.fail_open && actual_miss_km > COLLISION_THRESHOLD_KM + EPS_NUM && without_burn_miss_km <= COLLISION_THRESHOLD_KM + EPS_NUM) ? "true" : "false");
+    out += ",\"fuel_spent_kg\":";
+    out += fmt_double(fuel_spent_kg, 6);
+    out += "}}";
+
+    result.ok = true;
+    result.http_status = 200;
+    result.json = std::move(out);
+    return result;
 }
 
 } // namespace cascade

@@ -799,7 +799,8 @@ ManeuverExecStats execute_due_maneuvers(StateStore& store,
                                         std::unordered_map<std::string, RecoveryRequest>& recovery_requests_by_sat,
                                         std::unordered_map<std::string, bool>& graveyard_requested_by_sat,
                                         std::unordered_map<std::string, bool>& graveyard_completed_by_sat,
-                                        std::vector<ScheduledBurn>* dropped_burns_out)
+                                        std::vector<ScheduledBurn>* dropped_burns_out,
+                                        std::vector<ExecutedManeuverCapture>* executed_captures_out)
 {
     ManeuverExecStats stats{};
     std::vector<ScheduledBurn> pending;
@@ -814,6 +815,20 @@ ManeuverExecStats execute_due_maneuvers(StateStore& store,
         const std::size_t idx = store.find(burn.satellite_id);
         if (idx >= store.size() || store.type(idx) != ObjectType::SATELLITE) {
             continue;
+        }
+
+        const Vec3 sat_pos_pre{store.rx(idx), store.ry(idx), store.rz(idx)};
+        const Vec3 sat_vel_pre{store.vx(idx), store.vy(idx), store.vz(idx)};
+        Vec3 debris_pos{};
+        Vec3 debris_vel{};
+        bool debris_snapshot_valid = false;
+        if (burn.scheduled_from_predictive_cdm && !burn.trigger_debris_id.empty()) {
+            const std::size_t debris_idx = store.find(burn.trigger_debris_id);
+            if (debris_idx < store.size() && store.type(debris_idx) == ObjectType::DEBRIS) {
+                debris_pos = Vec3{store.rx(debris_idx), store.ry(debris_idx), store.rz(debris_idx)};
+                debris_vel = Vec3{store.vx(debris_idx), store.vy(debris_idx), store.vz(debris_idx)};
+                debris_snapshot_valid = true;
+            }
         }
 
         if (!upload_window_ready_for_execution(burn, current_epoch_s)) {
@@ -842,6 +857,23 @@ ManeuverExecStats execute_due_maneuvers(StateStore& store,
         const double mass_after = std::max(SAT_DRY_MASS_KG, mass_before - fuel_needed);
         store.fuel_kg_mut(idx) = fuel_after;
         store.mass_kg_mut(idx) = mass_after;
+
+        if (executed_captures_out != nullptr) {
+            ExecutedManeuverCapture capture;
+            capture.burn = burn;
+            capture.sat_pos_pre_km = sat_pos_pre;
+            capture.sat_vel_pre_km_s = sat_vel_pre;
+            capture.sat_pos_post_km = Vec3{store.rx(idx), store.ry(idx), store.rz(idx)};
+            capture.sat_vel_post_km_s = Vec3{store.vx(idx), store.vy(idx), store.vz(idx)};
+            capture.execution_epoch_s = current_epoch_s;
+            capture.fuel_before_kg = fuel_before;
+            capture.fuel_after_kg = fuel_after;
+            if (debris_snapshot_valid) {
+                capture.debris_pos_km = debris_pos;
+                capture.debris_vel_km_s = debris_vel;
+            }
+            executed_captures_out->push_back(std::move(capture));
+        }
 
         if (fuel_after <= SAT_FUEL_EOL_KG) {
             store.set_sat_status(idx, SatStatus::FUEL_LOW);

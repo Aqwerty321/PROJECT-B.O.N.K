@@ -3,7 +3,7 @@ import EarthGlobe, { trajectoryToVectors } from '../components/EarthGlobe';
 import { ConjunctionBullseye } from '../components/ConjunctionBullseye';
 import { GlassPanel } from '../components/GlassPanel';
 import SimControls from '../components/SimControls';
-import { SatelliteFocusDropdown, SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
+import { SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { ThreatSeverityFilters } from '../components/dashboard/ThreatSeverityFilters';
 import {
   buildEncounterQueueGroups,
@@ -102,7 +102,7 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
             <InfoChip label="Render" value={formatFps(renderFps)} tone={fpsTone(renderFps)} />
             <InfoChip label="Payload" value={`${model.satellites.length}/${model.debris.length.toLocaleString()}`} tone={model.debris.length >= 1000 ? 'accent' : 'warning'} />
-            <SatelliteFocusDropdown label="Watch" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} tone="accent" variant="chip" />
+            <InfoChip label="Focus" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'accent' : 'neutral'} />
             <InfoChip label="Threat" value={model.threatValue} tone={model.threatCounts.red > 0 ? 'critical' : model.threatCounts.yellow > 0 ? 'warning' : 'accent'} />
             <InfoChip label="Burn Queue" value={model.burnValue} tone={model.watchedPendingBurns.length > 0 ? 'warning' : 'accent'} />
           </div>
@@ -126,7 +126,7 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
                 </h3>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: isCompact ? 'flex-start' : 'flex-end' }}>
-                <SatelliteFocusDropdown label="Mode" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} fleetLabel="Fleet" tone="primary" variant="chip" />
+                <InfoChip label="Mode" value={selectedSatId ? 'Focused' : 'Fleet'} tone={selectedSatId ? 'primary' : 'neutral'} />
                 <InfoChip label="Path" value={selectedSatId ? model.heroPathValue : 'Select Satellite'} tone={selectedSatId && model.trajectory?.satellite_id ? 'primary' : 'neutral'} />
               </div>
             </div>
@@ -156,7 +156,12 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, minHeight: 0, padding: '10px 14px 14px', overflow: 'auto' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span style={{ color: theme.colors.textMuted, fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Context Target</span>
-                <SatelliteFocusDropdown label="Context Target" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} tone="primary" variant="panel" />
+                <div style={{ padding: '10px 12px', border: `1px solid ${theme.colors.border}`, background: 'rgba(9, 11, 14, 0.72)', clipPath: theme.chamfer.buttonClipPath }}>
+                  <strong style={{ display: 'block', color: selectedSatId ? theme.colors.primary : theme.colors.text, fontSize: '14px', lineHeight: 1.1 }}>{selectedSatId ?? 'Fleet Overview'}</strong>
+                  <span style={{ display: 'block', marginTop: '4px', color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.5 }}>
+                    Use the single global focus console above to pin one spacecraft across the command theatre and mission rail.
+                  </span>
+                </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px', paddingTop: '6px', borderTop: `1px solid ${theme.colors.border}` }}>

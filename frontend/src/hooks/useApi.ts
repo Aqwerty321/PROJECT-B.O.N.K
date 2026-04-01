@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { VisualizationSnapshot, StatusResponse, BurnsResponse, ConjunctionsResponse, TrajectoryResponse } from '../types/api';
+import type {
+  VisualizationSnapshot,
+  StatusResponse,
+  BurnsResponse,
+  BurnCounterfactualResponse,
+  ConjunctionsResponse,
+  TrajectoryResponse,
+} from '../types/api';
 
 const API_BASE = '';  // proxied via vite dev server
 
@@ -187,4 +194,61 @@ export function useTrajectory(satelliteId: string | null, intervalMs = 2000) {
   }, [intervalMs, satelliteId]);
 
   return { trajectory, error };
+}
+
+export function useBurnCounterfactual(burnId: string | null) {
+  const [counterfactual, setCounterfactual] = useState<BurnCounterfactualResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!burnId) {
+      setCounterfactual(null);
+      setError(null);
+      setLoading(false);
+      abortRef.current?.abort();
+      return;
+    }
+
+    const fetchCounterfactual = async () => {
+      if (abortRef.current) abortRef.current.abort();
+      abortRef.current = new AbortController();
+      setLoading(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/debug/burn-counterfactual?burn_id=${encodeURIComponent(burnId)}`, {
+          signal: abortRef.current.signal,
+        });
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try {
+            const payload = await res.json() as { message?: string };
+            if (payload?.message) detail = payload.message;
+          } catch {
+            // Fall back to the HTTP status text already captured above.
+          }
+          throw new Error(detail);
+        }
+        const data: BurnCounterfactualResponse = await res.json();
+        setCounterfactual(data);
+        setError(null);
+      } catch (e) {
+        if ((e as Error).name !== 'AbortError') {
+          setCounterfactual(null);
+          setError((e as Error).message);
+        }
+      } finally {
+        if (!abortRef.current?.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchCounterfactual();
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, [burnId]);
+
+  return { counterfactual, error, loading };
 }

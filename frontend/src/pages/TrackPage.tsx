@@ -1,6 +1,6 @@
 import { GlassPanel } from '../components/GlassPanel';
 import { GroundTrackMap } from '../components/GroundTrackMap';
-import { SatelliteFocusDropdown, SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
+import { SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
 import { DetailList, InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
@@ -82,7 +82,7 @@ export function TrackPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompac
         description="Full tactical ground track on the left, focused spacecraft details and path state on the right."
         aside={
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
-            <SatelliteFocusDropdown label="Mode" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} fleetLabel="Fleet" tone="primary" variant="chip" />
+            <InfoChip label="Focus" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'primary' : 'neutral'} />
             <InfoChip label="Objects" value={model.satellites.length.toLocaleString()} tone="accent" />
             <InfoChip label="Debris" value={model.debris.length.toLocaleString()} tone="warning" />
           </div>
@@ -107,7 +107,7 @@ export function TrackPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompac
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: isCompact ? 'flex-start' : 'flex-end' }}>
                 <InfoChip label="Freshness" value={minutesSince(model.snapshotUpdatedAtMs)} tone={model.snapshot ? 'accent' : 'warning'} />
-                <SatelliteFocusDropdown label="Watch" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} tone="accent" variant="chip" />
+                <InfoChip label="Watch Lane" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'accent' : 'neutral'} />
               </div>
             </div>
 
@@ -134,7 +134,12 @@ export function TrackPage({ isNarrow, isCompact }: { isNarrow: boolean; isCompac
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, minHeight: 0, padding: '10px 14px 14px', overflow: 'auto' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span style={{ color: theme.colors.textMuted, fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Selection State</span>
-                <SatelliteFocusDropdown label="Selection State" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} tone="primary" variant="panel" />
+                <div style={{ padding: '10px 12px', border: `1px solid ${theme.colors.border}`, background: 'rgba(9, 11, 14, 0.72)', clipPath: theme.chamfer.buttonClipPath }}>
+                  <strong style={{ display: 'block', color: selectedSatId ? theme.colors.primary : theme.colors.text, fontSize: '14px', lineHeight: 1.1 }}>{selectedSatId ?? 'Fleet Overview'}</strong>
+                  <span style={{ display: 'block', marginTop: '4px', color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.5 }}>
+                    One global focus selector now drives the map, retained trail proof, and detail rail together.
+                  </span>
+                </div>
                 <span style={{ color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.5 }}>
                   {model.activeSatellite
                     ? `${model.activeSatellite.status} / ${model.activeSatellite.fuel_kg.toFixed(1)} kg fuel`

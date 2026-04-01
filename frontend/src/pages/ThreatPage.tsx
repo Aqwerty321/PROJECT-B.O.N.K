@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ConjunctionBullseye } from '../components/ConjunctionBullseye';
 import { ThreatSeverityFilters, filterConjunctionsBySeverity } from '../components/dashboard/ThreatSeverityFilters';
-import { SatelliteFocusDropdown, SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
+import { SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { GlassPanel } from '../components/GlassPanel';
 import { EmptyStatePanel, InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
 import { ConjunctionDetailCard } from '../components/threat/ConjunctionDetailCard';
@@ -191,21 +191,6 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
           : 'Awaiting predictive or historical events.'}
       tone={focusSatelliteId ? 'primary' : 'neutral'}
       testId="threat-focus-card"
-      action={(
-        <SatelliteFocusDropdown
-          label="Focus"
-          satellites={model.satellites}
-          selectedSatId={selectedSatId}
-          onSelectSat={id => {
-            setActiveEventKey(null);
-            selectSat(id);
-          }}
-          fleetLabel="Auto"
-          tone="primary"
-          variant="chip"
-        />
-      )}
-      actionWidth={160}
     />,
     <SummaryCard
       key="closest"
@@ -249,10 +234,7 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
         description="Use the queue on the right to choose an encounter, the bullseye on the left to understand when and from where it approaches, and the detail card below to confirm why it matters."
         aside={
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
-            <SatelliteFocusDropdown label="Focus" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={id => {
-              setActiveEventKey(null);
-              selectSat(id);
-            }} fleetLabel="Auto" tone="primary" variant="chip" />
+            <InfoChip label="Focus" value={selectedSatId ?? 'Auto'} tone={selectedSatId ? 'primary' : 'neutral'} />
             <InfoChip label="Stream" value={streamLabel} tone={streamLabel === 'Predictive 24h' ? 'warning' : 'accent'} />
             <InfoChip label="Filters" value={filterSummary} tone={hasActiveThreatSeverityFilter(threatSeverityFilter) ? 'accent' : 'warning'} />
           </div>
@@ -313,13 +295,9 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minHeight: 0, padding: '10px 12px 12px', overflow: 'auto' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexShrink: 0 }}>
                 <p style={{ color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.5, maxWidth: '42ch' }}>
-                  Encounters are grouped by spacecraft and repeated history samples are collapsed into a single row. Choose one to pin this page to a vehicle, or clear the pin from the Focus Vehicle card to return to auto-follow.
+                  Encounters are grouped by spacecraft and repeated history samples are collapsed into a single row. Choose one to pin this page to a vehicle, or clear the shared focus console above to return to auto-follow.
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  <SatelliteFocusDropdown label="Focused" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={id => {
-                    setActiveEventKey(null);
-                    selectSat(id);
-                  }} fleetLabel="Auto" tone="primary" variant="chip" />
                   <InfoChip label="Fail-open" value={focusFailOpenCount.toString()} tone={focusFailOpenCount > 0 ? 'warning' : 'neutral'} />
                   <InfoChip label="Vehicle Lanes" value={queueGroups.length.toString()} tone={queueGroups.length > 0 ? 'accent' : 'neutral'} />
                 </div>

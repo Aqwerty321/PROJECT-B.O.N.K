@@ -1,6 +1,6 @@
 import { BurnEfficiencyChart } from '../components/BurnEfficiencyChart';
 import { GlassPanel } from '../components/GlassPanel';
-import { SatelliteFocusDropdown, SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
+import { SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { DetailList, EmptyStatePanel, InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
@@ -129,7 +129,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
         description="Dedicated efficiency view for avoided collisions versus fuel draw, with dropped-command context retained."
         aside={
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
-            <SatelliteFocusDropdown label="View" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} fleetLabel="Fleet" tone="primary" variant="chip" />
+            <InfoChip label="Focus" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'primary' : 'neutral'} />
             <InfoChip label="Avoided" value={avoidedCount.toString()} tone={avoidedCount > 0 ? 'accent' : 'neutral'} />
             <InfoChip label="Fuel" value={`${fuelConsumedKg.toFixed(2)} kg`} tone={fuelConsumedKg > 0 ? 'warning' : 'neutral'} />
             <InfoChip label="Ratio" value={`${efficiencyRatio.toFixed(2)} /kg`} tone="primary" />

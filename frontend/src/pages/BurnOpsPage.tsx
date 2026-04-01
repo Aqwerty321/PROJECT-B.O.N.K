@@ -1,9 +1,12 @@
 import type { ExecutedBurn, PendingBurn } from '../types/api';
+import { useState } from 'react';
+import { CounterfactualOutcomePanel } from '../components/CounterfactualOutcomePanel';
 import { GlassPanel } from '../components/GlassPanel';
 import ManeuverGantt from '../components/ManeuverGantt';
-import { SatelliteFocusDropdown, SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
+import { SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { DetailList, EmptyStatePanel, InfoChip, SectionHeader, SummaryCard, type Tone } from '../components/dashboard/UiPrimitives';
 import { useDashboard } from '../dashboard/DashboardContext';
+import { useBurnCounterfactual } from '../hooks/useApi';
 import { theme } from '../styles/theme';
 
 type TimelineBurn = ExecutedBurn | PendingBurn;
@@ -23,6 +26,7 @@ function formatDistanceKm(value?: number | null): string {
 
 function formatSpeedKmS(value?: number | null): string {
   if (value == null || !Number.isFinite(value)) return '--';
+  if (value < 1) return `${(value * 1000).toFixed(2)} m/s`;
   return `${value.toFixed(2)} km/s`;
 }
 
@@ -73,6 +77,9 @@ function outcomeTone(burn: TimelineBurn | null): Tone {
 
 export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boolean; isCompact: boolean }) {
   const { model, selectedSatId, selectSat } = useDashboard();
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [forcedDecisionBurnId, setForcedDecisionBurnId] = useState<string | null>(null);
+  const [ganttHitTargets, setGanttHitTargets] = useState<Array<{ burnId: string; x: number; y: number }>>([]);
 
   const droppedCount = model.burnSummary?.burns_dropped ?? model.droppedBurns.length;
   const focusedPending = selectedSatId ? model.pendingBurns.filter(burn => burn.satellite_id === selectedSatId) : model.pendingBurns;
@@ -85,7 +92,9 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
 
   const nextFocusedBurn = [...focusedPending].sort((a, b) => new Date(a.burn_epoch).getTime() - new Date(b.burn_epoch).getTime())[0] ?? null;
   const latestFocusedExecution = [...focusedExecuted].sort((a, b) => new Date(b.burn_epoch).getTime() - new Date(a.burn_epoch).getTime())[0] ?? null;
-  const decisionFocus = pickDecisionFocus(focusedPending, focusedExecuted);
+  const decisionFocus = (forcedDecisionBurnId
+    ? [...focusedExecuted, ...focusedPending].find(burn => burn.id === forcedDecisionBurnId) ?? null
+    : null) ?? pickDecisionFocus(focusedPending, focusedExecuted);
   const decisionLeadSeconds = decisionFocus?.trigger_tca_epoch_s
     ? decisionFocus.trigger_tca_epoch_s - (new Date(decisionFocus.burn_epoch).getTime() / 1000)
     : null;
@@ -93,6 +102,12 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
     + Number(Boolean(decisionFocus?.cooldown_conflict))
     + Number(Boolean(decisionFocus?.command_conflict));
   const executedDecision = decisionFocus && 'fuel_before_kg' in decisionFocus ? decisionFocus : null;
+  const eligibleCounterfactualBurn = executedDecision?.scheduled_from_predictive_cdm && executedDecision?.trigger_debris_id
+    ? executedDecision
+    : null;
+  const { counterfactual, error: counterfactualError, loading: counterfactualLoading } = useBurnCounterfactual(
+    compareOpen && eligibleCounterfactualBurn ? eligibleCounterfactualBurn.id : null,
+  );
   const mitigationGainKm = executedDecision?.mitigation_miss_distance_km != null && executedDecision.trigger_miss_distance_km != null
     ? executedDecision.mitigation_miss_distance_km - executedDecision.trigger_miss_distance_km
     : null;
@@ -145,6 +160,9 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
     { label: 'Clearance Gain', value: mitigationGainKm != null ? formatDistanceKm(mitigationGainKm) : 'Pending', tone: mitigationGainKm != null && mitigationGainKm > 0 ? 'accent' as const : mitigationGainKm != null ? 'warning' as const : 'neutral' as const },
   ] : [];
 
+  const counterfactualAllowed = Boolean(eligibleCounterfactualBurn);
+  const decisionPinnedFromTimeline = Boolean(forcedDecisionBurnId && decisionFocus);
+
   const headerCards = [
     <SummaryCard
       key="focus"
@@ -188,7 +206,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
         description="Command timeline and upload friction centered on the live burn queue; horizontal scroll keeps dense schedules readable."
         aside={
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
-            <SatelliteFocusDropdown label="View" satellites={model.satellites} selectedSatId={selectedSatId} onSelectSat={selectSat} fleetLabel="Fleet" tone="primary" variant="chip" />
+            <InfoChip label="Focus" value={selectedSatId ?? 'Fleet'} tone={selectedSatId ? 'primary' : 'neutral'} />
             <InfoChip label="Pending" value={model.watchedPendingBurns.length.toString()} tone={model.watchedPendingBurns.length > 0 ? 'warning' : 'accent'} />
             <InfoChip label="Executed" value={model.watchedExecutedBurns.length.toString()} tone="primary" />
             <InfoChip label="Dropped" value={droppedCount.toString()} tone={droppedCount > 0 ? 'critical' : 'neutral'} />
@@ -212,11 +230,49 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '74ch', flexShrink: 0 }}>
               <span style={{ color: theme.colors.warning, fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.95 }}>Burn scheduler</span>
               <p id="burn-ops-heading" style={{ color: theme.colors.textDim, fontSize: '12px', lineHeight: 1.55 }}>
-                Executed burns, queued maneuvers, dropped uploads, and blackout/conflict markers aligned on a single command clock with optional selected-vehicle emphasis.
+                Executed burns, queued maneuvers, dropped uploads, and blackout/conflict markers aligned on a single command clock with optional selected-vehicle emphasis. Click any burn block to retarget this rail.
               </p>
+              {decisionPinnedFromTimeline ? (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', alignSelf: 'flex-start', padding: '6px 9px', border: `1px solid ${theme.colors.warning}44`, background: 'rgba(255, 194, 71, 0.10)', color: theme.colors.warning, clipPath: theme.chamfer.buttonClipPath }}>
+                  <span style={{ fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Selected Burn</span>
+                  <strong style={{ fontSize: '11px' }}>{decisionFocus?.id}</strong>
+                  <button
+                    type="button"
+                    onClick={() => setForcedDecisionBurnId(null)}
+                    style={{
+                      padding: '4px 7px',
+                      border: `1px solid ${theme.colors.warning}44`,
+                      background: 'rgba(255,255,255,0.03)',
+                      color: theme.colors.textDim,
+                      clipPath: theme.chamfer.buttonClipPath,
+                      cursor: 'pointer',
+                      fontFamily: theme.font.mono,
+                      fontSize: '9px',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div style={{ width: '100%', flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: `1px solid ${selectedSatId ? 'rgba(88, 184, 255, 0.32)' : 'rgba(255, 194, 71, 0.28)'}`, background: 'linear-gradient(180deg, rgba(11, 13, 17, 0.92), rgba(7, 8, 10, 0.98))', boxShadow: selectedSatId ? 'inset 0 0 32px rgba(0, 0, 0, 0.62), 0 0 22px rgba(88, 184, 255, 0.08)' : 'inset 0 0 32px rgba(0, 0, 0, 0.62), 0 0 22px rgba(255, 194, 71, 0.05)' }}>
-              <ManeuverGantt burns={model.burns} selectedSatId={selectedSatId} nowEpochS={model.nowEpochS} />
+              <ManeuverGantt
+                burns={model.burns}
+                selectedSatId={selectedSatId}
+                nowEpochS={model.nowEpochS}
+                onExposeHitRegions={setGanttHitTargets}
+                onSelectBurn={burn => {
+                  setForcedDecisionBurnId(burn.id);
+                  selectSat(burn.satellite_id);
+                  if ('fuel_before_kg' in burn && burn.scheduled_from_predictive_cdm && burn.trigger_debris_id) {
+                    setCompareOpen(true);
+                  }
+                }}
+              />
+              <div data-testid="gantt-hit-targets" style={{ display: 'none' }}>
+                {JSON.stringify(ganttHitTargets)}
+              </div>
             </div>
           </div>
         </GlassPanel>
@@ -242,6 +298,47 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
                   {explainCards}
                 </div>
                 <DetailList entries={detailEntries} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '10px 12px', border: `1px solid ${theme.colors.border}`, background: 'rgba(7, 9, 12, 0.58)', clipPath: theme.chamfer.clipPath }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    <span style={{ color: theme.colors.warning, fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Counterfactual compare</span>
+                    <span style={{ color: theme.colors.textDim, fontSize: '11px', lineHeight: 1.5 }}>
+                      {counterfactualAllowed
+                        ? 'Compare this executed predictive burn against a no-burn branch from the stored execution snapshot.'
+                        : 'Counterfactual compare is available only for executed predictive burns with a tracked trigger debris object.'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!counterfactualAllowed}
+                    onClick={() => setCompareOpen(open => !open)}
+                    style={{
+                      minWidth: '142px',
+                      padding: '9px 12px',
+                      border: `1px solid ${counterfactualAllowed ? `${theme.colors.warning}55` : theme.colors.border}`,
+                      background: counterfactualAllowed
+                        ? compareOpen
+                          ? 'rgba(255, 194, 71, 0.16)'
+                          : 'rgba(255,255,255,0.03)'
+                        : 'rgba(255,255,255,0.02)',
+                      color: counterfactualAllowed ? theme.colors.warning : theme.colors.textMuted,
+                      cursor: counterfactualAllowed ? 'pointer' : 'not-allowed',
+                      clipPath: theme.chamfer.buttonClipPath,
+                      fontFamily: theme.font.mono,
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      letterSpacing: '0.04em',
+                    }}
+                  >
+                    {compareOpen ? 'Hide Compare' : 'Compare Outcome'}
+                  </button>
+                </div>
+                {compareOpen ? (
+                  <CounterfactualOutcomePanel
+                    counterfactual={counterfactual}
+                    loading={counterfactualLoading}
+                    error={counterfactualError}
+                  />
+                ) : null}
               </>
             ) : (
               <EmptyStatePanel

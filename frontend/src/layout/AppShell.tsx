@@ -97,6 +97,8 @@ export function AppShell({
 }) {
   const { model, selectedSatId, selectSat } = useDashboard();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [focusConsoleCollapsed, setFocusConsoleCollapsed] = useState(false);
+  const compactFocusRail = isCompact || isNarrow;
 
   return (
     <div style={styles.root}>
@@ -236,23 +238,100 @@ export function AppShell({
             value={model.watchTargetValue}
             detail={model.watchTargetDetail}
             tone={model.activeSatellite ? 'accent' : 'neutral'}
-            testId="watch-target-card"
-            action={(
-              <SatelliteFocusDropdown
-                label="Watch"
-                satellites={model.satellites}
-                selectedSatId={selectedSatId}
-                onSelectSat={selectSat}
-                fleetLabel="Fleet Overview"
-                tone="accent"
-                variant="chip"
-              />
-            )}
-            actionWidth={164}
           />
           <SummaryCard label="Threat Index" value={model.threatValue} detail={model.threatDetail} tone={model.threatCounts.red > 0 ? 'critical' : model.threatCounts.yellow > 0 ? 'warning' : 'accent'} />
           <SummaryCard label="Burn Queue" value={model.burnValue} detail={model.burnDetail} tone={model.watchedPendingBurns.length > 0 ? 'warning' : 'accent'} />
           <SummaryCard label="Resource Posture" value={model.resourceValue} detail={model.resourceDetail} tone={model.lowestFuelSatellite && model.lowestFuelSatellite.fuel_kg < 10 ? 'critical' : 'warning'} />
+        </div>
+
+        <div style={{
+          padding: isCompact ? '8px 8px 10px' : '8px 14px 12px',
+          borderBottom: `1px solid ${theme.colors.border}`,
+          background: 'linear-gradient(180deg, rgba(7, 9, 12, 0.92), rgba(5, 7, 10, 0.78))',
+          backdropFilter: 'blur(10px)',
+          flexShrink: 0,
+          position: 'sticky',
+          top: 0,
+          zIndex: 30,
+        }}>
+          {compactFocusRail ? (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: focusConsoleCollapsed ? '0' : '8px' }}>
+              <button
+                type="button"
+                onClick={() => setFocusConsoleCollapsed(value => !value)}
+                style={{
+                  padding: '6px 9px',
+                  border: `1px solid ${theme.colors.border}`,
+                  background: 'rgba(255,255,255,0.03)',
+                  color: theme.colors.textDim,
+                  clipPath: theme.chamfer.buttonClipPath,
+                  cursor: 'pointer',
+                  fontFamily: theme.font.mono,
+                  fontSize: '9px',
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {focusConsoleCollapsed ? 'Show Focus Console' : 'Collapse Focus Console'}
+              </button>
+            </div>
+          ) : null}
+          {!focusConsoleCollapsed ? (
+          <div
+            data-testid="watch-target-card"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: isNarrow ? '1fr' : 'minmax(260px, 360px) minmax(0, 1fr)',
+              gap: '10px',
+              alignItems: 'stretch',
+            }}
+          >
+            <SatelliteFocusDropdown
+              label="Global Satellite Focus"
+              satellites={model.satellites}
+              selectedSatId={selectedSatId}
+              onSelectSat={selectSat}
+              fleetLabel="Fleet Overview"
+              tone="accent"
+              variant="hero"
+            />
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: isCompact ? '1fr 1fr' : 'repeat(4, minmax(0, 1fr))',
+              gap: '8px',
+              minWidth: 0,
+            }}>
+              <div style={styles.focusInfoTile}>
+                <span style={styles.focusInfoLabel}>Selection State</span>
+                <strong style={{ ...styles.focusInfoValue, color: model.activeSatellite ? theme.colors.accent : theme.colors.text }}>{model.activeSatellite ? 'Pinned Vehicle' : 'Fleet Context'}</strong>
+                <span style={styles.focusInfoDetail}>{model.activeSatellite ? 'Shared focus flows through Command, Track, Threat, Burn Ops, and Evasion.' : 'Aggregate-capable views stay active until a spacecraft is explicitly pinned.'}</span>
+              </div>
+              <div style={styles.focusInfoTile}>
+                <span style={styles.focusInfoLabel}>Vehicle Status</span>
+                <strong style={{ ...styles.focusInfoValue, color: model.activeSatellite ? theme.colors.primary : theme.colors.textDim }}>{model.activeSatellite?.status ?? 'Fleet Overview'}</strong>
+                <span style={styles.focusInfoDetail}>{model.activeSatellite ? `${model.activeSatellite.fuel_kg.toFixed(1)} kg fuel remaining` : `${model.statusCounts.nominal} nominal / ${model.statusCounts.maneuvering} maneuvering / ${model.statusCounts.degraded} degraded`}</span>
+              </div>
+              <div style={styles.focusInfoTile}>
+                <span style={styles.focusInfoLabel}>Threat Scope</span>
+                <strong style={{ ...styles.focusInfoValue, color: model.threatCounts.red > 0 ? theme.colors.critical : theme.colors.warning }}>{model.threatValue}</strong>
+                <span style={styles.focusInfoDetail}>{model.threatDetail}</span>
+              </div>
+              <div style={styles.focusInfoTile}>
+                <span style={styles.focusInfoLabel}>Burn Scope</span>
+                <strong style={{ ...styles.focusInfoValue, color: model.watchedPendingBurns.length > 0 ? theme.colors.warning : theme.colors.primary }}>{model.burnValue}</strong>
+                <span style={styles.focusInfoDetail}>{model.burnDetail}</span>
+              </div>
+            </div>
+          </div>
+          ) : (
+            <div data-testid="watch-target-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '8px 10px', border: `1px solid ${theme.colors.border}`, background: 'rgba(8, 10, 14, 0.74)', clipPath: theme.chamfer.buttonClipPath }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0 }}>
+                <span style={{ color: theme.colors.textMuted, fontSize: '8px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Global Focus</span>
+                <strong style={{ color: selectedSatId ? theme.colors.accent : theme.colors.text, fontSize: '13px', lineHeight: 1.1 }}>{selectedSatId ?? 'Fleet Overview'}</strong>
+              </div>
+              <span style={{ color: theme.colors.textDim, fontSize: '10px', lineHeight: 1.4, textAlign: 'right' }}>{selectedSatId ? 'Pinned across all pages' : 'Fleet-wide context active'}</span>
+            </div>
+          )}
         </div>
 
         {/* Page content */}
@@ -523,6 +602,33 @@ const styles: Record<string, CSSProperties> = {
     background: 'linear-gradient(180deg, rgba(6, 6, 7, 0.88), rgba(6, 6, 7, 0.72))',
     backdropFilter: 'blur(8px)',
     borderBottom: `1px solid ${theme.colors.border}`,
+  },
+  focusInfoTile: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    minWidth: 0,
+    padding: '10px 12px',
+    border: `1px solid ${theme.colors.border}`,
+    background: 'linear-gradient(180deg, rgba(15, 18, 24, 0.82), rgba(8, 10, 14, 0.92))',
+    clipPath: theme.chamfer.buttonClipPath,
+  },
+  focusInfoLabel: {
+    color: theme.colors.textMuted,
+    fontSize: '8px',
+    letterSpacing: '0.16em',
+    textTransform: 'uppercase',
+  },
+  focusInfoValue: {
+    fontSize: '14px',
+    lineHeight: 1.1,
+    fontWeight: 700,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  focusInfoDetail: {
+    color: theme.colors.textDim,
+    fontSize: '10px',
+    lineHeight: 1.45,
   },
 
   visuallyHidden: {

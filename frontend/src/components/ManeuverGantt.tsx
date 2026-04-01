@@ -6,6 +6,8 @@ interface ManeuverGanttProps {
   burns: BurnsResponse | null;
   selectedSatId: string | null;
   nowEpochS: number;
+  onSelectBurn?: (burn: ExecutedBurn | PendingBurn) => void;
+  onExposeHitRegions?: (regions: Array<{ burnId: string; x: number; y: number }>) => void;
 }
 
 interface SatLaneSummary {
@@ -250,10 +252,11 @@ function drawEmptyState(
   ctx.restore();
 }
 
-export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: ManeuverGanttProps) {
+export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS, onSelectBurn, onExposeHitRegions }: ManeuverGanttProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const drawRef = useRef<() => void>(() => {});
+  const hitRegionsRef = useRef<Array<{ x1: number; x2: number; y1: number; y2: number; burn: ExecutedBurn | PendingBurn }>>([]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -270,6 +273,8 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     const baselinePlotWidth = Math.max(280, containerWidth - LABEL_WIDTH - 12);
 
     if (!burns || (burns.executed.length === 0 && burns.pending.length === 0 && (burns.dropped?.length ?? 0) === 0)) {
+      hitRegionsRef.current = [];
+      onExposeHitRegions?.([]);
       // For empty state, canvas = container size
       canvas.style.width = `${containerWidth}px`;
       canvas.style.height = `${containerHeight}px`;
@@ -317,6 +322,8 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     });
 
     if (satellites.length === 0) {
+      hitRegionsRef.current = [];
+      onExposeHitRegions?.([]);
       canvas.style.width = `${containerWidth}px`;
       canvas.style.height = `${containerHeight}px`;
       canvas.width = containerWidth * dpr;
@@ -338,6 +345,8 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     ];
 
     if (allEpochs.length === 0) {
+      hitRegionsRef.current = [];
+      onExposeHitRegions?.([]);
       canvas.style.width = `${containerWidth}px`;
       canvas.style.height = `${containerHeight}px`;
       canvas.width = containerWidth * dpr;
@@ -382,6 +391,8 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, lw, lh);
+    hitRegionsRef.current = [];
+    const exposedRegions: Array<{ burnId: string; x: number; y: number }> = [];
 
     const plotBottom = drawPanelChrome(ctx, lw, lh);
     const timeToX = (t: number) => LABEL_WIDTH + ((t - tMin) / tRange) * desiredPlotWidth;
@@ -479,6 +490,15 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         ctx.lineWidth = 1;
         ctx.strokeRect(x1, y + 4, bw, Math.max(4, rowHeight - 8));
 
+        hitRegionsRef.current.push({
+          x1,
+          x2,
+          y1: y + 4,
+          y2: y + Math.max(8, rowHeight - 4),
+          burn,
+        });
+        exposedRegions.push({ burnId: burn.id, x: Math.round((x1 + x2) / 2), y: Math.round(y + rowHeight / 2) });
+
         drawBurnMarkers(ctx, x1, x2, y, rowHeight, color, false);
 
         if (rowHeight >= 16) {
@@ -535,6 +555,15 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         ctx.fillRect(x1, y + 4, bw, Math.max(4, rowHeight - 8));
         ctx.globalAlpha = 1;
 
+        hitRegionsRef.current.push({
+          x1,
+          x2,
+          y1: y + 4,
+          y2: y + Math.max(8, rowHeight - 4),
+          burn,
+        });
+        exposedRegions.push({ burnId: burn.id, x: Math.round((x1 + x2) / 2), y: Math.round(y + rowHeight / 2) });
+
         drawBurnMarkers(ctx, x1, x2, y, rowHeight, color, true);
 
         if (rowHeight >= 16) {
@@ -568,6 +597,8 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
         }
       }
     }
+
+    onExposeHitRegions?.(exposedRegions);
 
     const sweepX = timeToX(nowEpochS);
     if (sweepX >= LABEL_WIDTH && sweepX <= lw - 10) {
@@ -649,7 +680,7 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     }
 
     ctx.restore();
-  }, [burns, selectedSatId, nowEpochS]);
+  }, [burns, selectedSatId, nowEpochS, onExposeHitRegions]);
 
   drawRef.current = draw;
 
@@ -666,6 +697,38 @@ export default memo(function ManeuverGantt({ burns, selectedSatId, nowEpochS }: 
     obs.observe(container);
     return () => obs.disconnect();
   }, []);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas || !onSelectBurn) return;
+
+    const handleClick = (event: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left + container.scrollLeft;
+      const y = event.clientY - rect.top + container.scrollTop;
+      const hit = hitRegionsRef.current.find(region => x >= region.x1 && x <= region.x2 && y >= region.y1 && y <= region.y2);
+      if (hit) {
+        onSelectBurn(hit.burn);
+      }
+    };
+
+    const handlePointerMove = (event: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left + container.scrollLeft;
+      const y = event.clientY - rect.top + container.scrollTop;
+      const hit = hitRegionsRef.current.some(region => x >= region.x1 && x <= region.x2 && y >= region.y1 && y <= region.y2);
+      canvas.style.cursor = hit ? 'pointer' : 'default';
+    };
+
+    canvas.addEventListener('click', handleClick);
+    canvas.addEventListener('mousemove', handlePointerMove);
+    return () => {
+      canvas.removeEventListener('click', handleClick);
+      canvas.removeEventListener('mousemove', handlePointerMove);
+      canvas.style.cursor = 'default';
+    };
+  }, [onSelectBurn]);
 
   return (
     <div

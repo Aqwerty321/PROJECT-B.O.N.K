@@ -130,6 +130,19 @@ struct ManeuverExecStats {
     std::uint64_t upload_missed = 0;
 };
 
+struct ExecutedManeuverCapture {
+    ScheduledBurn burn;
+    Vec3 sat_pos_pre_km{};
+    Vec3 sat_vel_pre_km_s{};
+    Vec3 sat_pos_post_km{};
+    Vec3 sat_vel_post_km_s{};
+    Vec3 debris_pos_km{};
+    Vec3 debris_vel_km_s{};
+    double execution_epoch_s = 0.0;
+    double fuel_before_kg = 0.0;
+    double fuel_after_kg = 0.0;
+};
+
 struct RecoveryPlanStats {
     std::uint64_t planned = 0;
     std::uint64_t deferred = 0;
@@ -315,7 +328,8 @@ ManeuverExecStats execute_due_maneuvers(StateStore& store,
                                         std::unordered_map<std::string, RecoveryRequest>& recovery_requests_by_sat,
                                         std::unordered_map<std::string, bool>& graveyard_requested_by_sat,
                                         std::unordered_map<std::string, bool>& graveyard_completed_by_sat,
-                                        std::vector<ScheduledBurn>* dropped_burns_out = nullptr);
+                                        std::vector<ScheduledBurn>* dropped_burns_out = nullptr,
+                                        std::vector<ExecutedManeuverCapture>* executed_captures_out = nullptr);
 
 void validate_pending_upload_windows(StateStore& store,
                                      double current_epoch_s,

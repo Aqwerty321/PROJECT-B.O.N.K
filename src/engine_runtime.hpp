@@ -57,6 +57,14 @@ struct StepCommandResult {
     std::uint64_t maneuvers_executed = 0;
 };
 
+struct BurnCounterfactualResult {
+    bool ok = false;
+    int http_status = 200;
+    std::string error_code;
+    std::string error_message;
+    std::string json;
+};
+
 struct RuntimeHttpPolicy {
     int schedule_success_status = 202;
     std::int64_t max_step_seconds = 86400;
@@ -227,6 +235,7 @@ public:
     std::string conjunctions_json(std::string_view satellite_id_filter,
                                   std::string_view source_filter = {}) const;
     std::string trajectory_json(std::string_view satellite_id) const;
+    BurnCounterfactualResult burn_counterfactual_json(std::string_view burn_id) const;
 
 private:
     struct TelemetryCommand {
@@ -299,6 +308,33 @@ private:
         std::string predictive_conjunctions_json;
     };
 
+    struct BurnCounterfactualSnapshot {
+        std::string burn_id;
+        std::string satellite_id;
+        std::string trigger_debris_id;
+        std::string upload_station_id;
+        Vec3 delta_v_km_s{};
+        double delta_v_norm_km_s = 0.0;
+        double fuel_before_kg = 0.0;
+        double fuel_after_kg = 0.0;
+        double burn_epoch_s = 0.0;
+        double upload_epoch_s = 0.0;
+        double compare_epoch_s = 0.0;
+        double trigger_tca_epoch_s = 0.0;
+        double trigger_miss_distance_km = 0.0;
+        double trigger_approach_speed_km_s = 0.0;
+        bool trigger_fail_open = false;
+        bool scheduled_from_predictive_cdm = false;
+        bool recovery_burn = false;
+        bool graveyard_burn = false;
+        Vec3 sat_pos_pre_km{};
+        Vec3 sat_vel_pre_km_s{};
+        Vec3 sat_pos_post_km{};
+        Vec3 sat_vel_post_km_s{};
+        Vec3 debris_pos_km{};
+        Vec3 debris_vel_km_s{};
+    };
+
     mutable std::shared_mutex mutex_;
     std::mutex command_queue_mutex_;
     std::condition_variable command_queue_cv_;
@@ -343,11 +379,13 @@ private:
     static constexpr std::size_t kMaxConjunctionHistory = 1024;
     static constexpr std::size_t kMaxPredictiveConjunctionHistory = 1024;
     static constexpr std::size_t kMaxTrackPointsPerSat = 5400;
+    static constexpr std::size_t kMaxBurnCounterfactualSnapshots = 512;
 
     std::deque<ExecutedBurn> executed_burn_history_;
     std::deque<ScheduledBurn> dropped_burn_history_;
     std::deque<ConjunctionRecord> conjunction_history_;
     std::deque<ConjunctionRecord> predictive_conjunction_history_;
+    std::deque<BurnCounterfactualSnapshot> burn_counterfactual_history_;
     std::unordered_map<std::string, std::deque<TrackPoint>> trajectory_by_sat_;
     std::unordered_map<std::string, PerSatManeuverStats> per_sat_maneuver_stats_;
 };
