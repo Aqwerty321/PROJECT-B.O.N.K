@@ -1,0 +1,24 @@
+[demo-readiness]
+{
+  "verdict": "ready",
+  "readiness_score": 80,
+  "tick_count": 8,
+  "objects": 5012,
+  "predictive_conjunction_count": 2,
+  "predictive_critical_count": 1,
+  "executed_burns": 2,
+  "pending_burns": 0,
+  "dropped_burns": 0,
+  "tracked_avoidance_burns": 2,
+  "evaluated_avoidance_burns": 2,
+  "successful_avoids": 2,
+  "evaluated_unsuccessful": 0,
+  "pending_evaluation": 0,
+  "fleet_collisions_avoided": 2,
+  "fuel_consumed_kg": 0.1869,
+  "avoidance_fuel_consumed_kg": 0.1869,
+  "active_cdm_warnings": 1
+}
+[confirmed-avoids]
+{"satellite_id": "SAT-67060", "trigger_debris_id": "DEB-SYNTH-97001", "trigger_miss_distance_km": 0.008045, "mitigation_miss_distance_km": 0.134399, "delta_v_norm_km_s": 0.0005}
+{"satellite_id": "SAT-67061", "trigger_debris_id": "DEB-SYNTH-97101", "trigger_miss_distance_km": 0.008147, "mitigation_miss_distance_km": 0.100521, "delta_v_norm_km_s": 0.0005}
