@@ -42,6 +42,15 @@ export interface ThreatCounts {
   green: number;
 }
 
+export type ReasoningLevel = 'minimal' | 'detailed';
+
+export interface FocusOrigin {
+  source: string;
+  detail: string;
+}
+
+export type SoundMode = 'muted' | 'alerts' | 'full';
+
 export interface ThreatSeverityFilter {
   critical: boolean;
   warning: boolean;
@@ -117,13 +126,40 @@ export interface DashboardViewModel {
   opsHealthValue: string;
   opsHealthDetail: string;
   opsHealthWarn: boolean;
+  truthBanner: {
+    snapshotAgeLabel: string;
+    snapshotStale: boolean;
+    snapshotSeverity: 'fresh' | 'warning' | 'critical';
+    snapshotDetail: string;
+    conjunctionSourceLabel: string;
+    failOpenCount: number;
+    droppedCount: number;
+    uploadMissedCount: number;
+  };
+  operatorChecklist: Array<{
+    id: string;
+    label: string;
+    detail: string;
+    tone: ToneLike;
+  }>;
 }
+
+type ToneLike = 'primary' | 'accent' | 'warning' | 'critical' | 'neutral';
 
 export interface DashboardContextValue {
   booted: boolean;
   setBooted: (value: boolean) => void;
   selectedSatId: string | null;
   selectSat: (id: string | null) => void;
+  focusOrigin: FocusOrigin | null;
+  setFocusOrigin: (origin: FocusOrigin | null) => void;
+  focusSatFrom: (id: string | null, origin: FocusOrigin | null) => void;
+  soundMode: SoundMode;
+  setSoundMode: (mode: SoundMode) => void;
+  reasoningLevel: ReasoningLevel;
+  setReasoningLevel: (level: ReasoningLevel) => void;
+  spotlightMode: boolean;
+  setSpotlightMode: (value: boolean) => void;
   threatSeverityFilter: ThreatSeverityFilter;
   toggleThreatSeverity: (severity: keyof ThreatSeverityFilter) => void;
   setThreatSeverityFilter: (filter: ThreatSeverityFilter) => void;

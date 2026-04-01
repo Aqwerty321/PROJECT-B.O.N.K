@@ -1,7 +1,7 @@
 import { BurnEfficiencyChart } from '../components/BurnEfficiencyChart';
 import { GlassPanel } from '../components/GlassPanel';
 import { SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
-import { DetailList, EmptyStatePanel, InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
+import { DetailList, EmptyStatePanel, ImpactCaption, InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { theme } from '../styles/theme';
 
@@ -14,7 +14,7 @@ function formatDeltaVMs(value: number): string {
 }
 
 export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boolean; isCompact: boolean }) {
-  const { model, selectedSatId, selectSat } = useDashboard();
+  const { model, focusSatFrom, reasoningLevel, selectedSatId, spotlightMode } = useDashboard();
 
   const selectedStats = selectedSatId ? model.burns?.per_satellite?.[selectedSatId] : null;
   const summary = model.burnSummary;
@@ -120,6 +120,9 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
     { label: 'Fuel Consumed', value: formatMassKg(selectedStats.fuel_consumed_kg), tone: 'warning' as const },
     { label: 'Avoidance Fuel', value: formatMassKg(selectedStats.avoidance_fuel_consumed_kg ?? 0), tone: (selectedStats.avoidance_fuel_consumed_kg ?? 0) > 0 ? 'warning' as const : 'neutral' as const },
   ] : [];
+  const minimalImpactCaption = selectedSatId && selectedStats
+    ? `${selectedSatId} has avoided ${selectedStats.collisions_avoided ?? 0} collision${(selectedStats.collisions_avoided ?? 0) === 1 ? '' : 's'} while spending ${formatMassKg(selectedStats.avoidance_fuel_consumed_kg ?? 0)} on avoidance burns.`
+    : `Fleet-wide avoidance performance is running at ${efficiencyRatio.toFixed(2)} avoided collisions per kilogram with ${droppedCount} dropped command${droppedCount === 1 ? '' : 's'} still counted.`;
 
   return (
     <section aria-labelledby="evasion-heading" style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '100%', overflow: 'auto' }}>
@@ -137,7 +140,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
         }
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, minmax(0, 1fr))', gap: '10px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, minmax(0, 1fr))', gap: '10px', opacity: spotlightMode ? 0.92 : 1 }}>
         {cards}
       </div>
 
@@ -147,7 +150,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
           noPadding
           priority="primary"
           accentColor={theme.colors.primary}
-          style={{ minHeight: '340px' }}
+          style={{ minHeight: '340px', boxShadow: spotlightMode ? `0 0 0 1px rgba(88, 184, 255, 0.18), 0 0 24px rgba(88, 184, 255, 0.08)` : undefined }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px 14px 14px', flex: 1, minHeight: 0 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '72ch', flexShrink: 0 }}>
@@ -157,7 +160,10 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
               </p>
             </div>
             <div style={{ flex: '1 1 auto', minHeight: '280px', overflow: 'visible', border: '1px solid rgba(88, 184, 255, 0.24)', background: 'linear-gradient(180deg, rgba(9, 12, 17, 0.96), rgba(5, 7, 10, 0.98))' }}>
-              <BurnEfficiencyChart burns={model.burns} selectedSatId={selectedSatId} onSelectSat={selectSat} />
+              <BurnEfficiencyChart burns={model.burns} selectedSatId={selectedSatId} onSelectSat={id => focusSatFrom(id, id ? {
+                source: 'Evasion Chart',
+                detail: `Pinned ${id} from the fuel-to-mitigation efficiency chart.`,
+              } : null)} />
             </div>
           </div>
         </GlassPanel>
@@ -167,7 +173,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
           noPadding
           priority="secondary"
           accentColor={theme.colors.accent}
-          style={{ minHeight: '340px' }}
+          style={{ minHeight: '340px', boxShadow: spotlightMode && selectedSatId ? `0 0 0 1px rgba(57, 217, 138, 0.16), 0 0 24px rgba(57, 217, 138, 0.08)` : undefined }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px 14px 14px', flex: 1, minHeight: 0, overflow: 'auto' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -182,7 +188,10 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
                   {focusCards}
                 </div>
-                <DetailList entries={focusDetails} />
+                {reasoningLevel === 'minimal' ? (
+                  <ImpactCaption detail={minimalImpactCaption} tone={selectedStats.collisions_avoided ? 'accent' : selectedStats.fuel_consumed_kg > 0 ? 'warning' : 'neutral'} />
+                ) : null}
+                {reasoningLevel === 'detailed' ? <DetailList entries={focusDetails} /> : null}
               </>
             ) : (
               <EmptyStatePanel
@@ -196,6 +205,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
                 tone="accent"
               />
             )}
+            {!selectedSatId && reasoningLevel === 'minimal' ? <ImpactCaption detail={minimalImpactCaption} tone={droppedCount > 0 ? 'warning' : 'accent'} /> : null}
           </div>
         </GlassPanel>
       </div>

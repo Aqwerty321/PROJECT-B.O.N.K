@@ -185,6 +185,35 @@ export function InfoChip({
   );
 }
 
+export function AnomalyBadge({
+  label,
+  value,
+  tone = 'warning',
+}: {
+  label: string;
+  value: string;
+  tone?: Tone;
+}) {
+  const color = toneColor(tone);
+
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '7px',
+        padding: '5px 8px',
+        border: `1px solid ${color}44`,
+        background: `linear-gradient(180deg, ${color}14, rgba(8, 10, 14, 0.92))`,
+        clipPath: theme.chamfer.buttonClipPath,
+      }}
+    >
+      <span style={{ color, fontSize: '8px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>{label}</span>
+      <strong style={{ color, fontSize: '10px', fontWeight: 700 }}>{value}</strong>
+    </div>
+  );
+}
+
 export function HeroMetric({
   label,
   value,
@@ -279,6 +308,37 @@ export function DetailList({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+export function ImpactCaption({
+  label = 'Why This Mattered',
+  detail,
+  tone = 'accent',
+}: {
+  label?: string;
+  detail: string;
+  tone?: Tone;
+}) {
+  const color = toneColor(tone);
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        padding: '9px 11px',
+        border: `1px solid ${tone === 'neutral' ? theme.colors.border : `${color}44`}`,
+        background: tone === 'neutral'
+          ? 'rgba(8, 10, 14, 0.68)'
+          : `linear-gradient(180deg, ${color}12, rgba(8, 10, 14, 0.92))`,
+        clipPath: theme.chamfer.buttonClipPath,
+      }}
+    >
+      <span style={{ color, fontSize: '8px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>{label}</span>
+      <span style={{ color: theme.colors.text, fontSize: '11px', lineHeight: 1.5 }}>{detail}</span>
     </div>
   );
 }

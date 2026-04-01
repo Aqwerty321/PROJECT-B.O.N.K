@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef, type ReactNode } from 'react';
 import { theme } from '../styles/theme';
-import { useSound } from '../hooks/useSound';
 
 interface GlassPanelProps {
   title: string;
@@ -58,7 +57,6 @@ export const GlassPanel = React.memo(function GlassPanel({
 }: GlassPanelProps) {
   const [revealed, setRevealed] = useState(false);
   const [flashDone, setFlashDone] = useState(false);
-  const { play } = useSound();
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,12 +67,11 @@ export const GlassPanel = React.memo(function GlassPanel({
     if (!bootComplete) return;
     const timeout = setTimeout(() => {
       setRevealed(true);
-      play('panelOpen');
       // Flash border on reveal, then transition to pulse
       setTimeout(() => setFlashDone(true), 400);
     }, revealIndex * theme.panelRevealDelay);
     return () => clearTimeout(timeout);
-  }, [bootComplete, revealIndex, play]);
+  }, [bootComplete, revealIndex]);
 
   const borderAnimation = !revealed
     ? 'none'

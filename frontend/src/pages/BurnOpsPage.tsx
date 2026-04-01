@@ -4,7 +4,7 @@ import { CounterfactualOutcomePanel } from '../components/CounterfactualOutcomeP
 import { GlassPanel } from '../components/GlassPanel';
 import ManeuverGantt from '../components/ManeuverGantt';
 import { SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
-import { DetailList, EmptyStatePanel, InfoChip, SectionHeader, SummaryCard, type Tone } from '../components/dashboard/UiPrimitives';
+import { AnomalyBadge, DetailList, EmptyStatePanel, ImpactCaption, InfoChip, SectionHeader, SummaryCard, type Tone } from '../components/dashboard/UiPrimitives';
 import { useDashboard } from '../dashboard/DashboardContext';
 import { useBurnCounterfactual } from '../hooks/useApi';
 import { theme } from '../styles/theme';
@@ -76,7 +76,7 @@ function outcomeTone(burn: TimelineBurn | null): Tone {
 }
 
 export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boolean; isCompact: boolean }) {
-  const { model, selectedSatId, selectSat } = useDashboard();
+  const { model, focusSatFrom, reasoningLevel, selectedSatId, spotlightMode } = useDashboard();
   const [compareOpen, setCompareOpen] = useState(false);
   const [forcedDecisionBurnId, setForcedDecisionBurnId] = useState<string | null>(null);
   const [ganttHitTargets, setGanttHitTargets] = useState<Array<{ burnId: string; x: number; y: number }>>([]);
@@ -144,7 +144,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
     />,
   ] : [];
 
-  const detailEntries: Array<{ label: string; value: string; tone?: Tone }> = decisionFocus ? [
+  const detailEntries = decisionFocus ? [
     { label: 'Burn Type', value: burnKindLabel(decisionFocus), tone: decisionFocus.scheduled_from_predictive_cdm ? 'accent' : 'primary' as const },
     { label: 'Satellite', value: decisionFocus.satellite_id, tone: 'primary' as const },
     { label: 'Trigger Debris', value: decisionFocus.trigger_debris_id ?? '--', tone: decisionFocus.trigger_debris_id ? 'critical' as const : 'neutral' as const },
@@ -158,10 +158,18 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
     { label: 'Fail-Open', value: decisionFocus.trigger_fail_open ? 'Yes' : 'No', tone: decisionFocus.trigger_fail_open ? 'warning' as const : 'neutral' as const },
     { label: 'Mitigation Miss', value: executedDecision ? formatDistanceKm(executedDecision.mitigation_miss_distance_km) : 'Pending', tone: executedDecision?.collision_avoided ? 'accent' as const : executedDecision?.mitigation_evaluated ? 'warning' as const : 'neutral' as const },
     { label: 'Clearance Gain', value: mitigationGainKm != null ? formatDistanceKm(mitigationGainKm) : 'Pending', tone: mitigationGainKm != null && mitigationGainKm > 0 ? 'accent' as const : mitigationGainKm != null ? 'warning' as const : 'neutral' as const },
-  ] : [];
+  ] satisfies Array<{ label: string; value: string; tone?: Tone }> : [];
+  const visibleDetailEntries = detailEntries.slice(0, reasoningLevel === 'minimal' ? 8 : undefined);
 
   const counterfactualAllowed = Boolean(eligibleCounterfactualBurn);
   const decisionPinnedFromTimeline = Boolean(forcedDecisionBurnId && decisionFocus);
+  const minimalImpactCaption = executedDecision && mitigationGainKm != null
+    ? executedDecision.collision_avoided
+      ? `This burn kept ${executedDecision.satellite_id} above the collision threshold by buying ${formatDistanceKm(mitigationGainKm)} of extra clearance.`
+      : `This burn is tracked for ${executedDecision.satellite_id}, but the backend has not confirmed a collision-avoided outcome.`
+    : decisionFocus
+      ? `This command prepares ${decisionFocus.satellite_id} for a ${formatDistanceKm(decisionFocus.trigger_miss_distance_km)} pass at ${formatUtcTime(decisionFocus.trigger_tca)}.`
+      : null;
 
   const headerCards = [
     <SummaryCard
@@ -214,7 +222,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
         }
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: '10px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: '10px', opacity: spotlightMode ? 0.92 : 1 }}>
         {headerCards}
       </div>
 
@@ -224,7 +232,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
           noPadding
           priority="primary"
           accentColor={theme.colors.warning}
-          style={{ minHeight: 0 }}
+          style={{ minHeight: 0, opacity: spotlightMode ? 1 : 1, boxShadow: spotlightMode ? `0 0 0 1px rgba(255, 194, 71, 0.18), 0 0 24px rgba(255, 194, 71, 0.08)` : undefined }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, minHeight: 0, padding: '10px 14px 14px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '74ch', flexShrink: 0 }}>
@@ -232,6 +240,13 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
               <p id="burn-ops-heading" style={{ color: theme.colors.textDim, fontSize: '12px', lineHeight: 1.55 }}>
                 Executed burns, queued maneuvers, dropped uploads, and blackout/conflict markers aligned on a single command clock with optional selected-vehicle emphasis. Click any burn block to retarget this rail.
               </p>
+              {focusedDropped.length > 0 || focusedBlackoutFlags > 0 || focusedConflictFlags > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {focusedDropped.length > 0 ? <AnomalyBadge label="Dropped" value={`${focusedDropped.length}`} tone="critical" /> : null}
+                  {focusedBlackoutFlags > 0 ? <AnomalyBadge label="Blackout" value={`${focusedBlackoutFlags}`} tone="warning" /> : null}
+                  {focusedConflictFlags > 0 ? <AnomalyBadge label="Conflicts" value={`${focusedConflictFlags}`} tone="warning" /> : null}
+                </div>
+              ) : null}
               {decisionPinnedFromTimeline ? (
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', alignSelf: 'flex-start', padding: '6px 9px', border: `1px solid ${theme.colors.warning}44`, background: 'rgba(255, 194, 71, 0.10)', color: theme.colors.warning, clipPath: theme.chamfer.buttonClipPath }}>
                   <span style={{ fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Selected Burn</span>
@@ -264,7 +279,10 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
                 onExposeHitRegions={setGanttHitTargets}
                 onSelectBurn={burn => {
                   setForcedDecisionBurnId(burn.id);
-                  selectSat(burn.satellite_id);
+                  focusSatFrom(burn.satellite_id, {
+                    source: 'Burn Timeline',
+                    detail: `Selected ${burn.id} on ${burn.satellite_id} from the maneuver scheduler.`,
+                  });
                   if ('fuel_before_kg' in burn && burn.scheduled_from_predictive_cdm && burn.trigger_debris_id) {
                     setCompareOpen(true);
                   }
@@ -282,7 +300,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
           noPadding
           priority="secondary"
           accentColor={theme.colors.accent}
-          style={{ minHeight: 0 }}
+          style={{ minHeight: 0, opacity: spotlightMode ? 1 : 1, boxShadow: spotlightMode ? `0 0 0 1px rgba(57, 217, 138, 0.16), 0 0 24px rgba(57, 217, 138, 0.08)` : undefined }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, minHeight: 0, padding: '10px 14px 14px', overflow: 'auto' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -297,7 +315,13 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
                   {explainCards}
                 </div>
-                <DetailList entries={detailEntries} />
+                {reasoningLevel === 'minimal' && minimalImpactCaption ? (
+                  <ImpactCaption
+                    detail={minimalImpactCaption}
+                    tone={executedDecision?.collision_avoided ? 'accent' : decisionFocus?.scheduled_from_predictive_cdm ? 'warning' : 'primary'}
+                  />
+                ) : null}
+                <DetailList entries={visibleDetailEntries} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '10px 12px', border: `1px solid ${theme.colors.border}`, background: 'rgba(7, 9, 12, 0.58)', clipPath: theme.chamfer.clipPath }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                     <span style={{ color: theme.colors.warning, fontSize: '9px', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Counterfactual compare</span>
@@ -332,7 +356,7 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
                     {compareOpen ? 'Hide Compare' : 'Compare Outcome'}
                   </button>
                 </div>
-                {compareOpen ? (
+                {compareOpen && reasoningLevel === 'detailed' ? (
                   <CounterfactualOutcomePanel
                     counterfactual={counterfactual}
                     loading={counterfactualLoading}

@@ -3,7 +3,7 @@ import { ConjunctionBullseye } from '../components/ConjunctionBullseye';
 import { ThreatSeverityFilters, filterConjunctionsBySeverity } from '../components/dashboard/ThreatSeverityFilters';
 import { SatelliteSelectionPlaceholder } from '../components/dashboard/SatelliteFocusControls';
 import { GlassPanel } from '../components/GlassPanel';
-import { EmptyStatePanel, InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
+import { AnomalyBadge, EmptyStatePanel, ImpactCaption, InfoChip, SectionHeader, SummaryCard } from '../components/dashboard/UiPrimitives';
 import { ConjunctionDetailCard } from '../components/threat/ConjunctionDetailCard';
 import { ConjunctionEventList } from '../components/threat/ConjunctionEventList';
 import {
@@ -30,7 +30,7 @@ function formatOffsetLabel(deltaSeconds: number): string {
 }
 
 export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boolean; isCompact: boolean }) {
-  const { model, selectedSatId, selectSat, threatSeverityFilter } = useDashboard();
+  const { model, focusSatFrom, reasoningLevel, selectedSatId, spotlightMode, threatSeverityFilter } = useDashboard();
   const [activeEventKey, setActiveEventKey] = useState<string | null>(null);
   const { conjunctions: predictiveConjunctions } = useConjunctions(2000, undefined, 'predicted');
 
@@ -226,6 +226,11 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
       tone={filteredFocusedEvents.length > 0 ? 'accent' : 'neutral'}
     />,
   ];
+  const minimalImpactCaption = activeEvent
+    ? `${activeEvent.satellite_id} is on a ${formatOffsetLabel(activeEvent.tca_epoch_s - model.nowEpochS)} approach with ${activeEvent.debris_id}; current miss is ${activeEvent.miss_distance_km.toFixed(2)} km.`
+    : focusNextThreat
+      ? `${focusNextThreat.satellite_id} is the next vehicle to watch at ${formatUtcTime(focusNextThreat.tca)} UTC with ${focusDistinctDebrisCount} debris object${focusDistinctDebrisCount === 1 ? '' : 's'} in scope.`
+      : null;
   return (
     <section aria-labelledby="threat-heading" style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%' }}>
       <SectionHeader
@@ -241,7 +246,7 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
         }
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: '10px', flexShrink: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: '10px', flexShrink: 0, opacity: spotlightMode ? 0.92 : 1 }}>
         {focusSummaryCards}
       </div>
 
@@ -251,7 +256,7 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
           noPadding
           priority="primary"
           accentColor={theme.colors.primary}
-          style={{ minHeight: 0 }}
+          style={{ minHeight: 0, boxShadow: spotlightMode && activeEvent ? `0 0 0 1px rgba(88, 184, 255, 0.18), 0 0 24px rgba(88, 184, 255, 0.08)` : undefined }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, minHeight: 0, padding: '10px 14px 14px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : 'minmax(0, 1fr) auto', gap: '10px', alignItems: 'flex-start', flexShrink: 0 }}>
@@ -268,7 +273,7 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
               </div>
             </div>
 
-            <ThreatSeverityFilters counts={streamThreatCounts} />
+              {reasoningLevel === 'detailed' ? <ThreatSeverityFilters counts={streamThreatCounts} /> : null}
 
               {selectedSatId ? (
                 <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: '1px solid rgba(88, 184, 255, 0.34)', background: 'linear-gradient(180deg, rgba(10, 11, 14, 0.92), rgba(7, 8, 10, 0.98))' }}>
@@ -290,7 +295,7 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
             noPadding
             priority="secondary"
             accentColor={theme.colors.warning}
-            style={{ minHeight: 0 }}
+            style={{ minHeight: 0, boxShadow: spotlightMode && activeEvent ? `0 0 0 1px rgba(255, 194, 71, 0.16), 0 0 24px rgba(255, 194, 71, 0.08)` : undefined }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minHeight: 0, padding: '10px 12px 12px', overflow: 'auto' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexShrink: 0 }}>
@@ -299,9 +304,13 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   <InfoChip label="Fail-open" value={focusFailOpenCount.toString()} tone={focusFailOpenCount > 0 ? 'warning' : 'neutral'} />
-                  <InfoChip label="Vehicle Lanes" value={queueGroups.length.toString()} tone={queueGroups.length > 0 ? 'accent' : 'neutral'} />
+                  {reasoningLevel === 'detailed' ? <InfoChip label="Vehicle Lanes" value={queueGroups.length.toString()} tone={queueGroups.length > 0 ? 'accent' : 'neutral'} /> : null}
                 </div>
               </div>
+              {focusFailOpenCount > 0 ? <AnomalyBadge label="Fail-open Encounters" value={`${focusFailOpenCount}`} tone="warning" /> : null}
+              {reasoningLevel === 'minimal' && minimalImpactCaption ? (
+                <ImpactCaption detail={minimalImpactCaption} tone={activeEvent && activeEvent.miss_distance_km < 1 ? 'critical' : 'warning'} />
+              ) : null}
               {flatQueueEntries.length > 0 ? (
                 <ConjunctionEventList
                   groups={queueGroups}
@@ -309,7 +318,10 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
                   nowEpochS={model.nowEpochS}
                   onSelectEvent={entry => {
                     setActiveEventKey(entry.key);
-                    selectSat(entry.event.satellite_id);
+                    focusSatFrom(entry.event.satellite_id, {
+                      source: 'Threat Queue',
+                      detail: `Pinned ${entry.event.satellite_id} from encounter ${entry.event.debris_id} at ${formatUtcTime(entry.event.tca)} UTC.`,
+                    });
                   }}
                 />
               ) : (

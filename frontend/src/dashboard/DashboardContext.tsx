@@ -18,6 +18,9 @@ import {
 import { riskLevelForEvent } from '../types/api';
 import type {
   DashboardContextValue,
+  FocusOrigin,
+  ReasoningLevel,
+  SoundMode,
   DashboardViewModel,
   StepStatusSummary,
   StatusCounts,
@@ -31,6 +34,7 @@ import {
 } from '../types/dashboard';
 
 const TRACK_HISTORY_WINDOW_S = 90 * 60;
+const SOUND_MODE_STORAGE_KEY = 'cascade.sound-mode';
 
 const DashboardContext = createContext<DashboardContextValue | null>(null);
 
@@ -67,9 +71,26 @@ function findLowestFuelSatellite(satellites: DashboardViewModel['satellites']) {
   }, null);
 }
 
+function formatSnapshotAgeLabel(updatedAtMs: number | null): string {
+  if (!updatedAtMs) return 'Awaiting snapshot';
+  const seconds = Math.max(0, Math.round((Date.now() - updatedAtMs) / 1000));
+  if (seconds < 60) return `${seconds}s old`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m old`;
+  return `${(minutes / 60).toFixed(1)}h old`;
+}
+
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [booted, setBooted] = useState(false);
   const [selectedSatId, setSelectedSatId] = useState<string | null>(null);
+  const [focusOrigin, setFocusOrigin] = useState<FocusOrigin | null>(null);
+  const [soundMode, setSoundModeState] = useState<SoundMode>(() => {
+    if (typeof window === 'undefined') return 'alerts';
+    const stored = window.localStorage.getItem(SOUND_MODE_STORAGE_KEY);
+    return stored === 'muted' || stored === 'alerts' || stored === 'full' ? stored : 'alerts';
+  });
+  const [reasoningLevel, setReasoningLevel] = useState<ReasoningLevel>('minimal');
+  const [spotlightMode, setSpotlightMode] = useState(false);
   const [stepStatus, setStepStatus] = useState<StepStatusSummary>(DEFAULT_STEP_STATUS);
   const [snapshotUpdatedAtMs, setSnapshotUpdatedAtMs] = useState<number | null>(null);
   const [threatSeverityFilter, setThreatSeverityFilter] = useState<ThreatSeverityFilter>(DEFAULT_THREAT_SEVERITY_FILTER);
@@ -147,9 +168,25 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     if (!selectedSatId) return;
     if (satellites.some(satellite => satellite.id === selectedSatId)) return;
     setSelectedSatId(null);
+    setFocusOrigin(null);
   }, [satellites, selectedSatId]);
 
-  const selectSat = useCallback((id: string | null) => setSelectedSatId(id), []);
+  const selectSat = useCallback((id: string | null) => {
+    setSelectedSatId(id);
+    if (id == null) {
+      setFocusOrigin(null);
+    }
+  }, []);
+  const setSoundMode = useCallback((mode: SoundMode) => {
+    setSoundModeState(mode);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(SOUND_MODE_STORAGE_KEY, mode);
+    }
+  }, []);
+  const focusSatFrom = useCallback((id: string | null, origin: FocusOrigin | null) => {
+    setSelectedSatId(id);
+    setFocusOrigin(id == null ? null : origin);
+  }, []);
   const toggleThreatSeverity = useCallback((severity: keyof ThreatSeverityFilter) => {
     setThreatSeverityFilter(current => ({
       ...current,
@@ -284,9 +321,95 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         ? `${recoveryPlanned} recovery maneuvers were planned to regain nominal slot keeping.`
         : 'No slot-box violations or upload misses were reported on the last tick.';
   const opsHealthWarn = slotOutsideBox > 0 || uploadMissed > 0;
+  const failOpenCount = conjList.filter(event => event.fail_open).length;
+  const droppedCount = burnSummary?.burns_dropped ?? droppedBurns.length;
+  const snapshotAgeLabel = formatSnapshotAgeLabel(snapshotUpdatedAtMs);
+  const snapshotAgeMs = snapshotUpdatedAtMs == null ? Number.POSITIVE_INFINITY : Date.now() - snapshotUpdatedAtMs;
+  const snapshotSeverity = snapshotAgeMs > 45_000
+    ? 'critical'
+    : snapshotAgeMs > 15_000
+      ? 'warning'
+      : 'fresh';
+  const snapshotStale = snapshotSeverity !== 'fresh';
+  const snapshotDetail = snapshotSeverity === 'critical'
+    ? 'Snapshot feed is stale enough that operator decisions should pause until freshness recovers.'
+    : snapshotSeverity === 'warning'
+      ? 'Snapshot feed is aging; continue watching, but verify the feed is still advancing.'
+      : 'Snapshot cadence is current.';
+  const conjunctionSourceLabel = conjunctions?.source === 'predictive'
+    ? 'Predictive 24h'
+    : conjunctions?.source === 'history'
+      ? 'Historical'
+      : conjunctions?.source === 'combined'
+        ? 'Combined'
+        : 'Unknown';
 
   const heroModeValue = selectedSatId ?? 'Fleet';
   const heroPathValue = trajectory?.satellite_id ?? 'Standby';
+  const focusedCriticalCount = selectedSatId
+    ? conjList.filter(event => event.satellite_id === selectedSatId && riskLevelForEvent(event) === 'red').length
+    : threatCounts.red;
+  const counterfactualCandidate = [...watchedExecutedBurns]
+    .filter(burn => burn.scheduled_from_predictive_cdm && burn.trigger_debris_id)
+    .sort((lhs, rhs) => new Date(rhs.burn_epoch).getTime() - new Date(lhs.burn_epoch).getTime())[0] ?? null;
+  const operatorChecklist: DashboardViewModel['operatorChecklist'] = [];
+  if (snapshotSeverity === 'critical') {
+    operatorChecklist.push({
+      id: 'stale-critical',
+      label: 'Pause Decisions',
+      detail: 'Snapshot feed is stale; verify the backend stream before acting on the current picture.',
+      tone: 'critical',
+    });
+  } else if (snapshotSeverity === 'warning') {
+    operatorChecklist.push({
+      id: 'stale-warning',
+      label: 'Verify Feed',
+      detail: 'Snapshot cadence is aging; confirm the feed is still advancing before trusting timing-sensitive calls.',
+      tone: 'warning',
+    });
+  }
+  if (focusedCriticalCount > 0) {
+    operatorChecklist.push({
+      id: 'critical-conjunction',
+      label: `${focusedCriticalCount} Critical ${focusedCriticalCount === 1 ? 'Conjunction' : 'Conjunctions'}`,
+      detail: selectedSatId
+        ? `Review the focused threat lane for ${selectedSatId}.`
+        : 'Review the live critical conjunction queue.',
+      tone: 'critical',
+    });
+  }
+  if (failOpenCount > 0) {
+    operatorChecklist.push({
+      id: 'fail-open',
+      label: `${failOpenCount} Fail-open`,
+      detail: 'Inspect encounter geometry before relying on automated collision interpretation.',
+      tone: 'warning',
+    });
+  }
+  if (droppedCount > 0) {
+    operatorChecklist.push({
+      id: 'dropped-burns',
+      label: `${droppedCount} Dropped ${droppedCount === 1 ? 'Command' : 'Commands'}`,
+      detail: 'Review Burn Ops for upload-window or command-friction loss.',
+      tone: 'critical',
+    });
+  }
+  if (uploadMissed > 0) {
+    operatorChecklist.push({
+      id: 'upload-slips',
+      label: `${uploadMissed} Upload ${uploadMissed === 1 ? 'Slip' : 'Slips'}`,
+      detail: 'Verify ground-station timing before the next step.',
+      tone: 'warning',
+    });
+  }
+  if (counterfactualCandidate) {
+    operatorChecklist.push({
+      id: 'counterfactual-ready',
+      label: 'Counterfactual Ready',
+      detail: `Compare ${counterfactualCandidate.id} against the no-burn branch in Burn Ops.`,
+      tone: 'accent',
+    });
+  }
 
   const operationsLiveSummary = selectedSatId
     ? `Tracking ${selectedSatId}. ${threatCounts.red} critical conjunctions. ${watchedPendingBurns.length} pending burns in focus.`
@@ -339,6 +462,17 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     opsHealthValue,
     opsHealthDetail,
     opsHealthWarn,
+    operatorChecklist,
+    truthBanner: {
+      snapshotAgeLabel,
+      snapshotStale,
+      snapshotSeverity,
+      snapshotDetail,
+      conjunctionSourceLabel,
+      failOpenCount,
+      droppedCount,
+      uploadMissedCount: uploadMissed,
+    },
   }), [
     activeSatellite,
     avgFuelKg,
@@ -347,10 +481,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     burns,
     burnsError,
     conjList,
+    conjunctionSourceLabel,
     conjunctionsError,
     debris,
+    droppedCount,
     droppedBurns,
     executedBurns,
+    failOpenCount,
     heroModeValue,
     heroPathValue,
     lowestFuelSatellite,
@@ -362,6 +499,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     opsHealthDetail,
     opsHealthValue,
     opsHealthWarn,
+    operatorChecklist,
     operationsLiveSummary,
     pendingBurns,
     burnSummary,
@@ -371,6 +509,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     selectedTrajectory,
     snapError,
     snapshot,
+    snapshotAgeLabel,
+    snapshotDetail,
+    snapshotSeverity,
+    snapshotStale,
     snapshotUpdatedAtMs,
     status,
     statusCounts,
@@ -381,6 +523,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     trackVersion,
     trajectory,
     trajectoryError,
+    uploadMissed,
     watchTargetDetail,
     watchTargetValue,
     watchedExecutedBurns,
@@ -392,6 +535,15 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setBooted,
     selectedSatId,
     selectSat,
+    focusOrigin,
+    setFocusOrigin,
+    focusSatFrom,
+    soundMode,
+    setSoundMode,
+    reasoningLevel,
+    setReasoningLevel,
+    spotlightMode,
+    setSpotlightMode,
     threatSeverityFilter,
     toggleThreatSeverity,
     setThreatSeverityFilter,
@@ -400,9 +552,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     model,
   }), [
     booted,
+    focusOrigin,
+    focusSatFrom,
     model,
+    reasoningLevel,
     selectSat,
     selectedSatId,
+    setFocusOrigin,
+    setSoundMode,
+    soundMode,
+    spotlightMode,
     stepStatus,
     threatSeverityFilter,
     toggleThreatSeverity,
