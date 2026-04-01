@@ -17,6 +17,8 @@ import { theme } from '../styles/theme';
 import { riskLevelForEvent } from '../types/api';
 import { hasActiveThreatSeverityFilter } from '../types/dashboard';
 
+const COLLISION_THRESHOLD_KM = 0.1;
+
 function formatUtcTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '--';
@@ -30,7 +32,7 @@ function formatOffsetLabel(deltaSeconds: number): string {
 }
 
 export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boolean; isCompact: boolean }) {
-  const { model, focusSatFrom, reasoningLevel, selectedSatId, spotlightMode, threatSeverityFilter } = useDashboard();
+  const { model, attentionTarget, focusSatFrom, reasoningLevel, selectedSatId, setAttentionTarget, spotlightMode, threatSeverityFilter } = useDashboard();
   const [activeEventKey, setActiveEventKey] = useState<string | null>(null);
   const { conjunctions: predictiveConjunctions } = useConjunctions(2000, undefined, 'predicted');
 
@@ -227,10 +229,22 @@ export function ThreatPage({ isNarrow, isCompact: _isCompact }: { isNarrow: bool
     />,
   ];
   const minimalImpactCaption = activeEvent
-    ? `${activeEvent.satellite_id} is on a ${formatOffsetLabel(activeEvent.tca_epoch_s - model.nowEpochS)} approach with ${activeEvent.debris_id}; current miss is ${activeEvent.miss_distance_km.toFixed(2)} km.`
+    ? `${activeEvent.satellite_id} is on a ${formatOffsetLabel(activeEvent.tca_epoch_s - model.nowEpochS)} approach with ${activeEvent.debris_id}; current miss is ${activeEvent.miss_distance_km.toFixed(2)} km, ${activeEvent.miss_distance_km <= COLLISION_THRESHOLD_KM ? 'inside' : 'outside'} the hard ${COLLISION_THRESHOLD_KM.toFixed(3)} km collision threshold.`
     : focusNextThreat
       ? `${focusNextThreat.satellite_id} is the next vehicle to watch at ${formatUtcTime(focusNextThreat.tca)} UTC with ${focusDistinctDebrisCount} debris object${focusDistinctDebrisCount === 1 ? '' : 's'} in scope.`
       : null;
+
+  useEffect(() => {
+    if (!attentionTarget || attentionTarget.kind !== 'conjunction') return;
+    const matchedEntry = flatQueueEntries.find(entry => entry.key === attentionTarget.key);
+    if (!matchedEntry) return;
+    setActiveEventKey(matchedEntry.key);
+    focusSatFrom(matchedEntry.event.satellite_id, {
+      source: 'Operator Checklist',
+      detail: `Pinned ${matchedEntry.event.satellite_id} from checklist encounter ${matchedEntry.event.debris_id}.`,
+    });
+    setAttentionTarget(null);
+  }, [attentionTarget, flatQueueEntries, focusSatFrom, setAttentionTarget]);
   return (
     <section aria-labelledby="threat-heading" style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%' }}>
       <SectionHeader

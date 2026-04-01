@@ -95,7 +95,7 @@ export function AppShell({
   isCompact: boolean;
   children: ReactNode;
 }) {
-  const { model, focusOrigin, focusSatFrom, reasoningLevel, selectedSatId, setReasoningLevel, setSoundMode, soundMode, spotlightMode, setSpotlightMode } = useDashboard();
+  const { model, focusOrigin, focusSatFrom, reasoningLevel, selectedSatId, setAttentionTarget, setReasoningLevel, setSoundMode, soundMode, spotlightMode, setSpotlightMode } = useDashboard();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [focusConsoleCollapsed, setFocusConsoleCollapsed] = useState(false);
   const compactFocusRail = isCompact || isNarrow;
@@ -397,6 +397,26 @@ export function AppShell({
                   <div key={item.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 9px', border: `1px solid ${item.tone === 'critical' ? `${theme.colors.critical}44` : item.tone === 'warning' ? `${theme.colors.warning}44` : item.tone === 'accent' ? `${theme.colors.accent}44` : theme.colors.border}`, background: 'rgba(8, 10, 14, 0.72)', clipPath: theme.chamfer.buttonClipPath }}>
                     <strong style={{ color: item.tone === 'critical' ? theme.colors.critical : item.tone === 'warning' ? theme.colors.warning : item.tone === 'accent' ? theme.colors.accent : theme.colors.text, fontSize: '10px' }}>{item.label}</strong>
                     <span style={{ color: theme.colors.textDim, fontSize: '10px' }}>{item.detail}</span>
+                    {item.actionLabel && item.actionPage ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAttentionTarget(item.actionTarget ?? null);
+                          if (item.actionPage) {
+                            navigate(item.actionPage);
+                          }
+                        }}
+                        style={{
+                          ...styles.controlButton,
+                          padding: '4px 7px',
+                          fontSize: '8px',
+                          color: item.tone === 'critical' ? theme.colors.critical : item.tone === 'warning' ? theme.colors.warning : item.tone === 'accent' ? theme.colors.accent : theme.colors.primary,
+                          borderColor: item.tone === 'critical' ? `${theme.colors.critical}44` : item.tone === 'warning' ? `${theme.colors.warning}44` : item.tone === 'accent' ? `${theme.colors.accent}44` : `${theme.colors.primary}44`,
+                        }}
+                      >
+                        {item.actionLabel}
+                      </button>
+                    ) : null}
                   </div>
                 ))}
               </div>

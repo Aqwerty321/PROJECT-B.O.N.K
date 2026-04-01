@@ -1,5 +1,5 @@
 import type { ExecutedBurn, PendingBurn } from '../types/api';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CounterfactualOutcomePanel } from '../components/CounterfactualOutcomePanel';
 import { GlassPanel } from '../components/GlassPanel';
 import ManeuverGantt from '../components/ManeuverGantt';
@@ -78,7 +78,7 @@ function outcomeTone(burn: TimelineBurn | null): Tone {
 }
 
 export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boolean; isCompact: boolean }) {
-  const { model, focusSatFrom, reasoningLevel, selectedSatId, spotlightMode } = useDashboard();
+  const { model, attentionTarget, focusSatFrom, reasoningLevel, selectedSatId, setAttentionTarget, spotlightMode } = useDashboard();
   const [compareOpen, setCompareOpen] = useState(false);
   const [forcedDecisionBurnId, setForcedDecisionBurnId] = useState<string | null>(null);
   const [ganttHitTargets, setGanttHitTargets] = useState<Array<{ burnId: string; x: number; y: number }>>([]);
@@ -172,8 +172,23 @@ export function BurnOpsPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
       ? `This burn kept ${executedDecision.satellite_id} above the collision threshold by buying ${formatDistanceKm(mitigationGainKm)} of extra clearance.`
       : `This burn is tracked for ${executedDecision.satellite_id}, but the backend has not confirmed a collision-avoided outcome.`
     : decisionFocus
-      ? `This command prepares ${decisionFocus.satellite_id} for a ${formatDistanceKm(decisionFocus.trigger_miss_distance_km)} pass at ${formatUtcTime(decisionFocus.trigger_tca)}.`
+      ? `This command prepares ${decisionFocus.satellite_id} for a ${formatDistanceKm(decisionFocus.trigger_miss_distance_km)} pass at ${formatUtcTime(decisionFocus.trigger_tca)}, ${(decisionFocus.trigger_miss_distance_km ?? Number.POSITIVE_INFINITY) <= COLLISION_THRESHOLD_KM ? 'inside' : 'outside'} the hard ${formatDistanceKm(COLLISION_THRESHOLD_KM)} collision threshold.`
       : null;
+
+  useEffect(() => {
+    if (!attentionTarget || attentionTarget.kind !== 'burn') return;
+    const matchedBurn = [...model.executedBurns, ...model.pendingBurns].find(burn => burn.id === attentionTarget.key);
+    if (!matchedBurn) return;
+    setForcedDecisionBurnId(matchedBurn.id);
+    focusSatFrom(matchedBurn.satellite_id, {
+      source: 'Operator Checklist',
+      detail: `Pinned ${matchedBurn.id} from the checklist action rail.`,
+    });
+    if ('fuel_before_kg' in matchedBurn && matchedBurn.scheduled_from_predictive_cdm && matchedBurn.trigger_debris_id) {
+      setCompareOpen(true);
+    }
+    setAttentionTarget(null);
+  }, [attentionTarget, focusSatFrom, model.executedBurns, model.pendingBurns, setAttentionTarget]);
 
   const headerCards = [
     <SummaryCard

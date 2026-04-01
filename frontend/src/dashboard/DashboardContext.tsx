@@ -17,6 +17,7 @@ import {
 } from '../hooks/useApi';
 import { riskLevelForEvent } from '../types/api';
 import type {
+  AttentionTarget,
   DashboardContextValue,
   FocusOrigin,
   ReasoningLevel,
@@ -84,6 +85,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [booted, setBooted] = useState(false);
   const [selectedSatId, setSelectedSatId] = useState<string | null>(null);
   const [focusOrigin, setFocusOrigin] = useState<FocusOrigin | null>(null);
+  const [attentionTarget, setAttentionTarget] = useState<AttentionTarget | null>(null);
   const [soundMode, setSoundModeState] = useState<SoundMode>(() => {
     if (typeof window === 'undefined') return 'alerts';
     const stored = window.localStorage.getItem(SOUND_MODE_STORAGE_KEY);
@@ -352,6 +354,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const counterfactualCandidate = [...watchedExecutedBurns]
     .filter(burn => burn.scheduled_from_predictive_cdm && burn.trigger_debris_id)
     .sort((lhs, rhs) => new Date(rhs.burn_epoch).getTime() - new Date(lhs.burn_epoch).getTime())[0] ?? null;
+  const nextCriticalConjunction = [...conjList]
+    .filter(event => riskLevelForEvent(event) === 'red')
+    .sort((lhs, rhs) => lhs.tca_epoch_s - rhs.tca_epoch_s)[0] ?? null;
   const operatorChecklist: DashboardViewModel['operatorChecklist'] = [];
   if (snapshotSeverity === 'critical') {
     operatorChecklist.push({
@@ -359,6 +364,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       label: 'Pause Decisions',
       detail: 'Snapshot feed is stale; verify the backend stream before acting on the current picture.',
       tone: 'critical',
+      actionLabel: 'Open Threat',
+      actionPage: 'threat',
+      actionTarget: nextCriticalConjunction ? { kind: 'conjunction', key: `${nextCriticalConjunction.satellite_id}-${nextCriticalConjunction.debris_id}-${nextCriticalConjunction.tca_epoch_s}` } : undefined,
     });
   } else if (snapshotSeverity === 'warning') {
     operatorChecklist.push({
@@ -366,6 +374,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       label: 'Verify Feed',
       detail: 'Snapshot cadence is aging; confirm the feed is still advancing before trusting timing-sensitive calls.',
       tone: 'warning',
+      actionLabel: 'Open Threat',
+      actionPage: 'threat',
+      actionTarget: nextCriticalConjunction ? { kind: 'conjunction', key: `${nextCriticalConjunction.satellite_id}-${nextCriticalConjunction.debris_id}-${nextCriticalConjunction.tca_epoch_s}` } : undefined,
     });
   }
   if (focusedCriticalCount > 0) {
@@ -376,6 +387,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         ? `Review the focused threat lane for ${selectedSatId}.`
         : 'Review the live critical conjunction queue.',
       tone: 'critical',
+      actionLabel: 'Open Threat',
+      actionPage: 'threat',
+      actionTarget: nextCriticalConjunction ? { kind: 'conjunction', key: `${nextCriticalConjunction.satellite_id}-${nextCriticalConjunction.debris_id}-${nextCriticalConjunction.tca_epoch_s}` } : undefined,
     });
   }
   if (failOpenCount > 0) {
@@ -392,6 +406,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       label: `${droppedCount} Dropped ${droppedCount === 1 ? 'Command' : 'Commands'}`,
       detail: 'Review Burn Ops for upload-window or command-friction loss.',
       tone: 'critical',
+      actionLabel: 'Open Burn Ops',
+      actionPage: 'burn-ops',
     });
   }
   if (uploadMissed > 0) {
@@ -400,6 +416,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       label: `${uploadMissed} Upload ${uploadMissed === 1 ? 'Slip' : 'Slips'}`,
       detail: 'Verify ground-station timing before the next step.',
       tone: 'warning',
+      actionLabel: 'Open Burn Ops',
+      actionPage: 'burn-ops',
     });
   }
   if (counterfactualCandidate) {
@@ -408,6 +426,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       label: 'Counterfactual Ready',
       detail: `Compare ${counterfactualCandidate.id} against the no-burn branch in Burn Ops.`,
       tone: 'accent',
+      actionLabel: 'Open Burn Ops',
+      actionPage: 'burn-ops',
+      actionTarget: { kind: 'burn', key: counterfactualCandidate.id },
     });
   }
 
@@ -538,6 +559,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     focusOrigin,
     setFocusOrigin,
     focusSatFrom,
+    attentionTarget,
+    setAttentionTarget,
     soundMode,
     setSoundMode,
     reasoningLevel,
@@ -552,6 +575,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     model,
   }), [
     booted,
+    attentionTarget,
     focusOrigin,
     focusSatFrom,
     model,
@@ -559,6 +583,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     selectSat,
     selectedSatId,
     setFocusOrigin,
+    setAttentionTarget,
     setSoundMode,
     soundMode,
     spotlightMode,

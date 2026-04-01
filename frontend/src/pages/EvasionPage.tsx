@@ -110,6 +110,7 @@ export function EvasionPage({ isNarrow, isCompact: _isCompact }: { isNarrow: boo
 
   const focusDetails = selectedSatId && selectedStats ? [
     { label: 'Vehicle Status', value: activeSatellite?.status ?? '--', tone: 'primary' as const },
+    { label: 'Provenance', value: 'Executed burn history', tone: 'neutral' as const },
     { label: 'Fuel Remaining', value: activeSatellite ? `${activeSatellite.fuel_kg.toFixed(1)} kg` : '--', tone: 'primary' as const },
     { label: 'Burns Executed', value: `${selectedStats.burns_executed}`, tone: 'primary' as const },
     { label: 'Avoidance Burns', value: `${selectedStats.avoidance_burns_executed ?? 0}`, tone: (selectedStats.avoidance_burns_executed ?? 0) > 0 ? 'accent' as const : 'neutral' as const },

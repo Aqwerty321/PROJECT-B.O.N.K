@@ -51,6 +51,11 @@ export interface FocusOrigin {
 
 export type SoundMode = 'muted' | 'alerts' | 'full';
 
+export interface AttentionTarget {
+  kind: 'conjunction' | 'burn';
+  key: string;
+}
+
 export interface ThreatSeverityFilter {
   critical: boolean;
   warning: boolean;
@@ -141,6 +146,9 @@ export interface DashboardViewModel {
     label: string;
     detail: string;
     tone: ToneLike;
+    actionLabel?: string;
+    actionPage?: 'command' | 'track' | 'threat' | 'burn-ops' | 'evasion' | 'fleet-status';
+    actionTarget?: AttentionTarget;
   }>;
 }
 
@@ -154,6 +162,8 @@ export interface DashboardContextValue {
   focusOrigin: FocusOrigin | null;
   setFocusOrigin: (origin: FocusOrigin | null) => void;
   focusSatFrom: (id: string | null, origin: FocusOrigin | null) => void;
+  attentionTarget: AttentionTarget | null;
+  setAttentionTarget: (target: AttentionTarget | null) => void;
   soundMode: SoundMode;
   setSoundMode: (mode: SoundMode) => void;
   reasoningLevel: ReasoningLevel;
