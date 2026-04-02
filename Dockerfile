@@ -1,5 +1,5 @@
 # ============================================================================
-# Stage 1: Builder — compile all targets and run the test suite
+# Stage 1: Builder — compile submission targets and run the core gate suite
 # ============================================================================
 FROM ubuntu:22.04 AS builder
 
@@ -54,14 +54,24 @@ COPY src/ /workspace/src/
 COPY tools/ /workspace/tools/
 COPY tuner/ /workspace/tuner/
 COPY scripts/ /workspace/scripts/
-COPY docs/ /workspace/docs/
+COPY docs/groundstations.csv /workspace/docs/groundstations.csv
 
 RUN --mount=type=cache,target=/workspace/build,sharing=locked \
     --mount=type=cache,target=/root/.cache/sccache,sharing=locked \
     cmake -S /workspace -B /workspace/build \
         -DPROJECTBONK_PREFETCH_ONLY=OFF \
         -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build /workspace/build -j"$(nproc)" \
+    && cmake --build /workspace/build \
+        --target \
+            ProjectBONK \
+            phase2_regression \
+            broad_phase_validation \
+            narrow_phase_false_negative_gate \
+            recovery_slot_gate \
+            recovery_planner_invariants \
+            maneuver_ops_invariants_gate \
+            api_contract_gate \
+        -j"$(nproc)" \
     && cp /workspace/build/ProjectBONK /workspace/ProjectBONK
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ compile_commands.json
 .vscode/
 .idea/
 .tmp-jluna/
+.tmp-motion-inspect/
 
 # Clangd / LSP caches
 .cache/
@@ -44,6 +45,8 @@ Thumbs.db
 # Large data files not needed in Docker build
 tle2025.txt
 data.txt
+train_data.csv
+test_data.csv
 ps.txt
 
 # Julia build artifacts
@@ -57,10 +60,8 @@ frontend/dist/
 *.md
 LICENSE
 
-# Docker files themselves (avoid recursive context)
-Dockerfile
-.dockerignore
-docker-compose*.yml
+# Video and local render artifacts
+demo-video/
 
 # Editor backup files
 *~

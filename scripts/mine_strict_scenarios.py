@@ -126,7 +126,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Mine strict real-data replay manifests from local catalog data",
     )
-    parser.add_argument("--data", default="data.txt", help="Path to a local OMM JSON or 3LE/TLE text file (default: data.txt)")
+    parser.add_argument("--data", default="3le_data.txt", help="Path to a local OMM JSON or 3LE/TLE text file (default: 3le_data.txt)")
     parser.add_argument(
         "--output-dir",
         default="docs/scenarios/generated",

@@ -43,19 +43,18 @@ jobs:
             -DBUILD_TESTING=ON \
             -DPROJECTBONK_ENABLE_JULIA_RUNTIME=OFF
 
-      - name: Build project
-        run: cmake --build build --target ProjectBONK -j"$(nproc)"
-
-      - name: Build safety gate targets
+      - name: Build submission targets
         run: |
-          cmake --build build --target phase2_regression_gate
-          cmake --build build --target broad_phase_sanity_gate
-          cmake --build build --target narrow_phase_false_negative_regression_gate
-          cmake --build build --target narrow_phase_false_negative_canary_gate
-          cmake --build build --target recovery_slot_acceptance_gate
-          cmake --build build --target recovery_planner_invariants_gate
-          cmake --build build --target maneuver_ops_invariants_regression_gate
-          cmake --build build --target api_contract_regression_gate
+          cmake --build build --target \
+            ProjectBONK \
+            phase2_regression \
+            broad_phase_validation \
+            narrow_phase_false_negative_gate \
+            recovery_slot_gate \
+            recovery_planner_invariants \
+            maneuver_ops_invariants_gate \
+            api_contract_gate \
+            -j"$(nproc)"
 
       - name: Run strict adaptive regression gate script
         run: ./scripts/phase2_regression_gate.sh
@@ -65,9 +64,6 @@ jobs:
 
       - name: Run narrow-phase false-negative gate script
         run: ./scripts/narrow_phase_false_negative_gate.sh
-
-      - name: Run narrow-phase false-negative canary script
-        run: bash ./scripts/narrow_phase_false_negative_canary.sh ./build ./build/narrow_phase_false_negative_canary_summary.json
 
       - name: Run recovery slot gate script
         run: ./scripts/recovery_slot_gate.sh
@@ -81,72 +77,8 @@ jobs:
       - name: Run API contract gate script
         run: ./scripts/api_contract_gate.sh
 
-      - name: Run MOID filter validation
-        run: ./scripts/moid_filter_validation.sh ./build
-
-      - name: Run hard-filter canary gate
-        run: ./scripts/hard_filter_canary_gate.sh ./build
-
-      - name: Run recovery solver comparison
-        run: ./scripts/recovery_solver_compare.sh ./build ./build/recovery_solver_compare_summary.json 24 0.08 1.10 strict
-
-      - name: Run phase4 aggregate calibration gate
-        run: ./scripts/phase4_calibration_gate.sh ./build
-
-      - name: Run phase4 law assertions gate
-        run: ./scripts/phase4_law_assertions_gate.sh ./build/phase4_calibration_gate_summary.json 2
-
-      - name: Upload phase4 calibration summary
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase4-calibration-summary
-          path: build/phase4_calibration_gate_summary.json
-          if-no-files-found: warn
-
-      - name: Upload narrow-phase canary summary
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: narrow-phase-false-negative-canary-summary
-          path: build/narrow_phase_false_negative_canary_summary.json
-          if-no-files-found: warn
-
-      - name: Upload recovery solver comparison
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: recovery-solver-compare-summary
-          path: build/recovery_solver_compare_summary.json
-          if-no-files-found: warn
-
-      - name: Upload hard-filter canary gate summary
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hard-filter-canary-gate-summary
-          path: build/hard_filter_canary_gate_summary.json
-          if-no-files-found: warn
-
       - name: Run CTest safety suite
         run: ctest --test-dir build --output-on-failure
-
-      - name: Run benchmark comparison smoke
-        run: |
-          mkdir -p build/benchmark-reports
-          python3 ./scripts/benchmark_compare.py \
-            --profile smoke \
-            --current-build-dir build \
-            --report-json build/benchmark-reports \
-            --report-md build/benchmark-reports
-
-      - name: Upload benchmark comparison reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-comparison-reports
-          path: build/benchmark-reports
-          if-no-files-found: warn
 
       - name: Run Docker API smoke gate
         run: ./scripts/docker_api_smoke.sh

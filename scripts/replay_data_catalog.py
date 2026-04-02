@@ -6,10 +6,11 @@ Why this is PS-safe:
 - it does not change the backend API surface
 - it only uses the existing `POST /api/telemetry` and `POST /api/simulate/step`
 - it does not change default runtime behavior
-- `data.txt` stays local and gitignored
+- `3le_data.txt` is the committed hot dataset at the repo root
+- optional cold datasets like `data.txt` stay local and gitignored
 
 What it does:
-- reads Space-Track OMM JSON (`data.txt`) or local 3LE/TLE text (`3le_data.txt`)
+- reads the committed 3LE/TLE demo catalog (`3le_data.txt`) or a local Space-Track OMM JSON file (`data.txt`)
 - converts a filtered LEO subset into ECI state vectors at one common timestamp
 - promotes a small operator fleet from real PAYLOAD records
 - supports two operator-fleet modes:
@@ -44,7 +45,7 @@ R_EARTH_KM = 6378.137
 SOURCE_ID = "local-data-txt-replay"
 EPS = 1.0e-12
 
-DEFAULT_DATA_PATH = "data.txt"
+DEFAULT_DATA_PATH = "3le_data.txt"
 DEFAULT_API_BASE = "http://localhost:8000"
 DEFAULT_TIMESTAMP = ""
 DEFAULT_OPERATOR_SATS = 8
@@ -95,7 +96,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data",
         default=DEFAULT_DATA_PATH,
-        help="Path to a local OMM JSON or 3LE/TLE text file (default: data.txt)",
+        help="Path to a local OMM JSON or 3LE/TLE text file (default: 3le_data.txt)",
     )
     parser.add_argument(
         "--api-base",

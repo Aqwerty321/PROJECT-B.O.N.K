@@ -25,7 +25,6 @@ With the backend running, replay a real Space-Track catalog to populate the view
 
 ```bash
 # In a separate terminal (from the repo root):
-git lfs pull   # ensure LFS datasets are downloaded
 python3 scripts/replay_data_catalog.py \
   --data 3le_data.txt \
   --api-base http://localhost:8000 \
@@ -43,7 +42,7 @@ Then navigate the dashboard views:
 
 ## Full End-to-End Demo
 
-To demonstrate collision avoidance with the frontend visible, see the [main README demo walkthrough](../README.md#end-to-end-demo-collision-avoidance-proof).
+To demonstrate collision avoidance with the frontend visible, see the [main README demo path](../README.md#demo-path).
 
 ## Production Build
 

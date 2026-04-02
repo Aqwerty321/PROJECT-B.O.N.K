@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data",
         default=DEFAULT_DATA_PATH,
-        help="Path to a local OMM JSON or 3LE/TLE text file (default: data.txt)",
+        help="Path to a local OMM JSON or 3LE/TLE text file (default: 3le_data.txt)",
     )
     parser.add_argument(
         "--output",

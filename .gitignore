@@ -57,12 +57,16 @@ __pycache__/
 
 # Local scratch
 .tmp-jluna/
+.tmp-motion-inspect/
+demo-video/
 
-# Large data files — tracked via Git LFS (see .gitattributes)
-# data.txt        → 33 MB OMM JSON catalog (Space-Track)
-# 3le_data.txt    → 4.7 MB 3LE catalog (best for visual demo)
-# train_data.csv  → 223 MB CDM ML training data
-# test_data.csv   → 34 MB CDM ML test data
+# Local-only cold datasets (not part of the submission repo)
+data.txt
+train_data.csv
+test_data.csv
+
+# Hot demo dataset kept in the repo root as a normal git file.
+# 3le_data.txt
 
 # tle2025.txt (2.8 GB) exceeds GitHub LFS 2 GB limit — not tracked
 tle2025.txt
