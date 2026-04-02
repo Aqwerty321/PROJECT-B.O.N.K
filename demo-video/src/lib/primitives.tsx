@@ -1,5 +1,5 @@
 import {Circle, Img, Layout, Line, Rect, Txt} from '@motion-canvas/2d';
-import type {PossibleVector2, ReferenceReceiver} from '@motion-canvas/core';
+import type {PossibleVector2, ReferenceReceiver, SignalValue} from '@motion-canvas/core';
 
 import {fonts, palette, stage} from './theme';
 
@@ -275,6 +275,225 @@ export function makeLeader({points, accent, ref, opacity = 1}: LeaderConfig) {
       lineDash={[12, 12]}
       end={0}
       opacity={opacity}
+    />
+  );
+}
+
+/* ── Full-bleed screenshot for app-tour scenes ─────────────────────── */
+
+interface FullBleedConfig {
+  src: string;
+  ref?: ReferenceReceiver<Img>;
+  opacity?: number;
+}
+
+export function makeFullBleed({src, ref, opacity = 1}: FullBleedConfig) {
+  return (
+    <Img
+      ref={ref}
+      src={src}
+      width={stage.width}
+      height={stage.height}
+      opacity={opacity}
+    />
+  );
+}
+
+/* ── Chapter interstitial — centered text on space background ──────── */
+
+interface ChapterCardConfig {
+  kicker: string;
+  title: string;
+  subtitle?: string;
+  accent?: string;
+  ref?: ReferenceReceiver<Layout>;
+  opacity?: number;
+}
+
+export function makeChapterCard({
+  kicker,
+  title,
+  subtitle,
+  accent = palette.primary,
+  ref,
+  opacity = 1,
+}: ChapterCardConfig) {
+  return (
+    <Layout ref={ref} opacity={opacity}>
+      {makeBackdrop()}
+      <Layout layout direction={'column'} alignItems={'center'} gap={20} width={1200}>
+        <Rect width={80} height={3} fill={accent} radius={2} />
+        <Txt
+          text={kicker.toUpperCase()}
+          fontFamily={fonts.mono}
+          fontSize={24}
+          letterSpacing={12}
+          fill={accent}
+        />
+        <Txt
+          text={title}
+          fontFamily={fonts.display}
+          fontWeight={700}
+          fontSize={80}
+          lineHeight={96}
+          fill={palette.text}
+          textAlign={'center'}
+          width={1100}
+        />
+        {subtitle ? (
+          <Txt
+            text={subtitle}
+            fontFamily={fonts.body}
+            fontSize={28}
+            lineHeight={40}
+            fill={palette.textMuted}
+            textAlign={'center'}
+            width={900}
+          />
+        ) : null}
+        <Rect width={80} height={3} fill={accent} radius={2} marginTop={8} />
+      </Layout>
+    </Layout>
+  );
+}
+
+/* ── Callout badge — positioned label that points at a UI area ─────── */
+
+interface CalloutBadgeConfig {
+  label: string;
+  accent?: string;
+  position?: PossibleVector2;
+  ref?: ReferenceReceiver<Layout>;
+  opacity?: number;
+  width?: number;
+}
+
+export function makeCalloutBadge({
+  label,
+  accent = palette.primary,
+  position = [0, 0],
+  ref,
+  opacity = 0,
+  width = 360,
+}: CalloutBadgeConfig) {
+  return (
+    <Layout ref={ref} position={position} opacity={opacity}>
+      <Rect
+        width={width}
+        height={56}
+        radius={12}
+        fill={'#06101bee'}
+        stroke={`${accent}aa`}
+        lineWidth={2}
+        shadowColor={`${accent}44`}
+        shadowBlur={20}
+      >
+        <Txt
+          text={label.toUpperCase()}
+          fontFamily={fonts.mono}
+          fontSize={20}
+          letterSpacing={4}
+          fill={accent}
+        />
+      </Rect>
+    </Layout>
+  );
+}
+
+/* ── Stat reveal chip — large value for dramatic metric reveals ────── */
+
+interface StatRevealConfig {
+  label: string;
+  value: string;
+  accent?: string;
+  position?: PossibleVector2;
+  ref?: ReferenceReceiver<Layout>;
+  opacity?: number;
+}
+
+export function makeStatReveal({
+  label,
+  value,
+  accent = palette.accent,
+  position = [0, 0],
+  ref,
+  opacity = 0,
+}: StatRevealConfig) {
+  return (
+    <Layout ref={ref} position={position} opacity={opacity}>
+      <Rect
+        width={420}
+        height={120}
+        radius={20}
+        fill={'#06101bee'}
+        stroke={`${accent}88`}
+        lineWidth={2}
+        shadowColor={`${accent}33`}
+        shadowBlur={30}
+      >
+        <Layout layout direction={'column'} gap={8} padding={22} width={420} alignItems={'center'}>
+          <Txt text={label.toUpperCase()} fontFamily={fonts.mono} fontSize={18} letterSpacing={6} fill={palette.textMuted} />
+          <Txt text={value} fontFamily={fonts.display} fontSize={48} fontWeight={700} fill={accent} />
+        </Layout>
+      </Rect>
+    </Layout>
+  );
+}
+
+/* ── Bottom bar — persistent context strip at the bottom of app-tour scenes ── */
+
+interface BottomBarConfig {
+  text: string;
+  accent?: string;
+  ref?: ReferenceReceiver<Layout>;
+  opacity?: number;
+}
+
+export function makeBottomBar({
+  text,
+  accent = palette.primary,
+  ref,
+  opacity = 0,
+}: BottomBarConfig) {
+  return (
+    <Layout ref={ref} position={[0, stage.height / 2 - 48]} opacity={opacity}>
+      <Rect
+        width={stage.width}
+        height={72}
+        fill={'#040814ee'}
+      >
+        <Txt
+          text={text}
+          fontFamily={fonts.body}
+          fontSize={26}
+          lineHeight={36}
+          fill={palette.textMuted}
+          textAlign={'center'}
+          width={stage.width - 120}
+        />
+      </Rect>
+    </Layout>
+  );
+}
+
+/* ── Scan line — horizontal sweep effect for dramatic reveals ───────── */
+
+interface ScanLineConfig {
+  ref?: ReferenceReceiver<Rect>;
+  accent?: string;
+}
+
+export function makeScanLine({ref, accent = palette.primary}: ScanLineConfig) {
+  return (
+    <Rect
+      ref={ref}
+      width={stage.width + 40}
+      height={3}
+      fill={accent}
+      opacity={0.7}
+      position={[0, -stage.height / 2 - 10]}
+      shadowColor={accent}
+      shadowBlur={30}
     />
   );
 }

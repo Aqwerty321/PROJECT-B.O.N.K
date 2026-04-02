@@ -1,1 +1,109 @@
-{"executed":[{"id":"AUTO-COLA-4-0","satellite_id":"SAT-67060","burn_epoch":"2026-03-25T00:58:57.041Z","upload_epoch":"2026-03-25T00:58:47.041Z","upload_station":"GS-003","delta_v_km_s":[0.000122560,-0.000379039,-0.000302173],"delta_v_norm_km_s":0.000500000,"fuel_before_kg":50.0000,"fuel_after_kg":49.9065,"auto_generated":true,"recovery_burn":false,"graveyard_burn":false,"blackout_overlap":false,"cooldown_conflict":false,"command_conflict":false,"scheduled_from_predictive_cdm":true,"trigger_debris_id":"DEB-SYNTH-97001","trigger_tca":"2026-03-25T01:08:47.041Z","trigger_tca_epoch_s":1774400927.041,"trigger_miss_distance_km":0.008045,"trigger_approach_speed_km_s":0.000236,"trigger_fail_open":false,"mitigation_tracked":true,"mitigation_evaluated":true,"collision_avoided":true,"mitigation_eval_epoch":"2026-03-25T00:59:07.041Z","mitigation_eval_epoch_s":1774400347.041,"mitigation_miss_distance_km":0.134399,"mitigation_fail_open":false},{"id":"AUTO-COLA-4-1","satellite_id":"SAT-67061","burn_epoch":"2026-03-25T01:01:33.708Z","upload_epoch":"2026-03-25T01:01:07.041Z","upload_station":"GS-003","delta_v_km_s":[-0.000414897,0.000278682,0.000014050],"delta_v_norm_km_s":0.000500000,"fuel_before_kg":50.0000,"fuel_after_kg":49.9065,"auto_generated":true,"recovery_burn":false,"graveyard_burn":false,"blackout_overlap":false,"cooldown_conflict":false,"command_conflict":false,"scheduled_from_predictive_cdm":true,"trigger_debris_id":"DEB-SYNTH-97101","trigger_tca":"2026-03-25T01:08:47.041Z","trigger_tca_epoch_s":1774400927.041,"trigger_miss_distance_km":0.008147,"trigger_approach_speed_km_s":0.000236,"trigger_fail_open":false,"mitigation_tracked":true,"mitigation_evaluated":true,"collision_avoided":true,"mitigation_eval_epoch":"2026-03-25T01:01:34.041Z","mitigation_eval_epoch_s":1774400494.041,"mitigation_miss_distance_km":0.100521,"mitigation_fail_open":false}],"dropped":[],"pending":[],"per_satellite":{"SAT-67061":{"burns_executed":1,"delta_v_total_km_s":0.000500000,"fuel_consumed_kg":0.0935,"collisions_avoided":1,"avoidance_burns_executed":1,"recovery_burns_executed":0,"graveyard_burns_executed":0,"avoidance_fuel_consumed_kg":0.0935},"SAT-67060":{"burns_executed":1,"delta_v_total_km_s":0.000500000,"fuel_consumed_kg":0.0935,"collisions_avoided":1,"avoidance_burns_executed":1,"recovery_burns_executed":0,"graveyard_burns_executed":0,"avoidance_fuel_consumed_kg":0.0935}},"summary":{"burns_executed":2,"burns_pending":0,"burns_dropped":0,"fuel_consumed_kg":0.1869,"avoidance_fuel_consumed_kg":0.1869,"collisions_avoided":2,"avoidance_burns_executed":2,"recovery_burns_executed":0,"graveyard_burns_executed":0}}
+{
+  "executed": [
+    {
+      "id": "AUTO-COLA-4-0",
+      "satellite_id": "SAT-67060",
+      "burn_epoch": "2026-03-25T00:58:57.041Z",
+      "upload_epoch": "2026-03-25T00:58:47.041Z",
+      "upload_station": "GS-003",
+      "delta_v_km_s": [
+        0.00012256,
+        -0.000379039,
+        -0.000302173
+      ],
+      "delta_v_norm_km_s": 0.0005,
+      "fuel_before_kg": 50,
+      "fuel_after_kg": 49.9065,
+      "auto_generated": true,
+      "recovery_burn": false,
+      "graveyard_burn": false,
+      "blackout_overlap": false,
+      "cooldown_conflict": false,
+      "command_conflict": false,
+      "scheduled_from_predictive_cdm": true,
+      "trigger_debris_id": "DEB-SYNTH-97001",
+      "trigger_tca": "2026-03-25T01:08:47.041Z",
+      "trigger_tca_epoch_s": 1774400927.041,
+      "trigger_miss_distance_km": 0.008045,
+      "trigger_approach_speed_km_s": 0.000236,
+      "trigger_fail_open": false,
+      "mitigation_tracked": true,
+      "mitigation_evaluated": true,
+      "collision_avoided": true,
+      "mitigation_eval_epoch": "2026-03-25T00:59:07.041Z",
+      "mitigation_eval_epoch_s": 1774400347.041,
+      "mitigation_miss_distance_km": 0.134399,
+      "mitigation_fail_open": false
+    },
+    {
+      "id": "AUTO-COLA-4-1",
+      "satellite_id": "SAT-67061",
+      "burn_epoch": "2026-03-25T01:01:33.708Z",
+      "upload_epoch": "2026-03-25T01:01:07.041Z",
+      "upload_station": "GS-003",
+      "delta_v_km_s": [
+        -0.000414897,
+        0.000278682,
+        0.00001405
+      ],
+      "delta_v_norm_km_s": 0.0005,
+      "fuel_before_kg": 50,
+      "fuel_after_kg": 49.9065,
+      "auto_generated": true,
+      "recovery_burn": false,
+      "graveyard_burn": false,
+      "blackout_overlap": false,
+      "cooldown_conflict": false,
+      "command_conflict": false,
+      "scheduled_from_predictive_cdm": true,
+      "trigger_debris_id": "DEB-SYNTH-97101",
+      "trigger_tca": "2026-03-25T01:08:47.041Z",
+      "trigger_tca_epoch_s": 1774400927.041,
+      "trigger_miss_distance_km": 0.008147,
+      "trigger_approach_speed_km_s": 0.000236,
+      "trigger_fail_open": false,
+      "mitigation_tracked": true,
+      "mitigation_evaluated": true,
+      "collision_avoided": true,
+      "mitigation_eval_epoch": "2026-03-25T01:01:34.041Z",
+      "mitigation_eval_epoch_s": 1774400494.041,
+      "mitigation_miss_distance_km": 0.100521,
+      "mitigation_fail_open": false
+    }
+  ],
+  "dropped": [],
+  "pending": [],
+  "per_satellite": {
+    "SAT-67061": {
+      "burns_executed": 1,
+      "delta_v_total_km_s": 0.0005,
+      "fuel_consumed_kg": 0.0935,
+      "collisions_avoided": 1,
+      "avoidance_burns_executed": 1,
+      "recovery_burns_executed": 0,
+      "graveyard_burns_executed": 0,
+      "avoidance_fuel_consumed_kg": 0.0935
+    },
+    "SAT-67060": {
+      "burns_executed": 1,
+      "delta_v_total_km_s": 0.0005,
+      "fuel_consumed_kg": 0.0935,
+      "collisions_avoided": 1,
+      "avoidance_burns_executed": 1,
+      "recovery_burns_executed": 0,
+      "graveyard_burns_executed": 0,
+      "avoidance_fuel_consumed_kg": 0.0935
+    }
+  },
+  "summary": {
+    "burns_executed": 2,
+    "burns_pending": 0,
+    "burns_dropped": 0,
+    "fuel_consumed_kg": 0.1869,
+    "avoidance_fuel_consumed_kg": 0.1869,
+    "collisions_avoided": 2,
+    "avoidance_burns_executed": 2,
+    "recovery_burns_executed": 0,
+    "graveyard_burns_executed": 0
+  }
+}

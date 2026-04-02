@@ -1,87 +1,110 @@
 import {Layout, Rect, Txt, makeScene2D} from '@motion-canvas/2d';
 import {all, createRef, createRefArray, sequence, waitFor} from '@motion-canvas/core';
 
-import {referenceAssets} from '../lib/assets';
-import {readinessLines, verificationStats} from '../lib/referenceData';
-import {makeBackdrop, makeHeader, makeMetricChip, makeScreenPanel} from '../lib/primitives';
-import {fonts, palette} from '../lib/theme';
+import {makeBackdrop} from '../lib/primitives';
+import {fonts, palette, stage} from '../lib/theme';
 
+/**
+ * Scene 8 — Closing card (~15s)
+ *
+ * Clean, confident closing. Tagline, key proof chips,
+ * and the system name. Premium space-control feel.
+ */
 export default makeScene2D(function* (view) {
-  const terminal = createRef<Layout>();
-  const metrics = createRefArray<Layout>();
-  const panels = createRefArray<Layout>();
-  const closer = createRef<Layout>();
+  /* ── refs ─────────────────────────────────────────────────────────── */
+  const rule1 = createRef<Rect>();
+  const kicker = createRef<Txt>();
+  const title = createRef<Txt>();
+  const tagline = createRef<Txt>();
+  const chips = createRefArray<Layout>();
+  const rule2 = createRef<Rect>();
 
+  /* ── backdrop ────────────────────────────────────────────────────── */
   view.add(makeBackdrop());
-  view.add(makeHeader({
-    kicker: 'Verification',
-    title: 'Proof, not just visuals',
-    subtitle: 'We finish by showing machine-readable evidence and then reinforce it with the efficiency and fleet posture views.',
-  }));
 
+  /* ── closing group ───────────────────────────────────────────────── */
   view.add(
-    <Layout ref={terminal} position={[-520, 120]} opacity={0}>
-      <Rect width={760} height={420} radius={28} fill={'#07111c'} stroke={`${palette.accent}66`} lineWidth={2}>
-        <Layout layout direction={'column'} gap={8} padding={26} width={760}>
-          <Txt text={'READINESS REPORT'} fontFamily={fonts.mono} fontSize={22} letterSpacing={6} fill={palette.accent} />
-          {readinessLines.map(line => (
-            <Txt key={line} text={line} fontFamily={fonts.mono} fontSize={24} fill={line.includes('ready') || line.includes('confirmed') ? palette.accent : palette.textMuted} />
-          ))}
-        </Layout>
-      </Rect>
+    <Layout layout direction={'column'} alignItems={'center'} gap={24} width={1200}>
+      <Rect ref={rule1} width={0} height={3} fill={palette.primary} radius={2} />
+      <Txt
+        ref={kicker}
+        text={'CASCADE'}
+        fontFamily={fonts.mono}
+        fontSize={24}
+        letterSpacing={14}
+        fill={palette.primary}
+        opacity={0}
+      />
+      <Txt
+        ref={title}
+        text={'Collision awareness\ninto collision avoidance'}
+        fontFamily={fonts.display}
+        fontWeight={700}
+        fontSize={72}
+        lineHeight={88}
+        fill={palette.text}
+        textAlign={'center'}
+        width={1000}
+        opacity={0}
+      />
+      <Txt
+        ref={tagline}
+        text={'Real data ingestion  •  Conservative screening  •  Autonomous maneuvers  •  Verifiable results'}
+        fontFamily={fonts.body}
+        fontSize={26}
+        lineHeight={36}
+        fill={palette.textMuted}
+        textAlign={'center'}
+        width={1000}
+        opacity={0}
+      />
     </Layout>,
   );
 
-  verificationStats.forEach((entry, index) => {
-    const accent = entry.accent === 'accent' ? palette.accent : entry.accent === 'warning' ? palette.warning : palette.primary;
-    view.add(makeMetricChip({
-      ref: metrics,
-      label: entry.label,
-      value: entry.value,
-      accent,
-      width: 320,
-      position: [-420 + index * 340, -110],
-      opacity: 0,
-    }));
+  /* ── proof chips ─────────────────────────────────────────────────── */
+  const chipSpecs: Array<{label: string; accent: string}> = [
+    {label: '2 collisions avoided', accent: palette.accent},
+    {label: '0.19 kg fuel', accent: palette.warning},
+    {label: '0 dropped burns', accent: palette.primary},
+    {label: '~13 ms / tick', accent: palette.primary},
+  ];
+
+  chipSpecs.forEach((spec, i) => {
+    const x = -360 + i * 240;
+    view.add(
+      <Layout ref={chips} position={[x, 200]} opacity={0}>
+        <Rect
+          width={210}
+          height={52}
+          radius={12}
+          fill={palette.surface}
+          stroke={`${spec.accent}88`}
+          lineWidth={2}
+        >
+          <Txt text={spec.label} fontFamily={fonts.mono} fontSize={17} letterSpacing={2} fill={spec.accent} />
+        </Rect>
+      </Layout>,
+    );
   });
 
-  view.add(makeScreenPanel({
-    ref: panels,
-    src: referenceAssets.evasion,
-    label: 'Evasion',
-    accent: palette.accent,
-    width: 700,
-    position: [320, 70],
-    opacity: 0,
-  }));
+  view.add(<Rect ref={rule2} width={0} height={3} fill={palette.primary} radius={2} position={[0, 290]} />);
 
-  view.add(makeScreenPanel({
-    ref: panels,
-    src: referenceAssets.fleetStatus,
-    label: 'Fleet Status',
-    accent: palette.warning,
-    width: 700,
-    position: [320, 470],
-    opacity: 0,
-  }));
+  /* ── animation ───────────────────────────────────────────────────── */
 
-  view.add(
-    <Layout ref={closer} position={[0, 455]} opacity={0}>
-      <Rect width={1320} height={130} radius={30} fill={'#07111fdd'} stroke={`${palette.primary}55`} lineWidth={2}>
-        <Layout layout direction={'column'} gap={10} padding={22} width={1320} alignItems={'center'}>
-          <Txt text={'CASCADE turns collision awareness into collision avoidance'} fontFamily={fonts.display} fontSize={48} fontWeight={700} fill={palette.text} />
-          <Txt text={'Real data ingestion. Conservative screening. Autonomous maneuvers. Recovery. Verifiable results.'} fontFamily={fonts.body} fontSize={26} fill={palette.textMuted} />
-        </Layout>
-      </Rect>
-    </Layout>,
-  );
+  // Phase 1: Build (0s - 5s)
+  yield* rule1().width(80, 0.7);
+  yield* kicker().opacity(1, 0.5);
+  yield* waitFor(0.3);
+  yield* title().opacity(1, 0.8);
+  yield* waitFor(0.4);
+  yield* tagline().opacity(1, 0.7);
+  yield* waitFor(1.0);
 
-  yield* terminal().opacity(1, 0.7);
-  yield* waitFor(1.2);
-  yield* sequence(0.12, ...metrics.map(metric => metric.opacity(1, 0.35)));
-  yield* waitFor(0.9);
-  yield* sequence(0.18, ...panels.map(panel => panel.opacity(1, 0.5)));
-  yield* waitFor(1.4);
-  yield* closer().opacity(1, 0.65);
-  yield* waitFor(2.4);
+  // Phase 2: Proof chips (5s - 9s)
+  yield* sequence(0.3, ...chips.map(chip => chip.opacity(1, 0.4)));
+  yield* waitFor(1.0);
+  yield* rule2().width(80, 0.7);
+
+  // Phase 3: Hold (9s - 15s)
+  yield* waitFor(6.0);
 });

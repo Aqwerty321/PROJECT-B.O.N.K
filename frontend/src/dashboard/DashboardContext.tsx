@@ -124,9 +124,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, [snapshot?.timestamp]);
 
   useEffect(() => {
-    if (!snapshot?.timestamp) return;
+    if (!snapshot) return;
+    // Freshness should reflect successful snapshot fetch cadence, not only sim-time changes.
     setSnapshotUpdatedAtMs(Date.now());
-  }, [snapshot?.timestamp]);
+  }, [snapshot]);
 
   const trackHistoryRef = useRef<Map<string, TrackHistoryPoint[]>>(new Map());
   const [trackVersion, setTrackVersion] = useState(0);

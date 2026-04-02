@@ -1,98 +1,140 @@
-import {Layout, makeScene2D} from '@motion-canvas/2d';
+import {Img, Layout, Rect, Txt, makeScene2D} from '@motion-canvas/2d';
 import {all, createRef, createRefArray, sequence, waitFor} from '@motion-canvas/core';
 
 import {referenceAssets} from '../lib/assets';
-import {replayCommandLines} from '../lib/referenceData';
-import {makeBackdrop, makeHeader, makeInfoCard, makeLeader, makeScreenPanel} from '../lib/primitives';
-import {fonts, palette} from '../lib/theme';
-import {Rect, Txt} from '@motion-canvas/2d';
+import {makeBackdrop, makeCalloutBadge, makeBottomBar} from '../lib/primitives';
+import {fonts, palette, stage} from '../lib/theme';
 
+/**
+ * Scene 5 — Under the hood: architecture overlay on dimmed app (~35s)
+ *
+ * Opens with a chapter card, then shows a dimmed Command screenshot
+ * with architecture stats overlaid. Brief and punchy because the
+ * proof already landed in scenes 3-4.
+ */
 export default makeScene2D(function* (view) {
-  const terminal = createRef<Layout>();
-  const screen = createRef<Layout>();
-  const callouts = createRefArray<Layout>();
-  const leaders = createRefArray<any>();
+  /* ── refs ─────────────────────────────────────────────────────────── */
+  const chapterBg = createRef<Layout>();
+  const chapterTitle = createRef<Txt>();
+  const chapterSub = createRef<Txt>();
 
-  view.add(makeBackdrop());
-  view.add(makeHeader({
-    kicker: 'Real data scene',
-    title: 'Ground Track with real catalog traffic',
-    subtitle: 'This section should breathe on screen so the audience can actually absorb the density and path geometry.',
-  }));
+  const appImg = createRef<Img>();
+  const dimOverlay = createRef<Rect>();
+  const archCards = createRefArray<Layout>();
+  const bottomBar = createRef<Layout>();
 
+  /* ── chapter interstitial ────────────────────────────────────────── */
   view.add(
-    <Layout ref={terminal} position={[-540, 210]} opacity={0}>
-      <Rect width={720} height={240} radius={26} fill={'#07111c'} stroke={`${palette.primary}55`} lineWidth={2}>
-        <Layout layout direction={'column'} gap={10} padding={24} width={720}>
-          <Txt text={'CATALOG REPLAY'} fontFamily={fonts.mono} fontSize={22} letterSpacing={6} fill={palette.primary} />
-          {replayCommandLines.map(line => (
-            <Txt key={line} text={line} fontFamily={fonts.mono} fontSize={24} fill={palette.textMuted} />
-          ))}
-        </Layout>
-      </Rect>
+    <Layout ref={chapterBg} opacity={0}>
+      {makeBackdrop()}
+      <Layout layout direction={'column'} alignItems={'center'} gap={20} width={1200}>
+        <Rect width={80} height={3} fill={palette.primary} radius={2} />
+        <Txt
+          text={'ENGINEERING'}
+          fontFamily={fonts.mono}
+          fontSize={22}
+          letterSpacing={12}
+          fill={palette.primary}
+        />
+        <Txt
+          ref={chapterTitle}
+          text={'Under the Hood'}
+          fontFamily={fonts.display}
+          fontWeight={700}
+          fontSize={86}
+          lineHeight={100}
+          fill={palette.text}
+          opacity={0}
+        />
+        <Txt
+          ref={chapterSub}
+          text={'Deterministic C++20 engine with conservative safety logic'}
+          fontFamily={fonts.body}
+          fontSize={28}
+          lineHeight={40}
+          fill={palette.textMuted}
+          opacity={0}
+        />
+        <Rect width={80} height={3} fill={palette.primary} radius={2} marginTop={8} />
+      </Layout>
     </Layout>,
   );
 
-  view.add(makeScreenPanel({
-    ref: screen,
-    src: referenceAssets.track,
-    label: 'Ground Track',
-    accent: palette.accent,
-    width: 1240,
-    position: [180, 180],
-    opacity: 0,
-  }));
+  /* ── dimmed app background ───────────────────────────────────────── */
+  view.add(
+    <Img ref={appImg} src={referenceAssets.command} width={stage.width} height={stage.height} opacity={0} />,
+  );
+  view.add(
+    <Rect ref={dimOverlay} width={stage.width} height={stage.height} fill={'#040814'} opacity={0} />,
+  );
 
-  const calloutSpecs: Array<{
-    title: string;
-    body: string;
-    accent: string;
-    position: [number, number];
-    points: [[number, number], [number, number], [number, number]];
-  }> = [
-    {
-      title: 'Dense traffic picture',
-      body: 'The operator fleet sits inside a live field of catalog-backed traffic.',
-      accent: palette.critical,
-      position: [-660, 300],
-      points: [[-210, 215], [-360, 250], [-455, 250]],
-    },
-    {
-      title: 'Trail + forecast',
-      body: 'Historical trails and predicted paths make the motion readable at a glance.',
-      accent: palette.primary,
-      position: [640, -160],
-      points: [[370, -70], [525, -110], [590, -110]],
-    },
-    {
-      title: 'Operational context',
-      body: 'The terminator and ground station hints make the scene feel mission-oriented, not decorative.',
-      accent: palette.warning,
-      position: [700, 340],
-      points: [[500, 240], [610, 300], [655, 300]],
-    },
+  /* ── architecture info cards overlaid on the dimmed app ──────────── */
+  const archSpecs: Array<{label: string; value: string; accent: string; position: [number, number]}> = [
+    {label: 'ENGINE', value: 'Deterministic C++20', accent: palette.primary, position: [-440, -240]},
+    {label: 'TICK TIME', value: '~13 ms for 50 sats + 10k debris', accent: palette.accent, position: [440, -240]},
+    {label: 'PIPELINE', value: 'Propagate → Broad phase → Narrow phase → CDM → COLA → Recovery', accent: palette.warning, position: [0, -60]},
+    {label: 'SAFETY RULE', value: 'Uncertain → escalate.  Never silently drop.', accent: palette.critical, position: [-440, 130]},
+    {label: 'CONSTRAINTS', value: 'Fuel limits • Thrust caps • Cooldown • Ground-station LOS', accent: palette.primary, position: [440, 130]},
+    {label: 'API', value: 'REST endpoints — telemetry, schedule, step, snapshot', accent: palette.accent, position: [0, 310]},
   ];
 
-  for (const spec of calloutSpecs) {
-    view.add(makeInfoCard({
-      ref: callouts,
-      eyebrow: 'What to notice',
-      title: spec.title,
-      body: spec.body,
-      accent: spec.accent,
-      width: 430,
-      height: 170,
-      position: spec.position,
-      opacity: 0,
-    }));
-    view.add(makeLeader({points: spec.points, accent: spec.accent, ref: leaders, opacity: 0.9}));
+  for (const spec of archSpecs) {
+    view.add(
+      <Layout ref={archCards} position={spec.position} opacity={0}>
+        <Rect
+          width={680}
+          height={110}
+          radius={18}
+          fill={'#06101bee'}
+          stroke={`${spec.accent}77`}
+          lineWidth={2}
+          shadowColor={`${spec.accent}33`}
+          shadowBlur={24}
+        >
+          <Layout layout direction={'column'} gap={8} padding={20} width={680} alignItems={'center'}>
+            <Txt text={spec.label} fontFamily={fonts.mono} fontSize={18} letterSpacing={8} fill={spec.accent} />
+            <Txt text={spec.value} fontFamily={fonts.display} fontSize={28} fontWeight={700} fill={palette.text} textAlign={'center'} width={640} />
+          </Layout>
+        </Rect>
+      </Layout>,
+    );
   }
 
-  yield* terminal().opacity(1, 0.6);
-  yield* waitFor(1.2);
-  yield* all(terminal().opacity(0.22, 0.5), screen().opacity(1, 0.8), screen().scale(1.02, 0.8).to(1, 0.6));
-  yield* waitFor(0.7);
-  yield* sequence(0.28, ...callouts.map(item => item.opacity(1, 0.45)));
-  yield* sequence(0.28, ...leaders.map(line => line.end(1, 0.35)));
-  yield* waitFor(2.6);
+  view.add(makeBottomBar({ref: bottomBar, text: 'Backend architecture — multi-stage collision screening with conservative safety guarantees'}));
+
+  /* ── animation ───────────────────────────────────────────────────── */
+
+  // Phase 1: Chapter card (0s - 6s)
+  yield* chapterBg().opacity(1, 0.4);
+  yield* chapterTitle().opacity(1, 0.7);
+  yield* waitFor(0.3);
+  yield* chapterSub().opacity(1, 0.6);
+  yield* waitFor(3.0);
+
+  // Phase 2: Cross-dissolve to dimmed app (6s - 9s)
+  yield* all(
+    chapterBg().opacity(0, 1.0),
+    appImg().opacity(1, 1.2),
+    dimOverlay().opacity(0.78, 1.2),
+  );
+  yield* bottomBar().opacity(1, 0.4);
+  yield* waitFor(1.0);
+
+  // Phase 3: Architecture cards stagger in (9s - 28s)
+  for (let i = 0; i < archCards.length; i++) {
+    yield* archCards[i].opacity(1, 0.4);
+    yield* waitFor(2.2);
+  }
+
+  // Phase 4: Hold (28s - 32s)
+  yield* waitFor(3.0);
+
+  // Phase 5: Fade out (32s - 34s)
+  yield* all(
+    appImg().opacity(0, 1.0),
+    dimOverlay().opacity(0, 1.0),
+    bottomBar().opacity(0, 0.8),
+    ...archCards.map(c => c.opacity(0, 0.8)),
+  );
+  yield* waitFor(0.3);
 });

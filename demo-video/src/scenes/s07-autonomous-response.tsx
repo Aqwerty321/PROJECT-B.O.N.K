@@ -1,122 +1,141 @@
 import {Layout, Rect, Txt, makeScene2D} from '@motion-canvas/2d';
 import {all, createRef, createRefArray, sequence, waitFor} from '@motion-canvas/core';
 
-import {referenceAssets} from '../lib/assets';
-import {burnDecision, burnDecisionSecondary} from '../lib/referenceData';
-import {makeBackdrop, makeHeader, makeInfoCard, makeLeader, makeMetricChip, makeScreenPanel} from '../lib/primitives';
-import {fonts, palette} from '../lib/theme';
+import {readinessLines, verificationStats} from '../lib/referenceData';
+import {makeBackdrop, makeStatReveal} from '../lib/primitives';
+import {fonts, palette, stage} from '../lib/theme';
 
+/**
+ * Scene 7 — Verification terminal + proof (~25s)
+ *
+ * Shows the machine-readable readiness output line by line,
+ * then surfaces the key verification stats as dramatic reveals.
+ */
 export default makeScene2D(function* (view) {
-  const decisionRail = createRef<Layout>();
-  const screen = createRef<Layout>();
-  const chips = createRefArray<Layout>();
-  const notes = createRefArray<Layout>();
-  const leaders = createRefArray<any>();
+  /* ── refs ─────────────────────────────────────────────────────────── */
+  const terminal = createRef<Layout>();
+  const termLines = createRefArray<Txt>();
+  const stats = createRefArray<Layout>();
+  const verdictHighlight = createRef<Rect>();
 
+  /* ── backdrop ────────────────────────────────────────────────────── */
   view.add(makeBackdrop());
-  view.add(makeHeader({
-    kicker: 'Autonomous response',
-    title: 'CASCADE chooses and executes the burn',
-    subtitle: 'This scene stays on screen longer because it is the core proof that the system does more than warn.',
-  }));
 
+  /* ── section header ──────────────────────────────────────────────── */
   view.add(
-    <Layout ref={decisionRail} position={[-635, 180]} opacity={0}>
-      <Rect width={470} height={420} radius={28} fill={palette.panel} stroke={`${palette.warning}66`} lineWidth={2}>
-        <Layout layout direction={'column'} gap={16} padding={26} width={470}>
-          <Txt text={'BURN DECISION'} fontFamily={fonts.mono} fontSize={22} letterSpacing={6} fill={palette.warning} />
-          <Txt text={burnDecision.id} fontFamily={fonts.display} fontSize={40} fontWeight={700} fill={palette.text} />
-          <Txt text={`${burnDecision.satellite} vs ${burnDecision.debris}`} fontFamily={fonts.body} fontSize={26} fill={palette.textMuted} />
-          <Txt text={`Predicted miss: ${burnDecision.missBefore}`} fontFamily={fonts.body} fontSize={28} fill={palette.critical} />
-          <Txt text={`Mitigated miss: ${burnDecision.missAfter}`} fontFamily={fonts.body} fontSize={28} fill={palette.accent} />
-          <Txt text={`Delta-v: ${burnDecision.deltaV}`} fontFamily={fonts.body} fontSize={28} fill={palette.warning} />
-          <Txt text={`Upload station: ${burnDecision.uploadStation}`} fontFamily={fonts.body} fontSize={28} fill={palette.primary} />
-          <Txt text={`Lead to TCA: ${burnDecision.leadTime}`} fontFamily={fonts.body} fontSize={28} fill={palette.text} />
-          <Rect width={418} height={2} fill={palette.borderBright} opacity={0.6} />
-          <Txt text={`${burnDecisionSecondary.satellite} also receives an autonomous avoid with ${burnDecisionSecondary.missAfter} clearance.`} fontFamily={fonts.body} fontSize={24} lineHeight={34} fill={palette.textMuted} width={418} />
+    <Layout position={[0, -420]} opacity={1}>
+      <Layout layout direction={'column'} alignItems={'center'} gap={10} width={800}>
+        <Rect width={60} height={3} fill={palette.accent} radius={2} />
+        <Txt
+          text={'VERIFICATION'}
+          fontFamily={fonts.mono}
+          fontSize={22}
+          letterSpacing={12}
+          fill={palette.accent}
+        />
+        <Txt
+          text={'Proof, not just visuals'}
+          fontFamily={fonts.display}
+          fontWeight={700}
+          fontSize={56}
+          lineHeight={66}
+          fill={palette.text}
+          textAlign={'center'}
+        />
+      </Layout>
+    </Layout>,
+  );
+
+  /* ── terminal panel ──────────────────────────────────────────────── */
+  view.add(
+    <Layout ref={terminal} position={[0, -50]} opacity={0}>
+      <Rect
+        width={860}
+        height={380}
+        radius={22}
+        fill={'#07111c'}
+        stroke={`${palette.accent}55`}
+        lineWidth={2}
+        shadowColor={`${palette.accent}22`}
+        shadowBlur={30}
+      >
+        <Layout layout direction={'column'} gap={7} padding={28} width={860}>
+          <Txt text={'READINESS REPORT'} fontFamily={fonts.mono} fontSize={20} letterSpacing={6} fill={palette.accent} />
+          <Rect width={810} height={1} fill={palette.border} opacity={0.4} />
+          {readinessLines.map(line => (
+            <Txt
+              key={line}
+              ref={termLines}
+              text={line}
+              fontFamily={fonts.mono}
+              fontSize={22}
+              fill={
+                line.includes('ready') || line.includes('confirmed')
+                  ? palette.accent
+                  : line.includes('verdict')
+                    ? palette.accent
+                    : palette.textMuted
+              }
+              opacity={0}
+            />
+          ))}
         </Layout>
       </Rect>
     </Layout>,
   );
 
-  view.add(makeScreenPanel({
-    ref: screen,
-    src: referenceAssets.burnOps,
-    label: 'Burn Ops',
-    accent: palette.warning,
-    width: 1100,
-    position: [350, 200],
-    opacity: 0,
-  }));
+  /* ── verdict highlight bar ───────────────────────────────────────── */
+  view.add(
+    <Layout ref={verdictHighlight} position={[0, 200]} opacity={0}>
+      <Rect width={480} height={70} radius={16} fill={'#0b2218'} stroke={`${palette.accent}aa`} lineWidth={2}>
+        <Txt
+          text={'VERDICT:  READY  ✓'}
+          fontFamily={fonts.mono}
+          fontSize={30}
+          letterSpacing={6}
+          fontWeight={700}
+          fill={palette.accent}
+        />
+      </Rect>
+    </Layout>,
+  );
 
-  const chipSpecs: Array<{
-    label: string;
-    value: string;
-    accent: string;
-    position: [number, number];
-  }> = [
-    {label: 'Trigger debris', value: burnDecision.debris, accent: palette.critical, position: [-140, -120]},
-    {label: 'Chosen delta-v', value: burnDecision.deltaV, accent: palette.warning, position: [160, -120]},
-    {label: 'Post result', value: burnDecision.missAfter, accent: palette.accent, position: [460, -120]},
-  ];
-
-  chipSpecs.forEach(spec => {
-    view.add(makeMetricChip({
-      ref: chips,
-      label: spec.label,
-      value: spec.value,
-      accent: spec.accent,
-      width: 260,
-      position: spec.position,
-      opacity: 0,
+  /* ── stat reveals ────────────────────────────────────────────────── */
+  verificationStats.forEach((entry, i) => {
+    const accent = entry.accent === 'accent' ? palette.accent : entry.accent === 'warning' ? palette.warning : palette.primary;
+    view.add(makeStatReveal({
+      ref: stats,
+      label: entry.label,
+      value: entry.value,
+      accent,
+      position: [-420 + i * 420, 380],
     }));
   });
 
-  const detailSpecs: Array<{
-    title: string;
-    body: string;
-    accent: string;
-    position: [number, number];
-    points: [[number, number], [number, number], [number, number]];
-  }> = [
-    {
-      title: 'Timeline evidence',
-      body: 'The Gantt-style timeline makes queued, executed, and avoided events legible in one place.',
-      accent: palette.warning,
-      position: [560, 360],
-      points: [[430, 290], [520, 320], [540, 320]],
-    },
-    {
-      title: 'Why this matters',
-      body: 'The system validates a feasible maneuver instead of emitting a threat and leaving the operator there.',
-      accent: palette.accent,
-      position: [-580, 400],
-      points: [[-260, 310], [-400, 360], [-470, 360]],
-    },
-  ];
+  /* ── animation ───────────────────────────────────────────────────── */
 
-  detailSpecs.forEach(spec => {
-    view.add(makeInfoCard({
-      ref: notes,
-      eyebrow: 'Response proof',
-      title: spec.title,
-      body: spec.body,
-      accent: spec.accent,
-      width: 430,
-      height: 170,
-      position: spec.position,
-      opacity: 0,
-    }));
-    view.add(makeLeader({points: spec.points, accent: spec.accent, ref: leaders, opacity: 0.95}));
-  });
+  // Phase 1: Terminal appears (0s - 2s)
+  yield* terminal().opacity(1, 0.7);
+  yield* waitFor(0.5);
 
-  yield* decisionRail().opacity(1, 0.7);
+  // Phase 2: Lines reveal one by one (2s - 12s)
+  for (let i = 0; i < termLines.length; i++) {
+    yield* termLines[i].opacity(1, 0.25);
+    yield* waitFor(0.6);
+  }
+
   yield* waitFor(1.0);
-  yield* all(decisionRail().x(-760, 0.65), decisionRail().scale(0.92, 0.65), screen().opacity(1, 0.8));
-  yield* waitFor(0.8);
-  yield* sequence(0.18, ...chips.map(chip => chip.opacity(1, 0.35)));
-  yield* waitFor(0.8);
-  yield* sequence(0.25, ...notes.map(note => note.opacity(1, 0.4)));
-  yield* sequence(0.25, ...leaders.map(line => line.end(1, 0.35)));
+
+  // Phase 3: Verdict highlight (12s - 15s)
+  yield* verdictHighlight().opacity(1, 0.6);
+  yield* waitFor(2.5);
+
+  // Phase 4: Stat reveals (15s - 22s)
+  for (let i = 0; i < stats.length; i++) {
+    yield* stats[i].opacity(1, 0.4);
+    yield* waitFor(1.5);
+  }
+
+  // Phase 5: Hold (22s - 25s)
   yield* waitFor(3.0);
 });

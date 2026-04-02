@@ -1,131 +1,146 @@
-import {Circle, Layout, Line, Rect, Txt, makeScene2D} from '@motion-canvas/2d';
-import {all, chain, createRef, createRefArray, sequence, waitFor} from '@motion-canvas/core';
+import {Img, Layout, Rect, Txt, makeScene2D} from '@motion-canvas/2d';
+import {all, createRef, waitFor} from '@motion-canvas/core';
 
-import {makeBackdrop, makeHeader, makeInfoCard, makeMetricChip} from '../lib/primitives';
-import {fonts, palette} from '../lib/theme';
+import {referenceAssets} from '../lib/assets';
+import {makeBackdrop, makeCalloutBadge, makeBottomBar, makeFullBleed} from '../lib/primitives';
+import {fonts, palette, stage} from '../lib/theme';
 
-function orbitRing(size: number, opacity: number) {
-  return (
-    <Circle
-      size={size}
-      stroke={palette.orbit}
-      lineWidth={2}
-      opacity={opacity}
-      lineDash={[16, 18]}
-      rotation={12}
-    />
-  );
-}
-
+/**
+ * Scene 1 — Title interstitial + Command page tour (~40s)
+ *
+ * Opens with a cinematic CASCADE title card on the starfield backdrop,
+ * then cross-dissolves into the live Command page screenshot with
+ * slow zoom-in and callout overlays.
+ */
 export default makeScene2D(function* (view) {
-  const globe = createRef<Circle>();
-  const shell = createRef<Layout>();
-  const hazard = createRef<Layout>();
-  const titleCard = createRef<Layout>();
-  const debrisDots = createRefArray<Circle>();
-  const orbitLines = createRefArray<Circle>();
+  /* ── refs ─────────────────────────────────────────────────────────── */
+  const titleGroup = createRef<Layout>();
+  const rule1 = createRef<Rect>();
+  const rule2 = createRef<Rect>();
+  const kicker = createRef<Txt>();
+  const titleTxt = createRef<Txt>();
+  const tagline = createRef<Txt>();
 
+  const appImg = createRef<Img>();
+  const dimOverlay = createRef<Rect>();
+  const badge1 = createRef<Layout>();
+  const badge2 = createRef<Layout>();
+  const badge3 = createRef<Layout>();
+  const bottomBar = createRef<Layout>();
+
+  /* ── backdrop (persistent) ───────────────────────────────────────── */
   view.add(makeBackdrop());
 
+  /* ── title card group ────────────────────────────────────────────── */
   view.add(
-    <Layout ref={shell} position={[0, 40]} opacity={0}>
-      {orbitRing(520, 0.22)}
-      {orbitRing(660, 0.16)}
-      {orbitRing(790, 0.12)}
-      <Circle
-        ref={globe}
-        size={360}
-        fill={'#0f2447'}
-        stroke={'#68b8ff'}
-        lineWidth={8}
-        shadowColor={'#58b8ff55'}
-        shadowBlur={60}
-      />
-      {Array.from({length: 140}, (_, index) => {
-        const angle = (index * 37) % 360;
-        const radius = 280 + (index % 3) * 55 + ((index * 17) % 40);
-        const dotX = Math.cos((angle * Math.PI) / 180) * radius;
-        const dotY = Math.sin((angle * Math.PI) / 180) * radius * 0.82;
-        const size = 2 + (index % 2);
-        return (
-          <Circle
-            key={`debris-${index}`}
-            ref={debrisDots}
-            position={[dotX, dotY]}
-            size={size}
-            fill={palette.debris}
-            opacity={0}
-          />
-        );
-      })}
-      {Array.from({length: 6}, (_, index) => {
-        const size = 470 + index * 42;
-        return (
-          <Circle
-            key={`orbit-${index}`}
-            ref={orbitLines}
-            size={[size, size * 0.86]}
-            stroke={palette.orbit}
-            lineWidth={2}
-            lineDash={[18, 14]}
-            rotation={index * 16 - 12}
-            opacity={0}
-          />
-        );
-      })}
+    <Layout ref={titleGroup} opacity={0}>
+      <Layout layout direction={'column'} alignItems={'center'} gap={22} width={1200}>
+        <Rect ref={rule1} width={0} height={3} fill={palette.primary} radius={2} />
+        <Txt
+          ref={kicker}
+          text={'NATIONAL SPACE HACKATHON 2026'}
+          fontFamily={fonts.mono}
+          fontSize={22}
+          letterSpacing={12}
+          fill={palette.primary}
+          opacity={0}
+        />
+        <Txt
+          ref={titleTxt}
+          text={'CASCADE'}
+          fontFamily={fonts.display}
+          fontWeight={700}
+          fontSize={110}
+          lineHeight={120}
+          fill={palette.text}
+          opacity={0}
+        />
+        <Txt
+          ref={tagline}
+          text={'Collision Avoidance System for Constellation\nAutomation, Detection & Evasion'}
+          fontFamily={fonts.body}
+          fontSize={30}
+          lineHeight={44}
+          fill={palette.textMuted}
+          textAlign={'center'}
+          width={900}
+          opacity={0}
+        />
+        <Rect ref={rule2} width={0} height={3} fill={palette.primary} radius={2} marginTop={8} />
+      </Layout>
     </Layout>,
   );
 
+  /* ── app screenshot (hidden initially) ───────────────────────────── */
   view.add(
-    <Layout ref={hazard} position={[-610, -340]} opacity={0}>
-      <Rect
-        width={620}
-        height={250}
-        radius={28}
-        fill={palette.panel}
-        stroke={`${palette.critical}55`}
-        lineWidth={2}
-        shadowColor={`${palette.critical}22`}
-        shadowBlur={30}
-      >
-        <Layout layout direction={'column'} gap={18} padding={28} width={620}>
-          <Txt text={'LEO CROWDING PROBLEM'} fontFamily={fonts.mono} fontSize={24} letterSpacing={7} fill={palette.critical} />
-          <Txt text={'More satellites. More debris. More collision risk.'} fontFamily={fonts.display} fontSize={50} fontWeight={700} fill={palette.text} width={560} />
-          <Txt text={'As orbital traffic increases, close approaches become more frequent and harder to manage manually.'} fontFamily={fonts.body} fontSize={28} lineHeight={40} fill={palette.textMuted} width={560} />
-        </Layout>
-      </Rect>
-    </Layout>,
+    <Img
+      ref={appImg}
+      src={referenceAssets.command}
+      width={stage.width}
+      height={stage.height}
+      opacity={0}
+      scale={1.08}
+    />,
   );
 
+  /* ── dim overlay for text legibility on screenshot ───────────────── */
   view.add(
-    <Layout ref={titleCard} position={[0, 360]} opacity={0}>
-      <Rect
-        width={1320}
-        height={220}
-        radius={34}
-        fill={'#07111fdd'}
-        stroke={`${palette.primary}55`}
-        lineWidth={2}
-        shadowColor={`${palette.primary}22`}
-        shadowBlur={34}
-      >
-        <Layout layout direction={'column'} gap={18} padding={32} width={1320}>
-          <Txt text={'CASCADE'} fontFamily={fonts.display} fontSize={88} fontWeight={700} fill={palette.text} />
-          <Txt text={'Collision Avoidance System for Constellation Automation, Detection and Evasion'} fontFamily={fonts.body} fontSize={30} lineHeight={40} fill={palette.textMuted} width={1240} />
-        </Layout>
-      </Rect>
-    </Layout>,
+    <Rect
+      ref={dimOverlay}
+      width={stage.width}
+      height={stage.height}
+      fill={'#040814'}
+      opacity={0}
+    />,
   );
 
-  yield* all(shell().opacity(1, 1), globe().scale(1.04, 2).to(1, 1.4));
-  yield* sequence(0.02, ...orbitLines.map(line => line.opacity(0.45, 0.5)));
-  yield* sequence(0.006, ...debrisDots.map(dot => dot.opacity(0.9, 0.2)));
-  yield* waitFor(0.7);
+  /* ── callout badges (positioned over the command screenshot) ─────── */
+  view.add(makeCalloutBadge({ref: badge1, label: '50 satellites — real NORAD catalog', accent: palette.primary, position: [-520, -340], width: 440}));
+  view.add(makeCalloutBadge({ref: badge2, label: '10,000+ tracked debris objects', accent: palette.warning, position: [480, -340], width: 420}));
+  view.add(makeCalloutBadge({ref: badge3, label: 'Live fleet health & conjunction status', accent: palette.accent, position: [0, 380], width: 480}));
 
-  yield* hazard().opacity(1, 0.7);
-  yield* waitFor(1.1);
+  view.add(makeBottomBar({ref: bottomBar, text: 'Command Overview — operational fleet picture from real orbital data'}));
 
-  yield* titleCard().opacity(1, 0.7);
-  yield* all(shell().scale(0.96, 0.8), shell().y(10, 0.8));
-  yield* waitFor(1.8);
+  /* ── animation ───────────────────────────────────────────────────── */
+
+  // Phase 1: Title card build (0s - 10s)
+  yield* titleGroup().opacity(1, 0.3);
+  yield* rule1().width(80, 0.8);
+  yield* kicker().opacity(1, 0.6);
+  yield* waitFor(0.3);
+  yield* titleTxt().opacity(1, 0.8);
+  yield* waitFor(0.4);
+  yield* tagline().opacity(1, 0.7);
+  yield* rule2().width(80, 0.8);
+  yield* waitFor(3.5);
+
+  // Phase 2: Cross-dissolve to Command page (10s - 15s)
+  yield* all(
+    titleGroup().opacity(0, 1.0),
+    appImg().opacity(1, 1.5),
+    appImg().scale(1.0, 8.0),  // very slow ken-burns zoom-out over the whole phase
+  );
+  yield* waitFor(1.5);
+
+  // Phase 3: Callout overlays (15s - 30s)
+  yield* dimOverlay().opacity(0.35, 0.5);
+  yield* badge1().opacity(1, 0.6);
+  yield* waitFor(2.5);
+  yield* badge2().opacity(1, 0.6);
+  yield* waitFor(2.5);
+  yield* badge3().opacity(1, 0.6);
+  yield* waitFor(1.5);
+  yield* bottomBar().opacity(1, 0.5);
+  yield* waitFor(4.0);
+
+  // Phase 4: Fade out (30s - 33s)
+  yield* all(
+    appImg().opacity(0, 1.2),
+    dimOverlay().opacity(0, 1.0),
+    badge1().opacity(0, 0.8),
+    badge2().opacity(0, 0.8),
+    badge3().opacity(0, 0.8),
+    bottomBar().opacity(0, 0.8),
+  );
+  yield* waitFor(0.5);
 });

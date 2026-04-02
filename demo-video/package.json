@@ -6,7 +6,10 @@
     "start": "vite",
     "serve": "vite",
     "build": "tsc && vite build",
+    "install:browsers": "playwright install chromium",
     "capture:refs": "node scripts/capture-reference.mjs",
+    "sync:refs": "node scripts/sync-reference-data.mjs",
+    "prepare:refs": "node scripts/prepare-demo-assets.mjs",
     "render:preview": "node scripts/render-preview.mjs"
   },
   "dependencies": {
@@ -15,6 +18,7 @@
     "@motion-canvas/ffmpeg": "^1.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@motion-canvas/ui": "^3.17.2",
     "@motion-canvas/vite-plugin": "^3.17.2",
     "typescript": "^5.2.2",

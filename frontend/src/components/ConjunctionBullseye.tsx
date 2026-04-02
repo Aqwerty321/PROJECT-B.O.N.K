@@ -58,9 +58,43 @@ function approachAngle(
   return Math.atan2(dy, dx);
 }
 
+const legendSwatchBase: React.CSSProperties = {
+  width: '10px',
+  height: '10px',
+  borderRadius: '999px',
+  flexShrink: 0,
+};
+
+function LegendSwatch({
+  kind,
+  color,
+}: {
+  kind: 'dot' | 'ring';
+  color: string;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      style={kind === 'ring'
+        ? {
+            ...legendSwatchBase,
+            background: 'transparent',
+            border: `1px solid ${color}`,
+            boxShadow: `0 0 8px ${color}22`,
+          }
+        : {
+            ...legendSwatchBase,
+            background: color,
+            boxShadow: `0 0 10px ${color}55`,
+          }}
+    />
+  );
+}
+
 export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ conjunctions, selectedSatId, nowEpochS, maxTcaSeconds = DEFAULT_MAX_TCA_S, severityFilter }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sweepAngleRef = useRef(0);
+  const ringLabels = bullseyeRings(Math.max(900, maxTcaSeconds)).map(ring => ring.label).join(' / ');
 
   // Store rapidly-changing data in refs so draw callback is stable
   const conjunctionsRef = useRef(conjunctions);
@@ -361,9 +395,75 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
   }, []);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{ flex: 1, width: '100%', height: '100%', minHeight: 0, display: 'block' }}
-    />
+    <div style={styles.container}>
+      <div style={styles.legendRow}>
+        <div style={styles.legendItem}>
+          <LegendSwatch kind="dot" color={theme.colors.primary} />
+          <span style={styles.legendText}>Watched craft</span>
+        </div>
+        <div style={styles.legendItem}>
+          <LegendSwatch kind="dot" color={theme.colors.critical} />
+          <span style={styles.legendText}>Critical &lt;1 km</span>
+        </div>
+        <div style={styles.legendItem}>
+          <LegendSwatch kind="dot" color={theme.colors.warning} />
+          <span style={styles.legendText}>Warning 1-5 km</span>
+        </div>
+        <div style={styles.legendItem}>
+          <LegendSwatch kind="dot" color={theme.colors.accent} />
+          <span style={styles.legendText}>Watch &gt;5 km</span>
+        </div>
+        <div style={styles.legendItem}>
+          <LegendSwatch kind="ring" color="rgba(255,255,255,0.34)" />
+          <span style={styles.legendText}>Time rings {ringLabels}</span>
+        </div>
+      </div>
+
+      <canvas
+        ref={canvasRef}
+        style={styles.canvas}
+      />
+    </div>
   );
 });
+
+const styles: Record<string, React.CSSProperties> = {
+  container: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+    width: '100%',
+    height: '100%',
+    minHeight: 0,
+    padding: '10px 12px 12px',
+  },
+  legendRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px 12px',
+    alignItems: 'center',
+    paddingBottom: '8px',
+    borderBottom: `1px solid ${theme.colors.border}`,
+    flexShrink: 0,
+  },
+  legendItem: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    minWidth: 0,
+  },
+  legendText: {
+    color: theme.colors.textDim,
+    fontSize: '10px',
+    lineHeight: 1.3,
+    fontFamily: theme.font.mono,
+    whiteSpace: 'nowrap',
+  },
+  canvas: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    minHeight: 0,
+    display: 'block',
+  },
+};
