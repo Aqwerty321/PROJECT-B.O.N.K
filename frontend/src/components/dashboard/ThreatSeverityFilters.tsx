@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { riskLevelForEvent, type ConjunctionEvent } from '../../types/api';
 import { useSound } from '../../hooks/useSound';
 import { useDashboard } from '../../dashboard/DashboardContext';
@@ -20,8 +21,12 @@ export function filterConjunctionsBySeverity(
 
 export function ThreatSeverityFilters({
   counts,
+  style,
+  chipStyle,
 }: {
   counts: { red: number; yellow: number; green: number };
+  style?: CSSProperties;
+  chipStyle?: CSSProperties;
 }) {
   const { play } = useSound();
   const { threatSeverityFilter, toggleThreatSeverity } = useDashboard();
@@ -32,13 +37,14 @@ export function ThreatSeverityFilters({
   };
 
   return (
-    <div role="group" aria-label="Threat severity filters" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-start' }}>
+    <div role="group" aria-label="Threat severity filters" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-start', ...style }}>
       <InfoChip
         label="Critical"
         value={counts.red.toString()}
         tone="critical"
         active={threatSeverityFilter.critical}
         onClick={() => toggle('critical')}
+        style={chipStyle}
       />
       <InfoChip
         label="Warning"
@@ -46,6 +52,7 @@ export function ThreatSeverityFilters({
         tone="warning"
         active={threatSeverityFilter.warning}
         onClick={() => toggle('warning')}
+        style={chipStyle}
       />
       <InfoChip
         label="Watch"
@@ -53,6 +60,7 @@ export function ThreatSeverityFilters({
         tone="accent"
         active={threatSeverityFilter.watch}
         onClick={() => toggle('watch')}
+        style={chipStyle}
       />
     </div>
   );

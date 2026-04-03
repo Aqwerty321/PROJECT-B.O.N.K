@@ -127,7 +127,7 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
     const lh = h / dpr;
     const cx = lw / 2;
     const cy = lh / 2;
-    const R = Math.min(cx, cy) - 24;
+    const R = Math.min(cx, cy) - 18;
 
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -275,18 +275,18 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
 
       // threat summary
       ctx.save();
-      ctx.font = `10px ${theme.font.mono}`;
+      ctx.font = `9px ${theme.font.mono}`;
       ctx.textAlign = 'left';
-      let sy = lh - 8;
+      let sy = lh - 6;
       if (greenCount > 0) {
         ctx.fillStyle = theme.colors.accent;
         ctx.fillText(`${greenCount} WATCH (>5km)`, 8, sy);
-        sy -= 14;
+        sy -= 12;
       }
       if (yellowCount > 0) {
         ctx.fillStyle = theme.colors.warning;
         ctx.fillText(`${yellowCount} WARNING (1-5km)`, 8, sy);
-        sy -= 14;
+        sy -= 12;
       }
       if (redCount > 0) {
         ctx.fillStyle = theme.colors.critical;
@@ -301,7 +301,7 @@ export const ConjunctionBullseye = React.memo(function ConjunctionBullseye({ con
       ctx.font = `9px ${theme.font.mono}`;
       ctx.fillStyle = theme.colors.textDim;
       ctx.textAlign = 'center';
-      ctx.fillText(currentSelectedSatId, cx, cy + R + 24);
+      ctx.fillText(currentSelectedSatId, cx, cy + R + 18);
       ctx.restore();
     }
 
@@ -431,18 +431,18 @@ const styles: Record<string, React.CSSProperties> = {
   container: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '10px',
+    gap: '6px',
     width: '100%',
     height: '100%',
     minHeight: 0,
-    padding: '10px 12px 12px',
+    padding: '6px 8px 8px',
   },
   legendRow: {
     display: 'flex',
     flexWrap: 'wrap',
-    gap: '8px 12px',
+    gap: '6px 10px',
     alignItems: 'center',
-    paddingBottom: '8px',
+    paddingBottom: '6px',
     borderBottom: `1px solid ${theme.colors.border}`,
     flexShrink: 0,
   },
@@ -454,7 +454,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   legendText: {
     color: theme.colors.textDim,
-    fontSize: '10px',
+    fontSize: '9px',
     lineHeight: 1.3,
     fontFamily: theme.font.mono,
     whiteSpace: 'nowrap',

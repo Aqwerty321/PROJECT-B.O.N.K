@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import EarthGlobe, { trajectoryToVectors } from '../components/EarthGlobe';
 import { ConjunctionBullseye } from '../components/ConjunctionBullseye';
 import { GlassPanel } from '../components/GlassPanel';
@@ -51,6 +51,11 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
     () => model.selectedTrajectory?.predicted ? trajectoryToVectors(model.selectedTrajectory.predicted) : undefined,
     [model.selectedTrajectory?.predicted],
   );
+  const threatSnapshotChipStyle: CSSProperties = {
+    width: '100%',
+    minWidth: 0,
+    padding: '5px 8px',
+  };
 
   return (
     <section aria-labelledby="command-heading" style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%' }}>
@@ -110,7 +115,7 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
             noPadding
             priority="secondary"
             accentColor={theme.colors.accent}
-            style={{ flex: 1, minHeight: 0 }}
+            style={{ flex: 0.92, minHeight: 0 }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, minHeight: 0, padding: '10px 14px 14px', overflow: 'auto' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -137,14 +142,14 @@ export function CommandPage({ isNarrow, isCompact }: { isNarrow: boolean; isComp
             noPadding
             priority="secondary"
             accentColor={theme.colors.primary}
-            style={{ flex: 1, minHeight: 0 }}
+            style={{ flex: 1.08, minHeight: 0 }}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minHeight: 0, padding: '10px 12px 12px' }}>
-              <ThreatSeverityFilters counts={model.threatCounts} />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                <InfoChip label="Vehicle Lanes" value={queueGroups.length.toString()} tone={queueGroups.length > 0 ? 'accent' : 'neutral'} />
-                <InfoChip label="Queue" value={focusQueueEntries.length.toString()} tone={focusQueueEntries.length > 0 ? 'accent' : 'warning'} />
-                <InfoChip label="Collapsed" value={collapsedQueueSamples.toString()} tone={collapsedQueueSamples > 0 ? 'accent' : 'neutral'} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, minHeight: 0, padding: '8px 10px 10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isCompact ? 'repeat(3, minmax(0, 1fr))' : 'repeat(6, minmax(0, 1fr))', gap: '6px', flexShrink: 0 }}>
+                <ThreatSeverityFilters counts={model.threatCounts} style={{ display: 'contents' }} chipStyle={threatSnapshotChipStyle} />
+                <InfoChip label="Vehicle Lanes" value={queueGroups.length.toString()} tone={queueGroups.length > 0 ? 'accent' : 'neutral'} style={threatSnapshotChipStyle} />
+                <InfoChip label="Queue" value={focusQueueEntries.length.toString()} tone={focusQueueEntries.length > 0 ? 'accent' : 'warning'} style={threatSnapshotChipStyle} />
+                <InfoChip label="Collapsed" value={collapsedQueueSamples.toString()} tone={collapsedQueueSamples > 0 ? 'accent' : 'neutral'} style={threatSnapshotChipStyle} />
               </div>
               {selectedSatId ? (
                 <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', clipPath: theme.chamfer.clipPath, border: `1px solid ${theme.colors.border}`, background: 'linear-gradient(180deg, rgba(10, 11, 14, 0.92), rgba(7, 8, 10, 0.98))' }}>
