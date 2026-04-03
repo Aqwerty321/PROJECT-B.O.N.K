@@ -6,7 +6,7 @@ import { useDashboard } from '../dashboard/DashboardContext';
 interface SimControlsProps {
   disabled?: boolean;
   compact?: boolean;
-  layout?: 'panel' | 'rail';
+  layout?: 'panel' | 'rail' | 'cluster';
 }
 
 type StepResponse = {
@@ -240,6 +240,7 @@ export default memo(function SimControls({ disabled = false, compact = false, la
     : stepStatus;
   const liveStatusColor = statusToneColor(liveStatus.tone);
   const staleActionFreeze = model.truthBanner.snapshotSeverity === 'critical';
+  const isCluster = layout === 'cluster';
 
   const manualDisabled = disabled || staleActionFreeze || isStepping || autoPlay;
   const headingEyebrow = layout === 'rail' ? 'Global Simulation' : 'Simulation Controls';
@@ -259,6 +260,15 @@ export default memo(function SimControls({ disabled = false, compact = false, la
     : layout === 'rail'
       ? 'minmax(220px, 0.92fr) auto minmax(260px, 1.12fr)'
       : 'minmax(200px, 1.05fr) auto minmax(260px, 1.15fr)';
+  const buttonBaseStyle = isCluster ? styles.clusterButton : styles.button;
+  const autoButtonLabel = isCluster
+    ? (autoPlay ? 'STOP' : 'AUTO')
+    : (autoPlay ? 'AUTO STOP' : 'AUTO PLAY');
+  const clusterTone = staleActionFreeze
+    ? theme.colors.warning
+    : liveStatus.tone === 'idle'
+      ? theme.colors.textMuted
+      : liveStatusColor;
 
   const actionButtons = (
     <>
@@ -278,7 +288,7 @@ export default memo(function SimControls({ disabled = false, compact = false, la
             }}
             onMouseLeave={() => setHoveredBtn(null)}
             style={{
-              ...styles.button,
+              ...buttonBaseStyle,
               background: isFlash
                 ? 'rgba(58, 159, 232, 0.3)'
                 : isActive
@@ -296,7 +306,7 @@ export default memo(function SimControls({ disabled = false, compact = false, la
                 : isHovered
                   ? '0 0 12px rgba(58, 159, 232, 0.25)'
                   : 'none',
-              cursor: manualDisabled ? 'not-allowed' : styles.button.cursor,
+              cursor: manualDisabled ? 'not-allowed' : buttonBaseStyle.cursor,
               opacity: manualDisabled ? 0.58 : 1,
             }}
           >
@@ -316,7 +326,7 @@ export default memo(function SimControls({ disabled = false, compact = false, la
         }}
         onMouseLeave={() => setHoveredBtn(null)}
         style={{
-          ...styles.button,
+          ...buttonBaseStyle,
           background: autoPlay
             ? 'rgba(57, 217, 138, 0.18)'
             : hoveredBtn === 'AUTO'
@@ -337,10 +347,30 @@ export default memo(function SimControls({ disabled = false, compact = false, la
           opacity: disabled || staleActionFreeze ? 0.58 : 1,
         }}
       >
-        {autoPlay ? 'AUTO STOP' : 'AUTO PLAY'}
+        {autoButtonLabel}
       </button>
     </>
   );
+
+  if (isCluster) {
+    return (
+      <div
+        data-testid="global-sim-controls"
+        aria-label={`Simulation step controls. ${statusTitle}`}
+        title={`${statusTitle} - ${statusDetail}`}
+        style={{
+          ...styles.clusterContainer,
+          borderColor: liveStatus.tone === 'idle' && !staleActionFreeze ? theme.colors.border : `${clusterTone}55`,
+          boxShadow: liveStatus.tone === 'idle' && !staleActionFreeze ? 'none' : `0 0 14px ${clusterTone}12`,
+        }}
+      >
+        <span style={{ ...styles.clusterLabel, color: liveStatus.tone === 'idle' && !staleActionFreeze ? theme.colors.textMuted : clusterTone }}>
+          Sim Step
+        </span>
+        <div style={styles.clusterButtons}>{actionButtons}</div>
+      </div>
+    );
+  }
 
   const statusContent = (
     <>
@@ -530,6 +560,30 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '8px',
     flexWrap: 'wrap',
   },
+  clusterContainer: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 8px',
+    border: `1px solid ${theme.colors.border}`,
+    background: 'rgba(8, 10, 14, 0.72)',
+    clipPath: theme.chamfer.buttonClipPath,
+    maxWidth: '100%',
+    flexWrap: 'wrap',
+  },
+  clusterLabel: {
+    color: theme.colors.textMuted,
+    fontSize: '8px',
+    letterSpacing: '0.16em',
+    textTransform: 'uppercase',
+    fontFamily: theme.font.mono,
+  },
+  clusterButtons: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    flexWrap: 'wrap',
+  },
   statusChip: {
     display: 'flex',
     flexDirection: 'column',
@@ -604,5 +658,19 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     transition: 'all 0.15s ease',
     clipPath: theme.chamfer.buttonClipPath,
+  },
+  clusterButton: {
+    fontFamily: theme.font.mono,
+    fontSize: '9px',
+    fontWeight: 600,
+    letterSpacing: '0.12em',
+    padding: '5px 8px',
+    border: `1px solid ${theme.colors.border}`,
+    background: 'rgba(255,255,255,0.03)',
+    color: theme.colors.textDim,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    clipPath: theme.chamfer.buttonClipPath,
+    textTransform: 'uppercase',
   },
 };

@@ -500,6 +500,8 @@ export function AppShell({
             </div> : null}
 
             <div style={styles.topControlRail}>
+              <SimControls compact={isNarrow || isCompact} layout="cluster" />
+
               <div style={styles.controlCluster}>
                 <span style={styles.controlLabel}>Reasoning</span>
                 <button
@@ -595,7 +597,6 @@ export function AppShell({
               {model.truthBanner.uploadMissedCount > 0 ? <AnomalyBadge label="Upload Slips" value={`${model.truthBanner.uploadMissedCount}`} tone="warning" /> : null}
             </div>
           ) : null}
-          <SimControls compact={isNarrow || isCompact} layout="rail" />
         </div>
 
         {/* Page content */}
