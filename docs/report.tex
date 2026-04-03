@@ -106,8 +106,9 @@ Space-Track OMM catalog of \textbf{27{,}191}~LEO objects, CASCADE maintains
 zero missed conjunctions, sub-kilometer station-keeping accuracy, and
 Tsiolkovsky-consistent fuel accounting across all test families.
 The system ships as a single Docker image (\texttt{ubuntu:22.04},
-port~8000) with a React/Canvas/WebGL mission-console frontend at 60\,FPS,
-backed by 8~CTest safety gates enforced on every commit.
+port~8000) with a React~19 / TypeScript mission-console frontend built on
+Canvas~2D and Three.js~WebGL, backed by 8~core safety gates integrated into
+the Docker build and GitHub Actions workflow.
 \end{abstract}
 
 %% ═══════════════════════════════════════════════════════════════════════════
@@ -410,7 +411,10 @@ supplementary 3D spatial context, but it supports rather than dominates
 the interface.  This architecture ensures that every pixel on screen serves
 an operational purpose aligned with the judge rubric, delivering the kind
 of mission-console experience that a real spacecraft operator would
-recognize.
+recognize.  The current shell reinforces that principle by keeping shared
+controls compact: simulation stepping lives in the top command strip,
+while global focus and the operator checklist move into a collapsible
+sidebar so route-level canvases remain visually dominant.
 
 \subsection{Robust MOID Screening via Multi-Mode Solver}
 
@@ -795,17 +799,18 @@ itself does not create a new collision risk.
 %% ═══════════════════════════════════════════════════════════════════════════
 \section{Mission Console Frontend}\label{sec:frontend}
 
-The frontend is a React~18 / TypeScript single-page application built with
-Vite~6.4 and rendered via Canvas~2D and Three.js~WebGL.  It polls the
-engine's REST API at 1--2\,Hz and presents six purpose-built operational
-views, each designed to surface a specific dimension of constellation health:
+The frontend is a React~19 / TypeScript single-page application built with
+Vite~6 and rendered via Canvas~2D and Three.js~WebGL.  During live
+operation it polls the snapshot stream at 1\,Hz and the status, burn,
+conjunction, and trajectory streams at 2\,s cadence.  The UI is organized
+around a shared tactical shell plus six purpose-built route views:
 
 \begin{enumerate}[nosep,leftmargin=*]
-  \item \textbf{Command Center} (\texttt{\#/command}):
-    Fleet-wide posture summary---satellite counts by status (nominal,
-    maneuvering, fuel-low, offline), active CDM warnings by severity,
-    recent burn history, and engine health diagnostics.  This is the
-    default landing view and provides at-a-glance situational awareness.
+  \item \textbf{Command / Mission Theatre} (\texttt{\#/command}):
+    Fleet-wide posture summary, shared mission-time context, a Three.js
+    orbital globe for command geometry, and a right-hand mission rail for
+    focus, threat, burn, and slot-integrity state.  This is the default
+    landing view and the operator's main situational-awareness surface.
 
   \item \textbf{Ground Track} (\texttt{\#/track}):
     Mercator-projection canvas rendering of all satellite positions with
@@ -819,8 +824,8 @@ views, each designed to surface a specific dimension of constellation health:
     Polar ``bullseye'' plot centered on the selected satellite.  Radial
     distance encodes time-to-closest-approach; angular position encodes
     the approach vector in the satellite's local frame.  CDM severity
-    determines marker color (green/yellow/red), enabling an operator to
-    instantly identify the most urgent threats.
+    determines marker color (green/yellow/red), while the encounter queue
+    and detail rail expose the most urgent watch-lane events.
 
   \item \textbf{Burn Operations} (\texttt{\#/burn-ops}):
     Scrollable Gantt-style maneuver timeline with evasion and recovery
@@ -828,21 +833,33 @@ views, each designed to surface a specific dimension of constellation health:
     Per-satellite fuel gauges show remaining propellant and $\Delta V$
     budget.
 
+  \item \textbf{Evasion Analysis} (\texttt{\#/evasion}):
+    Counterfactual burn comparison, clearance-gain versus fuel-spent
+    analysis, and operator-facing explanation of the avoidance trade space.
+
   \item \textbf{Fleet Status} (\texttt{\#/fleet-status}):
     Constellation-level analytics---fuel heatmaps across the fleet,
     $\Delta V$ expenditure versus collisions avoided, station-keeping
     drift metrics, and satellite availability tracking.
 \end{enumerate}
 
+Across these pages, the shell preserves a single cross-route focus model:
+pinning a spacecraft in one view updates the command globe, threat queue,
+track detail rail, and burn context everywhere else.  This shared-state
+approach reduces duplicated controls while keeping route-level evidence
+aligned to the same selected vehicle.
+
 \noindent
-The snapshot endpoint delivers geodetic coordinates as a compressed debris
-tuple array (\texttt{[id, lat, lon, alt]}) to minimize payload size.
-Canvas~2D renders the ground-track and Gantt views with
-\texttt{requestAnimationFrame} for smooth 60\,FPS rendering at
-10{,}000+ debris markers; Three.js powers the 3D polar threat view.
-The entire frontend is statically built, bundled into the Docker image,
-and served by \texttt{cpp-httplib}'s mount-point mechanism---no separate
-web server required.
+The shared shell provides a persistent summary rail, a sticky truth and
+freshness banner, inline simulation-step controls, reasoning / spotlight /
+audio toggles, and a collapsible sidebar whose expanded utility panels house
+the global focus console and operator checklist.  Snapshot, conjunction,
+burn, and trajectory endpoints jointly supply the route-level context
+consumed by these views.  Canvas~2D drives the ground-track, bullseye, and
+Gantt surfaces; Three.js powers the 3D orbital theatre.  The entire
+frontend is statically built, bundled into the Docker image, and served by
+\texttt{cpp-httplib}'s mount-point mechanism---no separate web server
+required.
 
 %% ═══════════════════════════════════════════════════════════════════════════
 \section{Validation and Evidence}\label{sec:validation}
@@ -855,12 +872,14 @@ independently and whose pass/fail verdict is unambiguous.
 
 \subsection{Test Infrastructure}
 
-The engine maintains 8 CTest gate tests, each compiled as a standalone
-C++~binary in \texttt{tools/} and orchestrated by shell harnesses in
-\texttt{scripts/}.  Every gate is executed during the Docker build
-process---if any gate fails, the image build itself fails, making it
-impossible to ship a binary that violates a safety invariant.  The same
-gates run in GitHub Actions CI on every push to \texttt{main}.
+When configured with \texttt{BUILD\_TESTING=ON}, the source tree registers
+8~core CTest safety gates and builds the corresponding standalone binaries
+in \texttt{tools/}.  Complementary shell harnesses in \texttt{scripts/}
+exercise the same invariants in packaged-runtime scenarios.  The Dockerfile
+runs \texttt{ctest} inside the builder stage---if any registered gate
+fails, the image build itself fails---and GitHub Actions additionally runs
+the dedicated gate scripts plus the Docker smoke test on pushes and pull
+requests targeting \texttt{main}.
 
 \begin{table}[h]
 \centering\small
@@ -868,18 +887,18 @@ gates run in GitHub Actions CI on every push to \texttt{main}.
 \toprule
 \textbf{Gate} & \textbf{Enforced Invariant} \\
 \midrule
-\texttt{api\_contract\_gate}       & All 5 endpoints conform to PS schema \\
+\texttt{phase2\_regression}        & Propagator drift $< 0.061$\,km at 86{,}400\,s \\
+\texttt{phase2\_regression\_short} & Strict-adaptive stability at 1\,s / 120\,s horizon \\
 \texttt{broad\_phase\_validation}  & Shell filter $\supseteq$ brute-force baseline \\
 \texttt{narrow\_phase\_false\_neg.} & Zero missed collisions vs.\ RK4 reference \\
-\texttt{narrow\_phase\_calibration}& Screening thresholds within tolerance \\
-\texttt{phase2\_regression}        & Propagator drift $< 0.061$\,km at 86{,}400\,s \\
-\texttt{maneuver\_ops\_invariants} & Cooldown, fuel, thrust-cap enforcement \\
-\texttt{recovery\_planner\_inv.}   & CW/ZEM convergence, slot error $\leq 0.08$ \\
 \texttt{recovery\_slot\_gate}      & Deterministic slot recovery \\
+\texttt{recovery\_planner\_inv.}   & CW/ZEM convergence, slot error $\leq 0.08$ \\
+\texttt{maneuver\_ops\_invariants} & Cooldown, fuel, thrust-cap enforcement \\
+\texttt{api\_contract\_gate}       & PS-required API surface conforms to schema \\
 \bottomrule
 \end{tabularx}
-\caption{CTest safety gates.  Each gate is a binary verdict---pass or
-  fail---with no subjective interpretation.}
+\caption{Core safety gates exercised through CTest / CI.  Each gate is a
+  binary verdict---pass or fail---with no subjective interpretation.}
 \label{tab:gates}
 \end{table}
 
@@ -1070,20 +1089,24 @@ curl -s http://localhost:8000/api/status \
 
 \subsection{CI Pipeline}
 
-GitHub Actions enforces a four-stage gate on every push to \texttt{main}:
+GitHub Actions runs a build-and-gate workflow on every push to
+\texttt{main} and every pull request targeting \texttt{main}:
 
 \begin{enumerate}[nosep,leftmargin=*]
-  \item CMake configure + build (\texttt{gcc-12}, Release, \texttt{-O2})
-  \item CTest: all 8~safety gates with \texttt{--output-on-failure}
-  \item Frontend: \texttt{npm ci \&\& npm run build} (type-checked Vite
-    production bundle)
-  \item Docker API smoke gate (end-to-end container lifecycle test)
+  \item Install toolchain and configure CMake (\texttt{gcc-12}, Release,
+    \texttt{BUILD\_TESTING=ON})
+  \item Build submission targets and all core gate binaries
+  \item Run dedicated shell gate scripts for propagation, broad phase,
+    narrow phase, recovery, maneuver ops, and API-contract validation
+  \item Run the CTest safety suite with \texttt{--output-on-failure}
+  \item Run the Docker API smoke gate, which rebuilds the packaged image
+    and verifies backend plus bundled frontend startup
 \end{enumerate}
 
 \noindent
-A commit that fails any stage is rejected before it reaches the main
-branch, ensuring that every revision of CASCADE on \texttt{main} is a
-deployable, tested artifact.
+Any failure blocks the workflow, ensuring that revisions merged into
+\texttt{main} have already passed both source-level gate checks and the
+packaged-runtime smoke verification.
 
 %% ═══════════════════════════════════════════════════════════════════════════
 \section{Engineering Scope and Future Extensions}
@@ -1278,8 +1301,8 @@ Constellation Uptime & 15\% & 10\,km slot box, J2 slot propagation,
   recovery\_slot\_gate ($\leq 0.08$) \\
 Algorithmic Speed & 15\% & 13.3\,ms baseline tick, $O(N\log N)$
   broad phase, OpenMP narrow phase \\
-UI/UX \& Viz.  & 15\% & 6-page dashboard, ground track, bullseye,
-  Gantt timeline, 60\,FPS \\
+UI/UX \& Viz.  & 15\% & 6-page dashboard, shared tactical shell,
+  ground track, bullseye, Gantt timeline \\
 Code Quality    & 10\% & 8 CTest gates, CI enforcement, Docker smoke,
   env-override system, debug APIs \\
 \bottomrule
