@@ -4,7 +4,7 @@
 
 ### Collision Avoidance System for Constellation Automation, Detection & Evasion
 
-*National Space Hackathon 2026 · IIT Delhi*
+_National Space Hackathon 2026 · IIT Delhi_
 
 </div>
 
@@ -116,3 +116,7 @@ ctest --test-dir build --output-on-failure
 ## License
 
 See `LICENSE`.
+
+## Note ;)
+
+`Project BONK` was the original internal hackathon codename used while the backend, binary name, and environment-variable surface were still moving quickly. The project was later renamed to `CASCADE` because the final system is about chained collision response: detect a threat, evaluate it, avoid it, recover the slot, and keep the constellation operating through that whole cascade of decisions. Some legacy identifiers such as `ProjectBONK` still remain in the repo and runtime settings to preserve compatibility and avoid risky late-stage renames.
